@@ -1,0 +1,11 @@
+node_modules/
+package-lock.json
+archive/
+userscript/
+
+# Sync artifacts (probe dumps, sync state, unmatched-entry review log)
+.cache
+probe-output
+
+# env template has no parser
+.env.example

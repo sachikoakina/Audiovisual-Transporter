@@ -1,0 +1,57 @@
+{
+  "name": "douban-shelf-archivist",
+  "version": "0.1.0",
+  "description": "Archive Douban / NeoDB / Bangumi shelf marks, plus one-way NeoDB → TMDB sync",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "sync": "tsx src/index.ts",
+    "sync:bangumi-full": "tsx src/sync-bangumi-full.ts",
+    "sync:neodb-tmdb": "tsx src/sync-tmdb-only.ts",
+    "probe:neodb": "tsx scripts/probe-neodb-shelf.ts",
+    "verify:mapping": "tsx scripts/verify-tmdb-mapping.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "douban",
+    "neodb",
+    "tmdb",
+    "bangumi",
+    "notion",
+    "shelf",
+    "archive",
+    "sync",
+    "backup",
+    "rss"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.8",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.26.0",
+    "consola": "^3.4.2",
+    "dayjs": "^1.11.23",
+    "dotenv": "^18.0.0",
+    "fast-csv": "^5.0.7",
+    "got": "^16.0.0",
+    "jsdom": "^30.1.0",
+    "rss-parser": "^3.13.0",
+    "tough-cookie": "^6.0.2"
+  }
+}
