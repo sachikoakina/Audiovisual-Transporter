@@ -1,62 +1,110 @@
+/**
+ * Path ③ — Douban RSS → Bangumi.
+ * 链路③ —— 豆瓣 RSS → Bangumi。
+ *
+ * Subject resolution order (see `resolveBangumiSubjectId`): a Bangumi link already present on the
+ * NeoDB item → exact-title search → the feed title → one more search. Collection updates compare
+ * the three relevant fields first, so an unchanged item costs no write.
+ * 条目解析顺序（见 `resolveBangumiSubjectId`）：NeoDB 条目上已有的 Bangumi 外链 → 精确标题搜索
+ * → feed 标题 → 再搜一次。更新收藏前会先比较三个相关字段，因此未变化的条目不会产生写入。
+ *
+ * Already-set statuses that Douban RSS cannot express (搁置/抛弃) are preserved rather than
+ * overwritten. Calls are paced with `bangumiThrottle()`.
+ * 目标端已设为豆瓣 RSS 无法表达的状态（搁置/抛弃）时会予以保留，不被覆盖。调用之间用
+ * `bangumiThrottle()` 节流。
+ *
+ * A path that is switched on but cannot run reports `aborted` rather than returning silently, so a
+ * missing token (or an unresolvable username) cannot be misread as a successful no-op.
+ * 已启用但无法运行的链路会上报 `aborted`，而不是静默返回，因此缺少令牌（或用户名无法解析）
+ * 不会被误读成「跑过且无事」。
+ */
 import dotenv from 'dotenv';
 import { consola } from 'consola';
-import type { FeedItem } from './types';
-import { ItemCategory } from './types';
+import type { FeedItem, ItemSyncOutcome, NeodbItem, PathReport } from '../types';
+import { ItemCategory, newPathReport } from '../types';
 import {
   BANGUMI_STATUSES_ABSENT_FROM_DOUBAN,
   CATEGORY_TO_BANGUMI_TYPES,
   NEODB_TO_BANGUMI_COLLECTION,
-} from './const';
+} from '../rules/bangumi-neodb';
 import {
   extractBangumiIdFromNeodb,
   fetchNeodbItemByUrl,
-  type NeodbItem,
-} from './neodb';
+} from '../clients/neodb-catalog';
 import {
   bangumiPrivate,
   bangumiToken,
   bangumiThrottle,
-  doubanRatingToBangumi,
   getBangumiCollection,
   getBangumiMe,
   pickExactBangumiMatch,
   searchBangumiSubjects,
   upsertBangumiCollection,
-} from './bangumi';
-import { filterDoubanFeedsByCategory, syncConfig } from './sync-config';
+} from '../clients/bangumi';
+import { doubanStarsToTenPoint } from '../rules/douban';
+import { filterDoubanFeedsByCategory, syncConfig } from '../sync-config';
+import { printPathSummary } from '../sync-report';
 
 dotenv.config();
+
+const LABEL = 'Douban → Bangumi';
 
 /**
  * Sync Douban RSS feed items to Bangumi collections.
  * Matching: NeoDB external_resources first, then exact title search.
+ *
+ * 把豆瓣 RSS 条目同步到 Bangumi 收藏。
+ * 匹配顺序：先看 NeoDB 的 external_resources，再做精确标题搜索。
+ *
+ * @returns The path's report; `aborted` when the path could not run.
+ *   本条链路的报告；无法运行时 `aborted` 为真。
  */
-export default async function handleBangumi(feeds: FeedItem[]): Promise<void> {
+export default async function handleBangumi(feeds: FeedItem[]): Promise<PathReport> {
+  const report = newPathReport(LABEL);
+
   if (!bangumiToken) {
-    return;
+    consola.warn('Douban → Bangumi needs BANGUMI_ACCESS_TOKEN; skip.');
+    report.aborted = true;
+    printPathSummary(report);
+    return report;
   }
 
   const me = await getBangumiMe();
   if (!me?.username) {
     consola.error('Cannot resolve Bangumi username; skip Douban → Bangumi');
-    return;
+    report.aborted = true;
+    printPathSummary(report);
+    return report;
   }
 
   const filtered = filterDoubanFeedsByCategory(
     feeds,
     syncConfig.doubanBangumiCategories,
-    'Douban → Bangumi',
+    LABEL,
   );
+  report.scanned = feeds.length;
+  report.skipped = feeds.length - filtered.length;
 
   consola.start('Going to sync Douban → Bangumi...');
   for (const item of filtered) {
-    await syncFeedItemToBangumi(item, me.username);
+    const outcome = await syncFeedItemToBangumi(item, me.username);
+    report[outcome] += 1;
     await bangumiThrottle();
   }
   consola.success('Bangumi synced ✨');
+
+  printPathSummary(report);
+  return report;
 }
 
-async function syncFeedItemToBangumi(item: FeedItem, username: string): Promise<void> {
+/**
+ * @returns The `ItemSyncOutcome` for this single item, so the caller's report adds up.
+ *   该单条条目的 `ItemSyncOutcome`，使调用方的报告自洽。
+ */
+async function syncFeedItemToBangumi(
+  item: FeedItem,
+  username: string,
+): Promise<ItemSyncOutcome> {
   const label = `${item.title || item.id}[${item.link}]`;
   consola.info('Douban → Bangumi: ', label);
 
@@ -65,11 +113,11 @@ async function syncFeedItemToBangumi(item: FeedItem, username: string): Promise<
 
   if (!subjectId) {
     consola.warn('No Bangumi match, skip: ', label);
-    return;
+    return 'unresolved';
   }
 
   const desiredType = NEODB_TO_BANGUMI_COLLECTION[item.status];
-  const desiredRate = doubanRatingToBangumi(item.rating);
+  const desiredRate = doubanStarsToTenPoint(item.rating);
   const desiredComment = item.comment || '';
 
   const existing = await getBangumiCollection(username, subjectId);
@@ -78,7 +126,7 @@ async function syncFeedItemToBangumi(item: FeedItem, username: string): Promise<
       'Bangumi has Douban-absent status (搁置/抛弃), skip overwrite: ',
       `subject/${subjectId} type=${existing.type}`,
     );
-    return;
+    return 'skipped';
   }
 
   if (
@@ -88,7 +136,7 @@ async function syncFeedItemToBangumi(item: FeedItem, username: string): Promise<
     (existing.comment || '') === desiredComment
   ) {
     consola.info('Bangumi collection unchanged, skip: ', `subject/${subjectId}`);
-    return;
+    return 'unchanged';
   }
 
   consola.info(
@@ -96,12 +144,13 @@ async function syncFeedItemToBangumi(item: FeedItem, username: string): Promise<
     `subject/${subjectId}`,
   );
 
-  await upsertBangumiCollection(subjectId, {
+  const ok = await upsertBangumiCollection(subjectId, {
     type: desiredType,
     rate: desiredRate,
     comment: desiredComment,
     private: bangumiPrivate,
   });
+  return ok ? 'written' : 'failed';
 }
 
 async function resolveBangumiSubjectId(

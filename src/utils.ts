@@ -1,160 +1,85 @@
+/**
+ * Shared utilities — process-level helpers, incremental sync state, and the review log.
+ * 通用工具 —— 进程级辅助函数、增量同步状态、以及留档日志。
+ *
+ * Deliberately narrow: this file holds only things that are not specific to any single
+ * platform. Notion vocabulary moved to `clients/notion.ts`, and the Notion data-source id
+ * lookup moved to `sync-config.ts` (where the rest of the env reading lives), which also
+ * removed the last `cols.json` dependency from this file.
+ * 刻意保持窄口径：本文件只放与任何单一平台无关的东西。Notion 词汇已移至
+ * `clients/notion.ts`，Notion data source id 的查找已移至 `sync-config.ts`（其余读取
+ * 环境变量的地方），这也顺带移除了本文件对 `cols.json` 的最后依赖。
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import { consola } from 'consola';
-import DB_PROPERTIES from '../cols.json';
-import {
-  ItemCategory,
-  NotionPropTypesEnum,
-  type NeodbShelfMark,
-  type NotionRichTextPropType,
-  type NotionTitlePropType,
-  type NotionFilesPropType,
-  type NotionDatePropType,
-  type NotionMultiSelectPropType,
-  type NotionNumberPropType,
-  type NotionUrlPropType,
-  type NotionColPropTypes,
-} from './types';
+import { type NeodbShelfMark } from './types';
 
 dotenv.config();
 
 /**
- * Retrieves the data source ID for the given category.
+ * Delay execution for a number of milliseconds.
+ * 延迟指定毫秒数。
  *
- * @param {ItemCategory} category - The category of the item.
- * @returns {string} The corresponding database ID.
- */
-export function getDataSourceId(category: ItemCategory): string {
-  const databasesMap = {
-    [ItemCategory.Movie]: process.env.NOTION_MOVIE_DATABASE_ID,
-    [ItemCategory.Music]: process.env.NOTION_MUSIC_DATABASE_ID,
-    [ItemCategory.Book]: process.env.NOTION_BOOK_DATABASE_ID,
-    [ItemCategory.Game]: process.env.NOTION_GAME_DATABASE_ID,
-    [ItemCategory.Drama]: process.env.NOTION_DRAMA_DATABASE_ID,
-  };
-  return databasesMap[category] as string;
-}
-
-/**
- * Delays the execution of a function by a specified number of milliseconds.
- *
- * @param {number} ms - The number of milliseconds to sleep
- * @return {Promise<void>} A Promise that resolves after the specified number of milliseconds
+ * @param ms - Milliseconds to sleep. 需要等待的毫秒数。
+ * @returns A promise that resolves after the delay. 延迟结束后 resolve 的 Promise。
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Generates the value for a property based on the given parameters, ready to insert
- * into notion database.
- *
- * @param {any} value - the value to be processed
- * @param {NotionPropTypesEnum} type - the type of the Notion database property
- * @param {string} key - the key associated with the property
- * @return {any} the generated value for the property later will be sent to notion to create an item
- */
-export function buildPropertyValue(
-  value: any,
-  type: NotionPropTypesEnum,
-  key: string,
-): NotionColPropTypes | undefined {
-  switch (type) {
-    case NotionPropTypesEnum.TITLE:
-      return {
-        type: NotionPropTypesEnum.TITLE,
-        title: [
-          {
-            text: {
-              content: value,
-            },
-          },
-        ],
-      } as NotionTitlePropType;
-    case NotionPropTypesEnum.FILES:
-      return {
-        type: NotionPropTypesEnum.FILES,
-        files: [
-          {
-            name: value,
-            type: 'external',
-            external: {
-              url: value,
-            },
-          },
-        ],
-      } as NotionFilesPropType;
-    case NotionPropTypesEnum.DATE:
-      return {
-        type: NotionPropTypesEnum.DATE,
-        date: {
-          start: value,
-        },
-      } as NotionDatePropType;
-    case NotionPropTypesEnum.MULTI_SELECT:
-      return key === DB_PROPERTIES.RATING
-        ? ({
-            type: NotionPropTypesEnum.MULTI_SELECT,
-            multi_select: value ? [{ name: value.toString() }] : [],
-          } as NotionMultiSelectPropType)
-        : ({
-            type: NotionPropTypesEnum.MULTI_SELECT,
-            multi_select: (value || []).map((g: string) => ({ name: g })),
-          } as NotionMultiSelectPropType);
-    case NotionPropTypesEnum.RICH_TEXT:
-      return {
-        type: NotionPropTypesEnum.RICH_TEXT,
-        rich_text: [
-          {
-            type: 'text',
-            text: {
-              content: value || '',
-            },
-          },
-        ],
-      } as NotionRichTextPropType;
-    case NotionPropTypesEnum.NUMBER:
-      return {
-        type: NotionPropTypesEnum.NUMBER,
-        number: value ? Number(value) : null,
-      } as NotionNumberPropType;
-    case NotionPropTypesEnum.URL:
-      return {
-        type: NotionPropTypesEnum.URL,
-        url: value,
-      } as NotionUrlPropType;
-    default:
-      break;
-  }
-}
-
 // ───────────────────────────────────────────────────────────────────────────
 // NeoDB → TMDB path: incremental sync state
+// NeoDB → TMDB 链路：增量同步状态
 //
 // Records a content fingerprint per (shelf, item) so an unchanged mark costs
 // zero TMDB requests on later runs. Kept as a plain JSON file so it is easy to
 // inspect and delete.
+// 为每个 (书架, 条目) 记录内容指纹，使得未变化的标记在后续运行中不产生任何 TMDB 请求。
+// 以纯 JSON 文件保存，便于人工查看与删除。
 // ───────────────────────────────────────────────────────────────────────────
 
 export type StateEntry = {
-  /** Content fingerprint: changes whenever the mark changes. */
+  /** Content fingerprint: changes whenever the mark changes. / 内容指纹：标记一变就变。 */
   fp: string;
-  /** When this entry was last written, for pruning. */
+  /** When this entry was last written, for pruning. / 该条目最近一次写入的时间，用于裁剪。 */
   at: string;
 };
 
 export type SyncState = {
   version: number;
   updatedAt: string;
-  /** key = `${shelfType}:${itemUuid}` */
+  /** key = `${shelfType}:${itemUuid}` / 键格式：`${shelfType}:${itemUuid}` */
   synced: Record<string, StateEntry>;
 };
 
 const STATE_VERSION = 1;
-/** Keep the state file bounded; oldest entries are dropped first. */
+/** Keep the state file bounded; oldest entries are dropped first. / 限制状态文件大小，优先丢弃最旧的条目。 */
 const MAX_STATE_ENTRIES = 20000;
+
+/**
+ * Write JSON via a temp file in the same directory, then rename over the target.
+ * 先写入同目录下的临时文件，再改名覆盖目标文件。
+ *
+ * `rename` within one filesystem is atomic, so a crash (or a killed CI job) leaves either the old
+ * file or the new one — never a half-written file. A plain `writeFileSync` truncates first, so the
+ * failure mode it allows is a truncated JSON file that the next run reads as "no state", which
+ * silently re-syncs everything.
+ * 同一文件系统内的 `rename` 是原子的，因此崩溃（或被杀掉的 CI 任务）只会留下旧文件或新文件，
+ * 绝不会留下写了一半的文件。而 `writeFileSync` 会先截断，它允许的失败形态是一个被截断的 JSON
+ * 文件，下一次运行会把它读成「没有状态」，于是静默地重新同步所有内容。
+ */
+function writeJsonAtomic(file: string, value: unknown): void {
+  const dir = path.dirname(path.resolve(file));
+  fs.mkdirSync(dir, { recursive: true });
+  // Same directory as the target, so the rename cannot cross a filesystem boundary.
+  // 与目标同目录，确保 rename 不会跨文件系统。
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, file);
+}
 
 export function emptyState(): SyncState {
   return { version: STATE_VERSION, updatedAt: new Date().toISOString(), synced: {} };
@@ -187,8 +112,7 @@ export function writeState(file: string, state: SyncState): void {
   try {
     const pruned = pruneState(state);
     pruned.updatedAt = new Date().toISOString();
-    fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-    fs.writeFileSync(file, `${JSON.stringify(pruned, null, 2)}\n`, 'utf8');
+    writeJsonAtomic(file, pruned);
   } catch (error: any) {
     consola.error(`Could not write state file ${file}: ${error?.message ?? error}`);
   }
@@ -214,6 +138,7 @@ function pruneState(state: SyncState): SyncState {
   return { ...state, synced };
 }
 
+/** Build the state key for one shelf item. / 生成一个书架条目在状态文件里的键。 */
 export function stateKey(shelfType: string, itemUuid: string): string {
   return `${shelfType}:${itemUuid}`;
 }
@@ -221,6 +146,7 @@ export function stateKey(shelfType: string, itemUuid: string): string {
 /**
  * Content fingerprint of a mark. Only the fields this sync actually pushes are
  * included, so an unrelated field change does not force a re-sync.
+ * 标记的内容指纹。只纳入本同步真正会推送的字段，因此无关字段的变化不会触发重新同步。
  */
 export function fingerprintMark(mark: NeodbShelfMark): string {
   const payload = [
@@ -231,15 +157,15 @@ export function fingerprintMark(mark: NeodbShelfMark): string {
   return crypto.createHash('sha1').update(payload).digest('hex').slice(0, 16);
 }
 
-/** Fields every entry carries. Path-specific fields are added on top. */
+/** Fields every entry carries. Path-specific fields are added on top. / 每条记录都有的字段，各链路再在其上追加自己的字段。 */
 export type ReviewLogEntry = Record<string, unknown> & {
-  /** Which path wrote it, e.g. `bangumi→neodb` / `neodb→tmdb`. */
+  /** Which path wrote it, e.g. `bangumi→neodb` / `neodb→tmdb`. / 由哪条链路写入，如 `bangumi→neodb` / `neodb→tmdb`。 */
   source: string;
-  /** Why it could not be processed, e.g. `neodb-unresolved`. */
+  /** Why it could not be processed, e.g. `neodb-unresolved`. / 未能处理的原因，如 `neodb-unresolved`。 */
   reason: string;
-  /** ISO timestamp of the first run that reported this entry. */
+  /** ISO timestamp of the first run that reported this entry. / 首次报告该条目的运行时间（ISO）。 */
   firstSeenAt: string;
-  /** ISO timestamp of the most recent run that still reported it. */
+  /** ISO timestamp of the most recent run that still reported it. / 最近一次仍报告该条目的运行时间（ISO）。 */
   lastSeenAt: string;
 };
 
@@ -247,30 +173,53 @@ export type ReviewLogEntry = Record<string, unknown> & {
  * Identity of an entry: which path, and which item on that path.
  * Both writers always supply one of these ids, so the title fallback only
  * matters for hand-edited files.
+ * 一条记录的身份：哪条链路 + 该链路上的哪个条目。两个写入方总会提供其中一个 id，
+ * 因此按标题兜底只对人工编辑过的文件有意义。
  */
 function reviewKey(entry: Record<string, unknown>): string {
   const id = entry.externalId ?? entry.uuid ?? entry.title ?? '';
   return `${String(entry.source ?? '')}::${String(id)}`;
 }
 
+/**
+ * In-process cache of the parsed review log, keyed by file path.
+ * 进程内留档日志的解析结果缓存，以文件路径为键。
+ *
+ * Without it, `upsertReviewEntry` re-read and re-wrote the entire JSON array once per unresolved
+ * item — O(n²) disk work on a run that leaves hundreds of entries. Only this process writes the
+ * file during a run, so the cache cannot go stale in a way that matters.
+ * 没有它时，`upsertReviewEntry` 会为每一条未解决条目重新读取并整体重写一遍 JSON 数组 ——
+ * 在留下数百条记录的运行里是 O(n²) 的磁盘开销。一次运行中只有本进程会写这个文件，因此缓存
+ * 不会以任何有意义的方式过期。
+ */
+const reviewLogCache = new Map<string, ReviewLogEntry[]>();
+
 function readReviewLog(file: string): ReviewLogEntry[] {
+  const cached = reviewLogCache.get(file);
+  if (cached) {
+    return cached;
+  }
+  let entries: ReviewLogEntry[];
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.filter(
-      (item) => typeof item === 'object' && item !== null,
-    ) as ReviewLogEntry[];
+    entries = Array.isArray(parsed)
+      ? (parsed.filter(
+          (item) => typeof item === 'object' && item !== null,
+        ) as ReviewLogEntry[])
+      : [];
   } catch {
     // Missing on the first run, or hand-edited into invalid JSON — start over.
-    return [];
+    // 首次运行时文件不存在，或被人改成非法 JSON —— 从零开始。
+    entries = [];
   }
+  reviewLogCache.set(file, entries);
+  return entries;
 }
 
 /**
  * Record an entry that could not be processed, keyed so re-running does not
  * duplicate it. Best effort: never throws.
+ * 记录一条无法处理的条目，按 key 去重，使重复运行不会产生重复记录。尽力而为：从不抛错。
  *
  * This is an upsert rather than an append on purpose. The same few obscure
  * items fail on every run, so appending would grow the file without bound
@@ -279,6 +228,11 @@ function readReviewLog(file: string): ReviewLogEntry[] {
  * produced two identical records with no way to say which was newer.
  * Re-recording refreshes `lastSeenAt` and leaves `firstSeenAt` alone, which is
  * what separates a long-standing gap from a newly appeared one.
+ *
+ * 刻意做成 upsert 而不是 append。每次运行都只有同样那几个冷门条目失败，若追加写入，
+ * 文件会无界增长却提供不了新信息；而且由于记录不带时间戳，它表面上保留的「历史」连
+ * 先后都无法判断：两次运行会产出两条完全相同的记录，无从分辨哪条更新。重新记录只刷新
+ * `lastSeenAt`、保留 `firstSeenAt`，这正是区分「长期缺口」与「新出现问题」的依据。
  */
 export function upsertReviewEntry(
   file: string,
@@ -290,6 +244,9 @@ export function upsertReviewEntry(
   }
   try {
     const key = reviewKey(entry);
+    // The cached array is mutated in place and shared, so the callers see the update without
+    // another read. See `reviewLogCache`.
+    // 缓存的数组被就地修改并共享，因此调用方无需再读一次就能看到更新。见 `reviewLogCache`。
     const existing = readReviewLog(file);
     const index = existing.findIndex((item) => reviewKey(item) === key);
 
@@ -298,6 +255,7 @@ export function upsertReviewEntry(
       existing[index] = {
         ...entry,
         // Keep the original sighting; only the trailing edge moves.
+        // 保留首次出现时间，只推进最近一次。
         firstSeenAt: previous.firstSeenAt ?? now,
         lastSeenAt: now,
       } as ReviewLogEntry;
@@ -305,8 +263,7 @@ export function upsertReviewEntry(
       existing.push({ ...entry, firstSeenAt: now, lastSeenAt: now } as ReviewLogEntry);
     }
 
-    fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-    fs.writeFileSync(file, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
+    writeJsonAtomic(file, existing);
   } catch (error: any) {
     consola.warn(`Could not update review log ${file}: ${error?.message ?? error}`);
   }

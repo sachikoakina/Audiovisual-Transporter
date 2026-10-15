@@ -1,14 +1,38 @@
+/**
+ * Total entry point — runs whichever paths the environment enables, then prints one summary.
+ * 总入口 —— 按环境变量启用的链路依次执行，最后打印一份汇总。
+ *
+ * Path order and failure policy, as actually implemented:
+ *   1. Douban RSS is fetched ONCE and shared by the three Douban paths.
+ *   2. A failure anywhere in those three is caught here and logged, then the run CONTINUES —
+ *      so a Douban outage still lets Bangumi→NeoDB and NeoDB→TMDB do their work.
+ *   3. Bangumi→NeoDB runs next, then NeoDB→TMDB.
+ *   4. `printOverallSummary` runs before the exit code is set, so the summary always survives.
+ *   5. No path calls `process.exit()` any more, and all 5 paths return a `PathReport`. A path that
+ *      is enabled but cannot run (missing credentials, unresolvable identity) reports `aborted`,
+ *      which fails the run on purpose — an enabled path with no credentials is a misconfiguration.
+ *
+ * 链路的执行顺序与失败策略（按实际实现）：
+ *   1. 豆瓣 RSS 只抓取一次，由三条豆瓣链路共用。
+ *   2. 这三条链路中的任何失败都在此处捕获并记录，然后**继续执行** —— 因此豆瓣侧故障时
+ *      Bangumi→NeoDB 与 NeoDB→TMDB 仍能完成工作。
+ *   3. 之后执行 Bangumi→NeoDB，最后执行 NeoDB→TMDB。
+ *   4. `printOverallSummary` 在确定退出码之前调用，因此汇总总能打印出来。
+ *   5. 已无任何链路调用 `process.exit()`，且 5 条链路都返回 `PathReport`。已启用但无法运行的
+ *      链路会上报 `aborted`，并**刻意**让整轮失败 —— 启用了链路却没有凭据属于配置错误。
+ */
 import { consola } from 'consola';
-import { fetchRSSFeeds, handleRSSFeeds } from './handle-rss';
-import handleNotion from './handle-notion';
-import handleNeodb from './handle-neodb';
-import handleBangumi from './handle-bangumi';
-import handleBangumiToNeodb from './handle-bangumi-neodb';
-import runNeodbToTmdb from './handle-neodb-tmdb';
+import { fetchRSSFeeds, handleRSSFeeds } from './clients/douban-rss';
+import handleNotion from './paths/douban-to-notion';
+import handleNeodb from './paths/douban-to-neodb';
+import handleBangumi from './paths/douban-to-bangumi';
+import handleBangumiToNeodb from './paths/bangumi-to-neodb';
+import runNeodbToTmdb from './paths/neodb-to-tmdb';
 import { ItemStatus, newPathReport, pathHasFailed, type PathReport } from './types';
 import {
   describeNeodbTmdbConfig,
   describeSyncConfig,
+  envEnabled,
   needsDoubanRss,
   neodbTmdbConfig,
   syncConfig,
@@ -18,7 +42,15 @@ import { printOverallSummary } from './sync-report';
 async function main(): Promise<void> {
   consola.info('Sync paths: ', describeSyncConfig());
 
-  /** Paths that report their own counters, folded into the closing summary. */
+  /**
+   * Paths that report their own counters, folded into the closing summary.
+   *
+   * All 5 paths produce a `PathReport`. A path that is enabled but cannot run comes back with
+   * `aborted`, so it still appears — as a failure, which is the point.
+   *
+   * 会自带计数、并被并入收尾汇总的链路。5 条链路都会产出 `PathReport`。已启用但无法运行的链路
+   * 会带 `aborted` 返回，因此它依然出现 —— 作为失败出现，这正是目的。
+   */
   const reports: PathReport[] = [];
   let doubanFailed = false;
 
@@ -34,15 +66,18 @@ async function main(): Promise<void> {
         );
 
         if (syncConfig.doubanNotion && completeFeeds.length) {
-          await handleNotion(completeFeeds);
+          reports.push(await handleNotion(completeFeeds));
         }
 
+        // Both paths always return a report; when they cannot run they report `aborted`, which
+        // `pathHasFailed` turns into a non-zero exit code.
+        // 两条链路始终返回报告；无法运行时报告 `aborted`，由 `pathHasFailed` 折算为非零退出码。
         if (syncConfig.doubanNeodb) {
-          await handleNeodb(normalizedFeeds);
+          reports.push(await handleNeodb(normalizedFeeds));
         }
 
         if (syncConfig.doubanBangumi) {
-          await handleBangumi(normalizedFeeds);
+          reports.push(await handleBangumi(normalizedFeeds));
         }
       }
     } catch (error) {
@@ -57,7 +92,12 @@ async function main(): Promise<void> {
   }
 
   if (syncConfig.bangumiNeodb) {
-    const fullSync = process.env.BANGUMI_FULL_SYNC === '1';
+    // Read through `envEnabled` like every other switch, so `'true'` / `'yes'` / `'on'` work too.
+    // Previously this compared against the literal `'1'`, which made BANGUMI_FULL_SYNC=1 the only
+    // accepted spelling and quietly ignored the others.
+    // 与其他所有开关一样走 `envEnabled`，因此 `'true'` / `'yes'` / `'on'` 同样生效。原先这里是
+    // 与字面量 `'1'` 比较，导致只有 `BANGUMI_FULL_SYNC=1` 这一种写法有效，其余写法被静默忽略。
+    const fullSync = envEnabled('BANGUMI_FULL_SYNC', false);
     reports.push(await handleBangumiToNeodb(fullSync));
   }
 

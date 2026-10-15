@@ -1,0 +1,33 @@
+<!doctype html>
+<!--
+  Synthetic fixture for `buildGameItem`. NOT captured. See movie.html.
+  Uses the NEWER `thing-attr` container, so it exercises the fallback (`.game-attr` absent).
+  为 `buildGameItem` 手工构造的 fixture。非抓取。说明见 movie.html。
+  使用**较新的** `thing-attr` 容器，因此它覆盖的是「`.game-attr` 不存在时回退」这一分支。
+-->
+<html>
+  <body>
+    <div id="wrapper">
+      <div id="content">
+        <h1>塞尔达传说 旷野之息</h1>
+        <div class="item-subject-info">
+          <div class="pic">
+            <img
+              src="https://img1.doubanio.com/view/subject/l/public/s1111111.jpg"
+              title="塞尔达传说 旷野之息"
+              alt="塞尔达"
+            />
+          </div>
+        </div>
+        <div class="thing-attr">
+          <dl>
+            <dt>类型</dt>
+            <dd><a>动作</a> / <a>冒险</a></dd>
+            <dt>发行日期</dt>
+            <dd>2017-03-03</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

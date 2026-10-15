@@ -1,17 +1,30 @@
+/**
+ * Bangumi client — api.bgm.tv v0 endpoints used by the Douban→Bangumi and Bangumi→NeoDB paths.
+ * Bangumi 客户端 —— 豆瓣→Bangumi 与 Bangumi→NeoDB 两条链路用到的 api.bgm.tv v0 端点。
+ *
+ * Scale conversion is NOT here: Douban's 1–5 stars → 0–10 lives in `rules/douban.ts`
+ * (`doubanStarsToTenPoint`), because it is a fact about Douban's scale, not about Bangumi.
+ * 分制换算**不在**这里：豆瓣 1–5 星 → 0–10 分位于 `rules/douban.ts`
+ * （`doubanStarsToTenPoint`），因为那是豆瓣分制的事实，而不是 Bangumi 的。
+ */
 import dotenv from 'dotenv';
 import got, { HTTPError } from 'got';
 import { consola } from 'consola';
-import type { BangumiCollectionType, BangumiSubjectType } from './types';
-import { sleep } from './utils';
+import type { BangumiCollectionType, BangumiSubjectType } from '../types';
+import { sleep } from '../utils';
 
 dotenv.config();
 
+/** `BANGUMI_ACCESS_TOKEN`. `undefined` disables every authenticated call. / `BANGUMI_ACCESS_TOKEN`；为 `undefined` 时所有需鉴权的调用都会被跳过。 */
 export const bangumiToken = process.env.BANGUMI_ACCESS_TOKEN;
+/** `BANGUMI_PRIVATE=true` makes new collections private. / `BANGUMI_PRIVATE=true` 时新建收藏为私密。 */
 export const bangumiPrivate = process.env.BANGUMI_PRIVATE === 'true';
+/** Page size for collection listing, clamped to Bangumi's accepted maximum of 50. / 收藏列表的分页大小，被约束在 Bangumi 接受的 50 以内。 */
 export const bangumiCollectionLimit = Math.min(
   Math.max(Number(process.env.BANGUMI_COLLECTION_LIMIT ?? 50), 1),
   50,
 );
+/** Bangumi requires a descriptive UA. / Bangumi 要求带一个可识别的 UA。 */
 export const bangumiUserAgent =
   process.env.BANGUMI_USER_AGENT ||
   'douban-backup/1.0 (https://github.com/bambooom/douban-backup)';
@@ -220,12 +233,25 @@ export function pickExactBangumiMatch(
   );
 }
 
+/**
+ * List a user's collections, one page at a time.
+ * 分页列出某个用户的收藏。
+ *
+ * A failed request (401, network, rate limit) returns **`null`**, not an empty page. Returning
+ * `{ total: 0, data: [] }` — as this used to — made a failure indistinguishable from "this user has
+ * no more collections", so a full sync could stop early and report success.
+ * 请求失败（401、网络问题、限流）时返回 **`null`**，而不是空页。原先返回
+ * `{ total: 0, data: [] }` 会让失败与「该用户没有更多收藏了」无法区分，于是全量同步可能提前
+ * 停止并报告成功。
+ *
+ * @returns The page, or `null` on failure. 该页；失败时为 `null`。
+ */
 export async function listBangumiCollections(options: {
   username: string;
   limit?: number;
   offset?: number;
   subjectType?: BangumiSubjectType;
-}): Promise<{ total: number; data: BangumiCollection[] }> {
+}): Promise<{ total: number; data: BangumiCollection[] } | null> {
   const limit = options.limit ?? bangumiCollectionLimit;
   try {
     const searchParams: Record<string, string | number> = {
@@ -246,25 +272,16 @@ export async function listBangumiCollections(options: {
     } else {
       consola.error('Failed to list Bangumi collections: ', error);
     }
-    return { total: 0, data: [] };
+    return null;
   }
 }
 
+/** Canonical subject URL for a Bangumi subject id. / 由 Bangumi subject id 得到规范的条目 URL。 */
 export function bangumiSubjectUrl(subjectId: number): string {
   return `https://bgm.tv/subject/${subjectId}`;
 }
 
-/** Small delay between Bangumi API calls to avoid rate limits. */
+/** Small delay between Bangumi API calls to avoid rate limits. / Bangumi API 调用之间的固定小延迟，用于规避限流。 */
 export async function bangumiThrottle(): Promise<void> {
   await sleep(400);
-}
-
-/**
- * Convert Douban 1–5 star rating to Bangumi 0–10 rate.
- */
-export function doubanRatingToBangumi(rating: number | null | undefined): number {
-  if (!rating) {
-    return 0;
-  }
-  return rating * 2;
 }

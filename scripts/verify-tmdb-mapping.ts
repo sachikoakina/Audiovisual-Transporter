@@ -3,6 +3,13 @@
  * No network, no framework — run with the tsx already in devDependencies.
  *
  * USAGE: npm run verify:mapping
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * 离线验证映射表与写入计划器。
+ * 不需要网络、不引入测试框架 —— 直接用 devDependencies 里已有的 tsx 运行。
+ *
+ * 用法：npm run verify:mapping
  */
 
 import {
@@ -11,9 +18,9 @@ import {
   extractTmdbTargetFromNeodb,
   neodbGradeToTmdbRating,
   toShelfType,
-} from '../src/const';
-import { resolveTmdbOperations } from '../src/tmdb-mapping';
-import { planTmdbWrites } from '../src/tmdb-merge';
+} from '../src/rules/tmdb-mapping';
+import { resolveTmdbOperations } from '../src/rules/tmdb-mapping';
+import { planTmdbWrites } from '../src/rules/tmdb-write-plan';
 import type { NeodbItem, TmdbAccountStates } from '../src/types';
 
 let passed = 0;

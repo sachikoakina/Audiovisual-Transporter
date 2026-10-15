@@ -93,7 +93,9 @@
 
 **匹配原则**：优先使用平台之间已有的 ID 链接（零猜测），其次才做标题精确匹配。**宁可漏配，不可错配**——匹配不到就跳过并记录，绝不写到"看起来最像"的条目上。
 
-**异常隔离**：单条失败不中断整批。豆瓣链路整体失败也不影响 Bangumi 链路。
+**异常隔离**：单条失败不中断整批；豆瓣链路整体失败也不会挡住后面的 Bangumi → NeoDB。**全仓已无任何 `process.exit()`**——失败一律记在 `PathReport` 上，最后统一折算成退出码。
+
+> ⚠️ **"启用了但跑不了"会算失败。** 若某条链路的开关是开的、但缺少它需要的凭据（例如 `SYNC_DOUBAN_NEODB=1` 却没有 `NEODB_API_TOKEN`），该链路会报告 `aborted` 并让整轮以退出码 1 结束，同时在汇总里显示 `FAILED`。这是刻意的：过去它是静默 no-op，日志看起来和"跑过且无事可做"一模一样。若你确实只想跑部分链路，请把其余开关显式设为 `0`。
 
 **类别过滤**：每条链路都能配类别白名单。填了值却**无可识别类别**时，该链路会拒绝同步任何条目（fail-closed），避免拼写错误演变成意外全量写入。
 
@@ -476,7 +478,7 @@ TMDB 只能写两个端点：rating 和 watchlist。
 
 > 一个例外：漫画检查。当白名单只含 `manga` 不含 `book` 时，需要额外调 `GET /v0/subjects/{id}` 判断 `platform` 是否为「漫画」，非漫画的书籍跳过——这是**逐条**请求，所以该模式下会显著变慢。
 
-**开启全量后是否覆盖全部收藏**：是。`fullSync` 时的循环会以 `offset += page.data.length` 持续翻页，直到 `offset >= page.total` 或 API 返回空页（见 `handle-bangumi-neodb.ts` 第 79–107 行）。也就是把该 `subject_type` 下的**全部收藏条目**都走一遍。
+**开启全量后是否覆盖全部收藏**：是。`fullSync` 时的循环会以 `offset += page.data.length` 持续翻页，直到 `offset >= page.total` 或 API 返回空页（见 `src/paths/bangumi-to-neodb.ts` 的分页循环，第 156–210 行）。也就是把该 `subject_type` 下的**全部收藏条目**都走一遍。
 
 但有两点需要注意：
 
@@ -840,28 +842,34 @@ NOTION_BOOK_DATABASE_ID  NOTION_GAME_DATABASE_ID  NOTION_DRAMA_DATABASE_ID
 
 ## 与上游同步
 
-本仓库**独立初始化**，与 `viazure/douban-backup` **没有共同 git 历史**——所以 `git merge` / `rebase` / `pull upstream` 都不可用：缺少共同基线，几乎所有共享文件都会被判为冲突。把上游当作**只读参考源**，按需手动搬运即可：
+本仓库**独立初始化**，与 `viazure/douban-backup` **没有共同 git 历史**——所以 `git merge` / `rebase` / `pull upstream` 都不可用：缺少共同基线，几乎所有共享文件都会被判为冲突。把上游当作**只读参考源**，按需手动搬运即可。
+
+> 本仓库**只配置了 `origin`**，并没有 `upstream` 远端。因此下面三条命令在首次使用前需要先补上远端（`upstream` 的 fetch 地址设为不可写是刻意的，防止误推）：
 
 ```bash
+# 一次性：登记只读上游（尚未配置，故 fetch/diff/checkout 在此之前都会失败）
+git remote add upstream https://github.com/viazure/douban-backup.git
+git remote set-url --push upstream DISABLED_READ_ONLY
+
 git fetch upstream                              # 只读，安全
-git diff --stat <基线>..upstream/main           # 看影响了哪些文件
+git diff --stat origin/main..upstream/main      # 看上游都改了什么
 git checkout upstream/main -- <file>            # 未改动过的文件直接取
 npm run typecheck && npm run verify:mapping     # 必须验证
 ```
 
-`upstream` 的 push 地址已设为 `DISABLED_READ_ONLY`，防止误推。当前基线：`dbfef37`。
+> ⚠️ 由于本项目已做过**文件名与目录重构**（`handle-*.ts` → `clients/` `rules/` `paths/`），上表的旧路径已经对不上：从上游搬运时**不要**直接 `git checkout` 到旧路径，否则会在 `src/` 根目录重新长出一批已被取代的文件。按功能对应到新文件后再合并。
 
 ### 文件分类（决定搬运方式）
 
-| 类别       | 文件                                                                                                                     | 处理         |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| 与上游一致 | `bangumi.ts` `handle-rss` `handle-neodb` `handle-notion` `handle-douban` `handle-bangumi` `neodb-merge`                  | 可直接覆盖   |
-| 已追加修改 | `const.ts` `types.ts` `utils.ts` `sync-config.ts` `neodb.ts` `index.ts` `handle-bangumi-neodb.ts` `sync-bangumi-full.ts` | 手工合并     |
-| 本项目独有 | `tmdb-mapping.ts` `handle-neodb-tmdb.ts` `tmdb.ts` `tmdb-merge.ts` `sync-tmdb-only.ts` `sync-report.ts` `docs/`          | 不受同步影响 |
+| 类别       | 文件（当前路径）                                                                                                                                                                                                                                                | 处理         |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| 与上游一致 | `clients/bangumi.ts` `clients/douban-rss.ts` `paths/douban-to-neodb.ts` `paths/douban-to-notion.ts` `paths/douban-to-bangumi.ts` `rules/neodb-mark-merge.ts`                                                                                                    | 可直接覆盖   |
+| 已追加修改 | `types.ts` `utils.ts` `sync-config.ts` `index.ts` `clients/neodb-http.ts` `clients/neodb-catalog.ts` `clients/neodb-shelf.ts` `paths/bangumi-to-neodb.ts` `bangumi-to-neodb-full-cli.ts` `rules/douban.ts` `rules/bangumi-neodb.ts`                             | 手工合并     |
+| 本项目独有 | `rules/tmdb-mapping.ts` `rules/tmdb-matching.ts` `rules/tmdb-write-plan.ts` `paths/neodb-to-tmdb.ts` `clients/tmdb.ts` `clients/notion.ts` `clients/douban-subject-page.ts` `clients/douban-subject-parsers.ts` `neodb-to-tmdb-cli.ts` `sync-report.ts` `docs/` | 不受同步影响 |
 
 > 比较文件时**务必用 `diff --ignore-all-space`**：本项目经 prettier 格式化，上游未格式化，直接 diff 会把折行差异误报成大面积冲突。
 >
-> `handle-bangumi-neodb.ts` 起初只与上游有格式化差异，加入未解析条目留档后已属「已追加修改」；`sync-bangumi-full.ts` 同理（改为消费汇总报告）。
+> `paths/bangumi-to-neodb.ts` 起初只与上游有格式化差异，加入未解析条目留档后已属「已追加修改」；`bangumi-to-neodb-full-cli.ts` 同理（改为消费汇总报告）。上游的 `const.ts` 在本项目中已**拆解**为 `rules/douban.ts`、`rules/bangumi-neodb.ts` 与 `clients/notion.ts` 三处，搬运时需要按域对应。
 
 ---
 
@@ -869,39 +877,47 @@ npm run typecheck && npm run verify:mapping     # 必须验证
 
 ```
 Douban-Shelf-Archivist/
-├── src/                      核心源码
+├── src/                      核心源码（27 个文件）
 │   ├── index.ts              总入口：按开关调度所有链路
 │   │
-│   ├── sync-config.ts        配置中枢：唯一的 env 读取点
-│   ├── types.ts              全部类型定义（含 NeoDB/TMDB）
-│   ├── const.ts              常量与纯转换函数
-│   ├── utils.ts              通用工具 + 增量同步状态管理
+│   ├── sync-config.ts        配置中枢：集中解析全部环境变量
+│   ├── types.ts              全部类型定义（含 NeoDB/TMDB）+ cols.json 的唯一入口
+│   ├── utils.ts              通用工具 + 增量同步状态管理 + 留档日志
 │   ├── sync-report.ts        结果展示层：收尾汇总、自检、Actions 注解
+│   ├── bangumi-to-neodb-full-cli.ts  Bangumi 全量入口（原 sync-bangumi-full.ts）
+│   ├── neodb-to-tmdb-cli.ts  NeoDB → TMDB 独立入口（原 sync-tmdb-only.ts）
 │   │
-│   ├── neodb.ts              NeoDB 客户端（写入 + 书架读取）
-│   ├── bangumi.ts            Bangumi 客户端
-│   ├── tmdb.ts               TMDB 客户端
+│   ├── clients/              外部平台：传输 + 各平台自己的线格式
+│   │   ├── douban-rss.ts                 解析豆瓣 RSS（原 handle-rss.ts）
+│   │   ├── douban-subject-page.ts        抓取豆瓣条目页 + 反爬（原 handle-douban.ts 上半）
+│   │   ├── douban-subject-parsers.ts     条目页 → Notion 列值（原 handle-douban.ts 下半）
+│   │   ├── neodb-http.ts                 NeoDB 传输层：凭据、请求头、错误助手、节流
+│   │   ├── neodb-catalog.ts              目录查询 + 孪生条目解析
+│   │   ├── neodb-shelf.ts                条目标记 / 进度 / 书架列表
+│   │   ├── bangumi.ts                    Bangumi 客户端
+│   │   ├── tmdb.ts                       TMDB 客户端
+│   │   └── notion.ts                     Notion 客户端 + 列类型表 + 属性载荷构造
 │   │
-│   ├── handle-rss.ts         解析豆瓣 RSS
-│   ├── handle-douban.ts      抓取豆瓣详情页
-│   ├── handle-notion.ts      写入 Notion
-│   ├── handle-neodb.ts       豆瓣 → NeoDB 编排
-│   ├── handle-bangumi.ts     豆瓣 → Bangumi 编排
-│   ├── handle-bangumi-neodb.ts  Bangumi → NeoDB 编排
-│   ├── handle-neodb-tmdb.ts  NeoDB → TMDB 编排
+│   ├── rules/                纯逻辑：零 I/O、零环境读取
+│   │   ├── douban.ts                     豆瓣词汇 + 星级换算（原 const.ts 一部分）
+│   │   ├── bangumi-neodb.ts              Bangumi ↔ NeoDB 映射与守卫（原 const.ts 一部分）
+│   │   ├── neodb-mark-merge.ts           标记合并（原 neodb-merge.ts）
+│   │   ├── tmdb-mapping.ts               状态映射定义 ★ 改行为改这里
+│   │   ├── tmdb-matching.ts              标题匹配（决定写到哪个真实实体）
+│   │   └── tmdb-write-plan.ts            写入计划计算（原 tmdb-merge.ts）
 │   │
-│   ├── neodb-merge.ts        标记合并（纯函数）
-│   ├── tmdb-mapping.ts       状态映射定义 ★ 改行为改这里
-│   ├── tmdb-merge.ts         写入计划计算（纯函数）
-│   │
-│   ├── sync-bangumi-full.ts  Bangumi 全量入口
-│   └── sync-tmdb-only.ts     NeoDB → TMDB 独立入口
+│   └── paths/                5 条链路编排
+│       ├── douban-to-notion.ts           原 handle-notion.ts
+│       ├── douban-to-neodb.ts            原 handle-neodb.ts
+│       ├── douban-to-bangumi.ts          原 handle-bangumi.ts
+│       ├── bangumi-to-neodb.ts           原 handle-bangumi-neodb.ts
+│       └── neodb-to-tmdb.ts              原 handle-neodb-tmdb.ts
 │
 ├── scripts/                  辅助脚本
 │   ├── probe-neodb-shelf.ts    探测 NeoDB 书架响应结构
 │   ├── verify-tmdb-mapping.ts  映射逻辑离线断言（57 项）
-│   ├── update-notion.ts        批量更新 Notion
-│   └── db-notes-img-dl.ts      下载豆瓣笔记配图
+│   └── download-douban-note-images.ts  下载豆瓣日记配图（原 db-notes-img-dl.ts）
+├── archive/                  已废弃：旧 puppeteer 爬虫 + update-notion.ts
 ├── userscript/               浏览器用户脚本（手动导出用）
 ├── archive/                  旧的爬虫脚本，供参考
 ├── docs/                     README 配图
@@ -917,51 +933,83 @@ Douban-Shelf-Archivist/
 
 ### 入口
 
-| 文件                       | 用途                  | 特性                                                         |
-| -------------------------- | --------------------- | ------------------------------------------------------------ |
-| `src/index.ts`             | 总入口                | 按开关依次调度；任一步失败设置退出码 1，但**不中断后续链路** |
-| `src/sync-tmdb-only.ts`    | NeoDB → TMDB 独立入口 | 只跑这一条链路，不影响原有 cron                              |
-| `src/sync-bangumi-full.ts` | Bangumi 全量入口      | 追加执行，用于首次补齐历史数据                               |
+| 文件                               | 用途                  | 特性                                                             |
+| ---------------------------------- | --------------------- | ---------------------------------------------------------------- |
+| `src/index.ts`                     | 总入口                | 按开关依次调度；豆瓣链路的失败会被捕获并继续，其余失败设退出码 1 |
+| `src/neodb-to-tmdb-cli.ts`         | NeoDB → TMDB 独立入口 | 只跑这一条链路，不影响原有 cron                                  |
+| `src/bangumi-to-neodb-full-cli.ts` | Bangumi 全量入口      | 追加执行，用于首次补齐历史数据（`fullSync = true`）              |
+
+> 失败一律通过 `process.exitCode` 上报，**没有任何链路会调用 `process.exit()`**——那会连同后续
+> 链路与收尾汇总一起丢掉。豆瓣→Notion 以「失败条数」返回值上报，由 `index.ts` 折算为退出码。
 
 ### 配置与基础
 
-| 文件                 | 用途         | 特性                                                                       |
-| -------------------- | ------------ | -------------------------------------------------------------------------- |
-| `src/sync-config.ts` | 配置中枢     | **唯一的 env 读取点**，便于审计；含 `syncConfig` 与 `neodbTmdbConfig` 两组 |
-| `src/sync-report.ts` | 结果展示     | 收尾汇总、一致性自检、未匹配条目分组列出；Actions 注解仅在 CI 输出         |
-| `src/types.ts`       | 类型定义     | `NeodbItem` 为两条链路的**合并超集**；`PathReport` 为各链路的结果契约      |
-| `src/const.ts`       | 常量与纯函数 | 评分换算、年份/链接提取、类别映射                                          |
-| `src/utils.ts`       | 通用工具     | 含增量同步的指纹计算、状态文件读写、未匹配条目留档（upsert + 首末时间戳）  |
+| 文件                 | 用途     | 特性                                                                                               |
+| -------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `src/sync-config.ts` | 配置中枢 | 集中解析全部环境变量，并把它打印成一行便于审计；含 `syncConfig` 与 `neodbTmdbConfig` 两组          |
+| `src/sync-report.ts` | 结果展示 | 收尾汇总、一致性自检、未匹配条目分组列出；Actions 注解仅在 CI 输出                                 |
+| `src/types.ts`       | 类型定义 | `NeodbItem` 为两条链路的**合并超集**；`PathReport` 为各链路的结果契约；也是 `cols.json` 的唯一入口 |
+| `src/utils.ts`       | 通用工具 | 含增量同步的指纹计算、状态文件读写、未匹配条目留档（upsert + 首末时间戳）                          |
 
-### 客户端
+> ⚠️ 关于「唯一的 env 读取点」：**目前并非事实**。`sync-config.ts` 之外仍有 8 个文件直接读
+> `process.env`（`utils.ts`、`bangumi.ts`、`clients/neodb-http.ts`、`clients/douban-rss.ts`、
+> `sync-report.ts`、`paths/douban-to-notion.ts`、`index.ts`、`clients/neodb-catalog.ts` 等）。
+> `sync-config.ts` 是**集中解析开关与配置的中心**，但「所有 env 只此一处」仍是待办目标。
 
-| 文件             | 用途           | 特性                                                           |
-| ---------------- | -------------- | -------------------------------------------------------------- |
-| `src/neodb.ts`   | NeoDB 客户端   | 两套：既有的写入逻辑 + 书架分页读取；请求带重试与限流          |
-| `src/tmdb.ts`    | TMDB 客户端    | 会话解析（v4→v3）、账号状态读取、评分/watchlist 写入、三级匹配 |
-| `src/bangumi.ts` | Bangumi 客户端 | 收藏读写（沿用上游实现）                                       |
+### 客户端（`src/clients/`）
 
-### 编排与纯逻辑
+| 文件                                    | 用途           | 特性                                                                   |
+| --------------------------------------- | -------------- | ---------------------------------------------------------------------- |
+| `src/clients/neodb-http.ts`             | NeoDB 传输层   | 凭据、鉴权头、错误助手、节流；**两套 base URL 策略在此并列，差异可见** |
+| `src/clients/neodb-catalog.ts`          | NeoDB 目录查询 | 按外链/标题解析目录条目，含「豆瓣孪生条目」对齐                        |
+| `src/clients/neodb-shelf.ts`            | NeoDB 书架     | 标记读写、进度读写、书架分页；请求带重试与限流                         |
+| `src/clients/douban-rss.ts`             | 豆瓣 RSS       | 浏览器 UA + 对 401/403 设上限的重试策略                                |
+| `src/clients/douban-subject-page.ts`    | 豆瓣条目页抓取 | sha512 PoW 自解 + 模块级 CookieJar                                     |
+| `src/clients/douban-subject-parsers.ts` | 条目页 → 列值  | **纯函数**：5 个 `buildXxxItem`，可直接用 HTML fixture 断言            |
+| `src/clients/tmdb.ts`                   | TMDB 客户端    | 会话解析（v4→v3）、账号状态读取、评分/watchlist 写入                   |
+| `src/clients/bangumi.ts`                | Bangumi 客户端 | 收藏读写（沿用上游实现）                                               |
+| `src/clients/notion.ts`                 | Notion 客户端  | SDK 客户端 + 列类型表 + emoji + 属性载荷构造，Notion 知识只此一处      |
 
-| 文件                  | 用途             | 特性                                                          |
-| --------------------- | ---------------- | ------------------------------------------------------------- |
-| `src/tmdb-mapping.ts` | **状态映射定义** | 纯函数，无 I/O；`complete` 的评分分支在此                     |
-| `src/tmdb-merge.ts`   | 写入计划计算     | 纯函数，把「想要的状态」与「TMDB 现状」做差分，**幂等的核心** |
-| `src/neodb-merge.ts`  | 标记合并         | 纯函数，处理评分/评论冲突                                     |
-| `src/handle-*.ts`     | 各链路编排       | 负责调度与错误隔离，不含业务规则                              |
+### 编排（`src/paths/`）与纯逻辑（`src/rules/`）
 
-> 三个纯函数模块（`mapping` / `tmdb-merge` / `neodb-merge`）无网络依赖，所以能离线跑断言验证。
+| 文件                            | 用途             | 特性                                                               |
+| ------------------------------- | ---------------- | ------------------------------------------------------------------ |
+| `src/rules/tmdb-mapping.ts`     | **状态映射定义** | 纯函数，无 I/O；`complete` 的评分分支在此                          |
+| `src/rules/tmdb-write-plan.ts`  | 写入计划计算     | 纯函数，把「想要的状态」与「TMDB 现状」做差分，**幂等的核心**      |
+| `src/rules/tmdb-matching.ts`    | 标题匹配         | 纯函数，决定评分写到**哪个真实实体**；`normalizeTitleKey` 与之共用 |
+| `src/rules/neodb-mark-merge.ts` | 标记合并         | 纯函数，处理评分/评论冲突                                          |
+| `src/rules/douban.ts`           | 豆瓣词汇与换算   | 纯函数/字面量表；星级换算全仓只此一处                              |
+| `src/rules/bangumi-neodb.ts`    | Bangumi ↔ NeoDB  | 纯函数/字面量表；含两张「不覆盖对方表达不了的状态」的守卫表        |
+| `src/paths/*.ts`                | 5 条链路编排     | 负责调度与错误隔离，**不含业务规则**                               |
+
+> `src/rules/` 的「零 I/O、零环境读取」不是口号，而是一条可执行的门禁：
+> `grep -rnE "got|jsdom|@notionhq|process\.env|node:fs" src/rules/` 必须为空。因此这 6 个模块
+> 都能离线跑断言验证。
 
 ### 辅助
 
-| 文件                             | 用途                                              |
-| -------------------------------- | ------------------------------------------------- |
-| `scripts/probe-neodb-shelf.ts`   | 打印 NeoDB 真实响应结构，存原始 JSON 到 `.cache/` |
-| `scripts/verify-tmdb-mapping.ts` | 57 项离线断言，验证映射与幂等规则                 |
-| `scripts/update-notion.ts`       | 批量更新 Notion 数据库                            |
-| `scripts/db-notes-img-dl.ts`     | 下载豆瓣笔记配图                                  |
-| `userscript/*.user.js`           | 浏览器用户脚本，手动导出豆瓣数据                  |
-| `archive/*.js`                   | 早期爬虫脚本，保留供参考                          |
+| 文件                                        | 用途                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/probe-neodb-shelf.ts`              | 打印 NeoDB 真实响应结构，存原始 JSON 到 `.cache/`                                                                               |
+| `scripts/verify-tmdb-mapping.ts`            | 57 项离线断言：NeoDB→TMDB 映射与写入幂等                                                                                        |
+| `scripts/verify-rules.ts`                   | 100 项离线断言：豆瓣词汇、星级换算、Bangumi↔NeoDB 状态与进度映射、标记合并、标题匹配、Notion 载荷                               |
+| `scripts/verify-douban-parsers.ts`          | 75 项离线断言：`extractItemInfo` + 5 个 `buildXxxItem`（对着 `tests/fixtures/*.html` 跑）                                       |
+| `scripts/download-douban-note-images.ts`    | 下载豆瓣日记配图（**仍不可运行**：`image-downloader` 未安装；类型已在 `scripts/image-downloader.d.ts` 声明，故 `tsc` 会检查它） |
+| `userscript/*.user.js`                      | 浏览器用户脚本，手动导出豆瓣数据                                                                                                |
+| `archive/*.js` + `archive/update-notion.ts` | 早期爬虫与历史回填脚本，**已废弃**，仅作追溯                                                                                    |
+
+### 离线断言（共 232 项）
+
+```bash
+npm run verify:all      # 依次跑上面三个脚本；CI 在同步之前先跑它
+```
+
+- 全部**不需要网络、不需要凭据、不引入测试框架**，几秒内跑完。
+- `npm run verify:mapping` / `verify:rules` / `verify:parsers` 可单独运行。
+- **关于 `tests/fixtures/*.html` 的诚实说明**：这五个 fixture 的标记结构是**由解析器使用的选择器反推
+  构造**的，并非从豆瓣抓取。它们能让每个分支都有用例、并把期望值（含若干「怪癖」）精确钉住，
+  因此任何改变解析行为的编辑都会立刻失败；但它们**无法**证明这些选择器今天仍与线上一致。
+  下次改动解析器时，请用真实抓取的 HTML 替换它们 —— 那是唯一能补上这一点的升级。
 
 ---
 

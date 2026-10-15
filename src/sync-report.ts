@@ -6,8 +6,13 @@ import { pathHasFailed, type PathReport } from './types';
  * Display layer for sync results.
  *
  * Kept out of the sync logic so presentation can change without touching
- * behaviour, and so every entry point (`index.ts`, `sync-tmdb-only.ts`,
- * `sync-bangumi-full.ts`) renders results the same way.
+ * behaviour, and so every entry point (`index.ts`, `neodb-to-tmdb-cli.ts`,
+ * `bangumi-to-neodb-full-cli.ts`) renders results the same way.
+ *
+ * 同步结果的展示层。
+ *
+ * 刻意与同步逻辑分离：这样改展示不会碰到行为；同时让所有入口
+ * （`index.ts`、`neodb-to-tmdb-cli.ts`、`bangumi-to-neodb-full-cli.ts`）以同一种方式呈现结果。
  */
 
 /**
@@ -173,9 +178,23 @@ export function printPathSummary(report: PathReport): void {
  * Closing block for the whole run — mirrors the opening `Sync paths:` line.
  * Called once per process, after every path has printed its own summary and
  * listed its own unresolved entries.
+ *
+ * An empty `reports` array means no path ran at all, which is almost always a misconfiguration
+ * (every `SYNC_*` switch off). That used to be indistinguishable in the logs from a run whose
+ * writes were all no-ops, so it now says so explicitly instead of returning silently.
+ *
+ * 整轮的收尾块 —— 与开头的 `Sync paths:` 一行呼应。每进程只调用一次，且在每条链路都打印完
+ * 自己的汇总、列完自己的未解决条目之后。
+ *
+ * `reports` 为空意味着没有任何链路运行过，这几乎总是配置问题（所有 `SYNC_*` 开关都是关的）。
+ * 过去这在日志里与「运行成功但所有写入都是无操作」无法区分，因此现在改为明确说明，而不是
+ * 静默返回。
  */
 export function printOverallSummary(reports: PathReport[]): void {
   if (reports.length === 0) {
+    consola.warn(
+      'No sync path ran — every SYNC_* switch is off, or every enabled path lacked credentials.',
+    );
     return;
   }
 

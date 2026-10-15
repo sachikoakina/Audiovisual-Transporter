@@ -1,3 +1,14 @@
+/**
+ * Sync configuration — parse the environment once, hand the rest of the app a typed object.
+ * 同步配置 —— 集中解析环境变量，向其余代码暴露一个有类型的配置对象。
+ *
+ * Central by intent: every `SYNC_*` / `NEODB_*` / `TMDB_*` / `NOTION_*` switch is read here so
+ * that the effective configuration can be printed (`describeSyncConfig`) and diffed between
+ * runs. Environment variable NAMES are part of the public interface — do not rename them.
+ * 刻意做成中枢：所有 `SYNC_*` / `NEODB_*` / `TMDB_*` / `NOTION_*` 开关都在此读取，这样最终
+ * 生效的配置可以被打印出来（`describeSyncConfig`）并在不同运行之间对比。环境变量**名称属于
+ * 对外接口，不要改名**。
+ */
 import dotenv from 'dotenv';
 import { consola } from 'consola';
 import {
@@ -12,8 +23,10 @@ import {
 dotenv.config();
 
 /**
- * Parse env flag. Empty/unset → defaultValue.
+ * Parse an env flag. Empty/unset → defaultValue.
  * Truthy: 1, true, yes, on (case-insensitive).
+ *
+ * 解析布尔型环境开关。空值/未设置 → defaultValue。真值：1、true、yes、on（不区分大小写）。
  */
 export function envEnabled(name: string, defaultValue: boolean): boolean {
   const raw = process.env[name];
@@ -23,7 +36,7 @@ export function envEnabled(name: string, defaultValue: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
-/** Douban RSS category tokens (English + Chinese aliases). */
+/** Douban RSS category tokens (English + Chinese aliases). / 豆瓣 RSS 分类标识（含中英别名）。 */
 const DOUBAN_CATEGORY_ALIASES: Record<string, ItemCategory> = {
   movie: ItemCategory.Movie,
   music: ItemCategory.Music,
@@ -41,6 +54,7 @@ const DOUBAN_CATEGORY_ALIASES: Record<string, ItemCategory> = {
 /**
  * Bangumi → NeoDB category tokens.
  * `manga` is books with platform "漫画"; `book` covers all books.
+ * Bangumi → NeoDB 的分类标识。`manga` 指 platform 为「漫画」的书籍；`book` 覆盖全部书籍。
  */
 export type BangumiNeodbCategory =
   'anime' | 'manga' | 'book' | 'music' | 'game' | 'real';
@@ -62,17 +76,26 @@ const BANGUMI_CATEGORY_ALIASES: Record<string, BangumiNeodbCategory> = {
   三次元: 'real',
 };
 
+/**
+ * A parsed allowlist, kept three-state on purpose.
+ * `none` is distinct from `all` so that a typo'd category name fails CLOSED (syncs nothing and
+ * says so) instead of silently degrading into "sync everything".
+ * 解析后的白名单，刻意保持三态。`none` 与 `all` 必须区分开，这样写错分类名时会**失败在关闭
+ * 一侧**（不同步任何东西，并且明确告知），而不是悄悄退化成「全部同步」。
+ */
 export type CategoryAllowlist<T extends string> =
   | { mode: 'all' }
   | { mode: 'none'; raw: string }
   | { mode: 'set'; values: ReadonlySet<T> };
 
-/** How Douban/Bangumi marks merge into an existing NeoDB mark. */
+/** How Douban/Bangumi marks merge into an existing NeoDB mark. / 豆瓣/Bangumi 的标记如何合并进 NeoDB 已有标记。 */
 export type NeodbMergeProfile = 'overwrite' | 'neodb_prefer';
 
 /**
  * Parse merge profile. Empty/unset → defaultValue.
  * Invalid values warn and fall back to defaultValue.
+ *
+ * 解析合并策略。空值/未设置 → defaultValue。取值非法时告警并回退到 defaultValue。
  */
 export function parseMergeProfile(
   envName: string,
@@ -105,6 +128,8 @@ function splitCategoryTokens(raw: string | undefined): string[] {
 /**
  * Parse a comma-separated category allowlist.
  * Empty/unset → all. Non-empty with zero recognized tokens → none (fail closed).
+ *
+ * 解析逗号分隔的分类白名单。空值/未设置 → all。非空但没有任何可识别标识 → none（失败在关闭一侧）。
  */
 export function parseCategoryAllowlist<T extends string>(
   envName: string,
@@ -152,19 +177,19 @@ function formatAllowlist<T extends string>(allowlist: CategoryAllowlist<T>): str
 }
 
 /**
- * Which sync paths to run.
- * Defaults match a NeoDB + Bangumi setup (Notion off).
+ * Which sync paths to run. Defaults match a NeoDB + Bangumi setup (Notion off).
+ * 要运行哪些同步链路。默认值对应「NeoDB + Bangumi」的组合（Notion 关闭）。
  */
 export const syncConfig = {
-  /** Douban RSS → Notion */
+  /** Douban RSS → Notion / 豆瓣 RSS → Notion */
   doubanNotion: envEnabled('SYNC_DOUBAN_NOTION', false),
-  /** Douban RSS → NeoDB */
+  /** Douban RSS → NeoDB / 豆瓣 RSS → NeoDB */
   doubanNeodb: envEnabled('SYNC_DOUBAN_NEODB', true),
-  /** Douban RSS → Bangumi */
+  /** Douban RSS → Bangumi / 豆瓣 RSS → Bangumi */
   doubanBangumi: envEnabled('SYNC_DOUBAN_BANGUMI', true),
-  /** Bangumi collections → NeoDB */
+  /** Bangumi collections → NeoDB / Bangumi 收藏 → NeoDB */
   bangumiNeodb: envEnabled('SYNC_BANGUMI_NEODB', true),
-  /** Bangumi → NeoDB progress (episode/chapter/track). Default off. */
+  /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
   bangumiNeodbProgress: envEnabled('SYNC_BANGUMI_NEODB_PROGRESS', false),
 
   doubanNotionCategories: parseCategoryAllowlist(
@@ -208,6 +233,8 @@ export function isDoubanCategoryAllowed(
 /**
  * Filter Douban feed items by a path's category allowlist.
  * Logs one info line per skipped item.
+ *
+ * 按某条链路的分类白名单过滤豆瓣条目。每跳过一个条目打印一行 info 日志。
  */
 export function filterDoubanFeedsByCategory(
   feeds: FeedItem[],
@@ -229,7 +256,7 @@ export function filterDoubanFeedsByCategory(
   });
 }
 
-/** Bangumi subject_type values needed for the allowlist (for API query). */
+/** Bangumi subject_type values needed for the allowlist (for API query). / 白名单对应的 Bangumi subject_type 取值（用于 API 查询）。 */
 export function bangumiSubjectTypesForAllowlist(
   allowlist: CategoryAllowlist<BangumiNeodbCategory>,
 ): BangumiSubjectType[] | null {
@@ -265,40 +292,10 @@ export function bangumiSubjectTypesForAllowlist(
 }
 
 /**
- * Whether a Bangumi collection's subject_type is in scope before platform checks.
- * Manga-only still needs books (type 1) here; call {@link needsBangumiMangaPlatformCheck}.
- */
-export function isBangumiSubjectTypeAllowed(
-  allowlist: CategoryAllowlist<BangumiNeodbCategory>,
-  subjectType: BangumiSubjectType,
-): boolean {
-  if (allowlist.mode === 'all') {
-    return true;
-  }
-  if (allowlist.mode === 'none') {
-    return false;
-  }
-
-  const { values } = allowlist;
-  switch (subjectType) {
-    case 1:
-      return values.has('book') || values.has('manga');
-    case 2:
-      return values.has('anime');
-    case 3:
-      return values.has('music');
-    case 4:
-      return values.has('game');
-    case 6:
-      return values.has('real');
-    default:
-      return false;
-  }
-}
-
-/**
  * True when books must be filtered by platform === "漫画"
  * (manga allowed, full book not).
+ *
+ * 为真时表示书籍必须再按 platform ===「漫画」过滤（允许漫画、但不允许全部书籍）。
  */
 export function needsBangumiMangaPlatformCheck(
   allowlist: CategoryAllowlist<BangumiNeodbCategory>,
@@ -321,24 +318,72 @@ export function describeSyncConfig(): string {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Notion target lookup
+// Notion 目标查找
+//
+// The column vocabulary itself lives in `cols.json`; what belongs here is the
+// env → data-source-id mapping, because it is an environment read like any other.
+//
+// 列的词汇表本身在 `cols.json` 里；放在这里的是「env → data source id」的映射，
+// 因为它和别处一样属于环境变量读取。
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the Notion data source id for a Douban category.
+ * 取某个豆瓣分类对应的 Notion data source id。
+ *
+ * NAMING CAVEAT: the env var is called `NOTION_*_DATABASE_ID` for backward compatibility, but
+ * the value it must hold is a Notion **data source** id: the Notion API v5 queries and creates
+ * pages against `data_source_id`, not `database_id`. The names are kept as-is because renaming
+ * them would break every existing deployment.
+ *
+ * 命名提示：环境变量名为兼容历史沿用 `NOTION_*_DATABASE_ID`，但它必须填的是 Notion 的
+ * **data source** id —— Notion API v5 的查询与建页都走 `data_source_id` 而非 `database_id`。
+ * 变量名保持不变，改名会破坏所有现有部署。
+ *
+ * @param category - Douban category. 豆瓣分类。
+ * @returns The configured id, or `undefined` when that category is not configured.
+ *   已配置的 id；该分类未配置时为 `undefined`。
+ */
+export function getDataSourceId(category: ItemCategory): string | undefined {
+  const dataSourceIds: Record<ItemCategory, string | undefined> = {
+    [ItemCategory.Movie]: process.env.NOTION_MOVIE_DATABASE_ID,
+    [ItemCategory.Music]: process.env.NOTION_MUSIC_DATABASE_ID,
+    [ItemCategory.Book]: process.env.NOTION_BOOK_DATABASE_ID,
+    [ItemCategory.Game]: process.env.NOTION_GAME_DATABASE_ID,
+    [ItemCategory.Drama]: process.env.NOTION_DRAMA_DATABASE_ID,
+  };
+  return dataSourceIds[category];
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Shared review log
+// 共享留档日志
 //
 // `SYNC_UNMATCHED_LOG` started life as a NeoDB → TMDB option, but the file it
 // names is useful to every path: it is where entries a path could not process
 // are appended for later review. Each writer stamps its own `source`, so both
 // directions can share one file without ambiguity.
+//
+// `SYNC_UNMATCHED_LOG` 最初是 NeoDB → TMDB 的选项，但它指向的文件对每条链路都有用：
+// 那是「某条链路无法处理的条目」被登记下来供人工复查的地方。每个写入方都会打上自己的
+// `source`，因此两个方向可以共用同一个文件而不产生歧义。
 // ───────────────────────────────────────────────────────────────────────────
 
-/** Where unprocessable entries are appended. Empty disables the log. */
+/** Where unprocessable entries are appended. Empty disables the log. / 无法处理的条目的登记位置；空值表示关闭该日志。 */
 export const unmatchedLogFile =
   process.env.SYNC_UNMATCHED_LOG ?? '.cache/unmatched.json';
 
 // ───────────────────────────────────────────────────────────────────────────
 // NeoDB → TMDB path
+// NeoDB → TMDB 链路
 //
 // Kept as its own object rather than merged into `syncConfig` above, so this
 // addition cannot perturb the existing Douban/Bangumi behaviour.
 // All environment reads for this path live here, nowhere else.
+//
+// 独立成一个对象而不是并入上面的 `syncConfig`，这样这项新增就不会扰动既有的
+// 豆瓣/Bangumi 行为。该链路的全部环境变量读取都在这里，不在别处。
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
@@ -346,6 +391,9 @@ export const unmatchedLogFile =
  * `dropped` is deliberately absent — the mapping skips it, so including it
  * would only waste requests. It can still be listed explicitly; it simply
  * resolves to "no TMDB operation".
+ *
+ * 默认处理的书架。刻意不含 `dropped` —— 映射表会跳过它，纳入它只会浪费请求。
+ * 仍然可以显式列出它，只是最终解析为「不产生任何 TMDB 操作」。
  */
 const DEFAULT_TMDB_SHELF_TYPES: readonly ShelfType[] = [
   'wishlist',
@@ -365,7 +413,7 @@ function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-/** Which shelves to process. Empty env → the default subset above. */
+/** Which shelves to process. Empty env → the default subset above. / 处理哪些书架。环境变量为空 → 上面的默认子集。 */
 function resolveTmdbShelfTypes(): ShelfType[] {
   const tokens = splitCategoryTokens(process.env.SYNC_SHELF_TYPES);
   if (tokens.length === 0) {
@@ -394,6 +442,9 @@ function resolveTmdbShelfTypes(): ShelfType[] {
 /**
  * Rating conflict policy. Separate parser from {@link parseMergeProfile} because
  * the choices differ: here the *target* is TMDB.
+ *
+ * 评分冲突策略。与 {@link parseMergeProfile} 分开解析，因为可选项不同：
+ * 这里的**目标端**是 TMDB。
  */
 function resolveRatingProfile(): RatingProfile {
   const raw = (process.env.SYNC_RATING_PROFILE ?? '').trim().toLowerCase();
@@ -410,23 +461,23 @@ function resolveRatingProfile(): RatingProfile {
 }
 
 export const neodbTmdbConfig = {
-  /** Default OFF: a new path must not change behaviour until explicitly enabled. */
+  /** Default OFF: a new path must not change behaviour until explicitly enabled. / 默认关闭：新链路在显式启用前不得改变行为。 */
   enabled: envEnabled('SYNC_NEODB_TMDB', false),
   shelfTypes: resolveTmdbShelfTypes(),
-  /** Category allowlist. Empty → all syncable categories (movie, tv). */
+  /** Category allowlist. Empty → all syncable categories (movie, tv). / 分类白名单；空 → 全部可同步分类（movie、tv）。 */
   categories: splitCategoryTokens(process.env.SYNC_CATEGORIES),
   dryRun: envEnabled('SYNC_DRY_RUN', false),
   maxItems: envInt('SYNC_MAX_ITEMS', 200, 1),
   ratingProfile: resolveRatingProfile(),
   yearTolerance: envInt('SYNC_YEAR_TOLERANCE', 1, 0),
-  /** Incremental de-duplication store. Empty string disables it. */
+  /** Incremental de-duplication store. Empty string disables it. / 增量去重存储；空字符串表示关闭。 */
   stateFile: process.env.SYNC_STATE_FILE ?? '.cache/sync-state.json',
   incremental: envEnabled('SYNC_INCREMENTAL', true),
-  /** Unmatched items are dumped here for review. Empty disables. */
+  /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
   unmatchedLog: unmatchedLogFile,
 
   neodb: {
-    /** Self-hosted instances: point this at your server. */
+    /** Self-hosted instances: point this at your server. / 自建实例：把它指向你自己的服务器。 */
     baseUrl: stripTrailingSlash(process.env.NEODB_BASE_URL || 'https://neodb.social'),
     requestDelayMs: envInt('NEODB_REQUEST_DELAY_MS', 300),
     maxPages: envInt('NEODB_MAX_PAGES', 10, 1),
@@ -434,15 +485,15 @@ export const neodbTmdbConfig = {
 
   tmdb: {
     apiKey: process.env.TMDB_API_KEY,
-    /** Overridable for proxies/mirrors. */
+    /** Overridable for proxies/mirrors. / 可覆盖，用于代理或镜像。 */
     baseUrl: stripTrailingSlash(
       process.env.TMDB_BASE_URL || 'https://api.themoviedb.org/3',
     ),
-    /** v4 user token; converted to a session when no session id is supplied. */
+    /** v4 user token; converted to a session when no session id is supplied. / v4 用户令牌；未提供 session id 时会用它换 session。 */
     accessToken: process.env.TMDB_ACCESS_TOKEN,
-    /** v3 session id. Required for any write. */
+    /** v3 session id. Required for any write. / v3 session id；任何写入都必须提供。 */
     sessionId: process.env.TMDB_SESSION_ID,
-    /** Optional; resolved via /3/account when absent. */
+    /** Optional; resolved via /3/account when absent. / 可选；缺省时通过 /3/account 解析。 */
     accountId: process.env.TMDB_ACCOUNT_ID,
     language: process.env.TMDB_LANGUAGE || 'zh-CN',
     includeAdult: envEnabled('TMDB_INCLUDE_ADULT', false),
@@ -450,7 +501,7 @@ export const neodbTmdbConfig = {
   },
 };
 
-/** Categories the user asked for, restricted to what TMDB can hold. */
+/** Categories the user asked for, restricted to what TMDB can hold. / 用户要求的分类，并限定在 TMDB 能承载的范围内。 */
 export function resolveTargetCategories(): string[] {
   return neodbTmdbConfig.categories.length > 0
     ? neodbTmdbConfig.categories
@@ -472,6 +523,11 @@ export function describeNeodbTmdbConfig(): string {
  *
  * Note on the TMDB side: a v4 *read* token carries `"scopes":["api_read"]` and
  * cannot write. Writes need a v3 session id or a user-scoped v4 token.
+ *
+ * 凭据检查，在任何请求发出之前运行。
+ *
+ * TMDB 侧的注意点：v4 的**只读**令牌带 `"scopes":["api_read"]`，无法写入。写入需要
+ * v3 session id，或具备用户作用域的 v4 令牌。
  */
 export function validateNeodbTmdbCredentials(): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
