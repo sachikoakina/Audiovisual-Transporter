@@ -1,16 +1,37 @@
+/**
+ * Path ④ — Bangumi collections → NeoDB.
+ * 链路④ —— Bangumi 收藏 → NeoDB。
+ *
+ * This is the only path that walks pagination (`while (true)` bounded by the collection total),
+ * and the only one that can be told to stop after a single page: without `fullSync` it breaks out
+ * of the loop after the first page.
+ * 这是唯一会遍历分页的链路（`while (true)`，以收藏总数为界），也是唯一可以「只跑一页」的链路：
+ * 若 `fullSync` 为假，它在第一页之后就退出循环。
+ *
+ * Deliberately asymmetric with path ② on one point: marks are updated WITHOUT `createdTime`, to
+ * preserve the mark date already stored in NeoDB — Bangumi's `updated_at` is not trustworthy
+ * enough to overwrite it (see the note inside `syncCollectionToNeodb`).
+ * 这里有一处刻意与链路② 不对称：更新标记时**不传** `createdTime`，以保留 NeoDB 里已有的标记
+ * 日期 —— Bangumi 的 `updated_at` 不足以可信到可以覆盖它（见 `syncCollectionToNeodb` 内的注释）。
+ *
+ * When resolving a Bangumi URL it prefers the Douban-linked twin, so that marks land on the same
+ * NeoDB uuid as path ① and ②.
+ * 解析 Bangumi URL 时优先选择带豆瓣外链的孪生条目，使标记落在与链路① ② 相同的 NeoDB uuid 上。
+ */
 import dotenv from 'dotenv';
 import { consola } from 'consola';
 import {
   newPathReport,
   type BangumiCollectionType,
   type BangumiSubjectType,
+  type NeodbItem,
   type PathReport,
-} from './types';
+} from '../types';
 import {
   BANGUMI_TO_NEODB_STATUS,
   bangumiCollectionToNeodbProgress,
   neodbItemSupportsProgress,
-} from './const';
+} from '../rules/bangumi-neodb';
 import {
   bangumiCollectionLimit,
   bangumiSubjectUrl,
@@ -20,26 +41,24 @@ import {
   getBangumiSubject,
   listBangumiCollections,
   type BangumiCollection,
-} from './bangumi';
+} from '../clients/bangumi';
+import { neodbToken, neodbVisibility } from '../clients/neodb-http';
+import { resolveNeodbItemForBangumiUrl } from '../clients/neodb-catalog';
 import {
   getNeodbMark,
   getNeodbProgress,
   markNeodbItem,
-  neodbToken,
-  neodbVisibility,
-  resolveNeodbItemForBangumiUrl,
   setNeodbProgress,
-  type NeodbItem,
-} from './neodb';
-import { mergeNeodbMark } from './neodb-merge';
+} from '../clients/neodb-shelf';
+import { mergeNeodbMark } from '../rules/neodb-mark-merge';
 import {
   bangumiSubjectTypesForAllowlist,
   needsBangumiMangaPlatformCheck,
   syncConfig,
   unmatchedLogFile,
-} from './sync-config';
-import { upsertReviewEntry } from './utils';
-import { printPathSummary } from './sync-report';
+} from '../sync-config';
+import { upsertReviewEntry } from '../utils';
+import { printPathSummary } from '../sync-report';
 
 dotenv.config();
 
@@ -138,6 +157,19 @@ export default async function handleBangumiToNeodb(
         offset,
         subjectType,
       });
+
+      if (page === null) {
+        // A failed request, which must NOT be mistaken for "no more collections". Stop this pass
+        // and say why. Deliberately not counted as `failed`: a transient API error is not a data
+        // error, and turning CI red for it would train everyone to ignore red.
+        // 请求失败，绝不能当成「没有更多收藏了」。停止本趟遍历并说明原因。刻意不计入 `failed`：
+        // 临时的 API 错误不是数据错误，为它让 CI 变红只会训练所有人忽略红色。
+        consola.warn(
+          `Bangumi collection page failed at offset ${offset}` +
+            `${subjectType ? ` (subject_type=${subjectType})` : ''}; stopping this pass.`,
+        );
+        break;
+      }
 
       if (!page.data.length) {
         break;

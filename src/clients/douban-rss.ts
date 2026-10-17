@@ -1,19 +1,29 @@
+/**
+ * Douban RSS client — fetch the interests feed and normalize it into `FeedItem[]`.
+ * 豆瓣 RSS 客户端 —— 抓取「我的广播」兴趣流，并归一化为 `FeedItem[]`。
+ *
+ * Douban blocks bare requests from CI/data-centre IPs, hence the browser UA plus a retry policy
+ * that caps 401/403 (usually a permanent WAF block, so retrying hard only wastes time).
+ * 豆瓣会拦截来自 CI/机房 IP 的裸请求，因此这里使用浏览器 UA，并采用「对 401/403 设定重试上限」
+ * 的策略（那通常是永久性 WAF 拦截，猛重试只会浪费时间）。
+ */
 import Parser from 'rss-parser';
 import dotenv from 'dotenv';
 import got from 'got';
 import { JSDOM } from 'jsdom';
 import { consola } from 'consola';
 import {
-  ALL_STATUS,
-  STATUS_TITLE_PREFIX,
-  RATING_TEXT,
-  SeeState,
-  ReadState,
-  PlayState,
-  ListenState,
-} from './const';
-import { ItemCategory, ItemStatus, type RSSFeedItem, type FeedItem } from './types';
+  ANY_STATUS_PREFIX,
+  STRIP_STATUS_PREFIX,
+  RATING_TEXT_TO_STARS,
+  SEE_STATUS_MAP,
+  READ_STATUS_MAP,
+  PLAY_STATUS_MAP,
+  LISTEN_STATUS_MAP,
+} from '../rules/douban';
+import { ItemCategory, ItemStatus, type RSSFeedItem, type FeedItem } from '../types';
 
+/** Category + subject id + status decoded from one feed entry's title and link. / 从单条 feed 的标题与链接解出的分类、条目 id 与状态。 */
 type ItemInfo = {
   category: ItemCategory;
   id: string;
@@ -22,10 +32,18 @@ type ItemInfo = {
 
 dotenv.config();
 
+/** Browser-like UA; override with `DOUBAN_RSS_USER_AGENT` when Douban changes its WAF. / 浏览器 UA；豆瓣调整 WAF 时可用 `DOUBAN_RSS_USER_AGENT` 覆盖。 */
 const DOUBAN_RSS_UA =
   process.env.DOUBAN_RSS_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+/**
+ * Fetch the user's Douban interests feed as raw feed items.
+ * 抓取用户的豆瓣兴趣流，返回原始 feed 条目。
+ *
+ * @throws When `DOUBAN_USER_ID` is unset, or when the feed cannot be fetched/parsed.
+ *   `DOUBAN_USER_ID` 未设置，或 feed 无法抓取/解析时抛出。
+ */
 export async function fetchRSSFeeds(): Promise<RSSFeedItem[]> {
   const DOUBAN_USER_ID = process.env.DOUBAN_USER_ID;
   if (!DOUBAN_USER_ID) {
@@ -92,10 +110,16 @@ export async function fetchRSSFeeds(): Promise<RSSFeedItem[]> {
 }
 
 /**
- * Normalize the given array of RSS feed items.
+ * Normalize raw feed items into the shape the sync paths consume.
+ * 把原始 feed 条目归一化为各同步链路消费的结构。
  *
- * @param {RSSFeedItem[]} feeds - The array of RSS feed items to be normalized.
- * @return {FeedItem[]} The normalized array of feed items.
+ * The star wording and the short comment are scraped out of the entry's HTML body with JSDOM,
+ * and the status prefix is stripped from the title.
+ * 星级措辞与短评都通过 JSDOM 从条目正文 HTML 中抠出；标题里的状态前缀会被剥掉。
+ *
+ * @param feeds - Raw feed items. 原始 feed 条目。
+ * @returns Normalized items; entries whose title carries no recognizable status are dropped.
+ *   归一化后的条目；标题中状态不可识别的条目会被丢弃。
  */
 export function handleRSSFeeds(feeds: RSSFeedItem[]): FeedItem[] {
   const normalizedFeeds: FeedItem[] = [];
@@ -112,14 +136,14 @@ export function handleRSSFeeds(feeds: RSSFeedItem[]): FeedItem[] {
     let ratingNumber = 0;
     if (ratingElements.length) {
       const rating = ratingElements[0].textContent!.replace(/^推荐: /, '').trim();
-      ratingNumber = RATING_TEXT[rating as keyof typeof RATING_TEXT];
+      ratingNumber = RATING_TEXT_TO_STARS[rating as keyof typeof RATING_TEXT_TO_STARS];
     }
     const commentElements = contents.filter((el) => el.textContent!.startsWith('备注'));
     let comment = '';
     if (commentElements.length) {
       comment = commentElements[0].textContent!.replace(/^备注: /, '').trim();
     }
-    const title = (item.title || '').replace(STATUS_TITLE_PREFIX, '').trim();
+    const title = (item.title || '').replace(STRIP_STATUS_PREFIX, '').trim();
     const result = {
       id,
       link: item.link,
@@ -137,21 +161,30 @@ export function handleRSSFeeds(feeds: RSSFeedItem[]): FeedItem[] {
 }
 
 /**
- * Extracts the category, ID, and status from the given title and link
- * which are from RSS feed item.
+ * Decode the category, subject id and status out of one feed entry's title and link.
+ * 从单条 feed 的标题与链接中解出分类、条目 id 与状态。
  *
- * @param {string} title - The title to extract the information from.
- * @param {string} link - The link to extract the information from.
- * @return {ItemInfo} An object containing the extracted category, ID, and status.
+ * Pure and dependency-free, which is why it is the natural first target for offline assertions.
+ * 纯函数且无依赖，因此它是离线断言最自然的首选目标。
+ *
+ * A `看*` status is ambiguous by design: Douban uses it for both films and stage dramas, so the
+ * link host decides — `movie.douban.com` is a film, anything else is treated as a stage drama.
+ * `看*` 状态天然有二义性：豆瓣用它同时表示电影与舞台剧，因此由链接域名决定 ——
+ * `movie.douban.com` 视为电影，其余视为舞台剧。
+ *
+ * @param title - Feed entry title, e.g. `看过 海边的曼彻斯特`. 条目标题，如 `看过 海边的曼彻斯特`。
+ * @param link - Feed entry link. 条目链接。
+ * @returns The decoded info, or `undefined` when the title carries no recognizable status.
+ *   解出的信息；标题中状态不可识别时返回 `undefined`。
  */
 export function extractItemInfo(title: string, link: string): ItemInfo | undefined {
-  const m = title.match(ALL_STATUS)?.[1];
+  const m = title.match(ANY_STATUS_PREFIX)?.[1];
 
   if (!m) {
     return;
   }
 
-  if (Object.keys(SeeState).includes(m)) {
+  if (Object.keys(SEE_STATUS_MAP).includes(m)) {
     const isMovie =
       link.startsWith('http://movie.douban.com/') ||
       link.startsWith('https://movie.douban.com/');
@@ -160,25 +193,25 @@ export function extractItemInfo(title: string, link: string): ItemInfo | undefin
       id: isMovie
         ? (link.match(/movie\.douban\.com\/subject\/(\d+)\/?/)?.[1] ?? '')
         : (link.match(/www\.douban\.com\/location\/drama\/(\d+)\/?/)?.[1] ?? ''),
-      status: SeeState[m as keyof typeof SeeState],
+      status: SEE_STATUS_MAP[m as keyof typeof SEE_STATUS_MAP],
     };
-  } else if (Object.keys(ReadState).includes(m)) {
+  } else if (Object.keys(READ_STATUS_MAP).includes(m)) {
     return {
       category: ItemCategory.Book,
       id: link.match(/book\.douban\.com\/subject\/(\d+)\/?/)?.[1] ?? '',
-      status: ReadState[m as keyof typeof ReadState],
+      status: READ_STATUS_MAP[m as keyof typeof READ_STATUS_MAP],
     };
-  } else if (Object.keys(ListenState).includes(m)) {
+  } else if (Object.keys(LISTEN_STATUS_MAP).includes(m)) {
     return {
       category: ItemCategory.Music,
       id: link.match(/music\.douban\.com\/subject\/(\d+)\/?/)?.[1] ?? '',
-      status: ListenState[m as keyof typeof ListenState],
+      status: LISTEN_STATUS_MAP[m as keyof typeof LISTEN_STATUS_MAP],
     };
-  } else if (Object.keys(PlayState).includes(m)) {
+  } else if (Object.keys(PLAY_STATUS_MAP).includes(m)) {
     return {
       category: ItemCategory.Game,
       id: link.match(/www\.douban\.com\/game\/(\d+)\/?/)?.[1] ?? '',
-      status: PlayState[m as keyof typeof PlayState],
+      status: PLAY_STATUS_MAP[m as keyof typeof PLAY_STATUS_MAP],
     };
   }
 

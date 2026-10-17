@@ -1,9 +1,30 @@
 /*
- * USAGE:
- * node update-notion.js db-movie-20210527.csv [skipMode=0/1]
- * skipMode = 0 means no need to skip already imported data by date
- *   -- update notion database from a csv
- *   -- can skip already inserted items
+ * ARCHIVED — moved here from `scripts/update-notion.ts`; not maintained, not type-checked,
+ * not linted. Kept for provenance of the one-off historical backfill.
+ * 已归档 —— 从 `scripts/update-notion.ts` 移来；不再维护，不参与类型检查，也不参与 lint。
+ * 保留它是为了给「一次性历史回填」留下可追溯的原始实现。
+ *
+ * What it does / 作用: read a CSV exported from Douban, scrape each movie's subject page, and
+ * CREATE Notion pages directly. Superseded by the regular path `src/paths/douban-to-notion.ts`,
+ * which does the same job during normal syncs — and additionally handles Douban's PoW challenge,
+ * which this script does not.
+ * 读取从豆瓣导出的 csv，逐个抓取电影条目页，并**直接创建** Notion 页面。它已被常规链路
+ * `src/paths/douban-to-notion.ts` 取代 —— 后者在常态同步中完成同样的事情，并且额外处理了
+ * 豆瓣的 PoW 挑战页，而本脚本没有。
+ *
+ * USAGE — as written this is a `.ts` file in an ESM package, so the original invocation line was
+ * wrong twice over. The correct form is:
+ * 用法 —— 本文件是 ESM 包里的 `.ts` 文件，因此原来的调用示例错了两处。正确写法是：
+ *
+ *   npx tsx archive/update-notion.ts db-movie-20210527.csv [skipMode=0/1]
+ *
+ *   skipMode = 0 表示不按日期跳过已导入的数据
+ *   skipMode = 0 means do not skip already-imported rows by date
+ *
+ * Note / 注意: it mixes two generations of the Notion API — it QUERIES with `data_source_id`
+ * (Notion API v5) but CREATES pages with `parent: { database_id }` (v4 style).
+ * 它混用了两代 Notion API —— 查询走 `data_source_id`（v5），建页却用 `parent: { database_id }`
+ * （v4 写法）。
  */
 
 import fs from 'node:fs';

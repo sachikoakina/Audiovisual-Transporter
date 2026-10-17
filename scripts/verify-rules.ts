@@ -1,0 +1,751 @@
+/*
+ * Verify the pure rules offline: Douban vocabulary, scale conversion, Bangumi↔NeoDB status and
+ * progress mapping, the NeoDB mark merge, title matching, and the Notion property payload builder.
+ * No network, no framework — run with the tsx already in devDependencies.
+ *
+ * Every assertion here is against a literal input and needs no fixture, so it pins the behaviour
+ * completely: if one of these fails, the rule genuinely changed.
+ *
+ * USAGE: npm run verify:rules   (or `npm run verify:all` for every verify script)
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * 离线验证纯规则：豆瓣词汇、分制换算、Bangumi↔NeoDB 的状态与进度映射、NeoDB 标记合并、
+ * 标题匹配、以及 Notion 属性载荷构造。
+ * 不需要网络、不引入测试框架 —— 直接用 devDependencies 里已有的 tsx 运行。
+ *
+ * 这里每条断言都针对字面量输入、不需要 fixture，因此能**完整地**钉住行为：
+ * 其中任何一条失败，都说明规则真的变了。
+ *
+ * 用法：npm run verify:rules（或 `npm run verify:all` 跑全部验证脚本）
+ */
+
+import {
+  ANY_STATUS_PREFIX,
+  DOUBAN_EXPRESSED_STATUSES,
+  LISTEN_STATUS_MAP,
+  PLAY_STATUS_MAP,
+  RATING_TEXT_TO_STARS,
+  READ_STATUS_MAP,
+  SEE_STATUS_MAP,
+  STRIP_STATUS_PREFIX,
+  doubanStarsToTenPoint,
+} from '../src/rules/douban';
+import {
+  BANGUMI_STATUSES_ABSENT_FROM_DOUBAN,
+  BANGUMI_TO_NEODB_STATUS,
+  CATEGORY_TO_BANGUMI_TYPES,
+  NEODB_TO_BANGUMI_COLLECTION,
+  bangumiCollectionToNeodbProgress,
+  neodbItemSupportsProgress,
+} from '../src/rules/bangumi-neodb';
+import { mergeNeodbMark } from '../src/rules/neodb-mark-merge';
+import { normalizeTitleKey, pickExactTmdbMatch } from '../src/rules/tmdb-matching';
+import {
+  NEODB_CATEGORIES_WITHOUT_TMDB,
+  NEODB_TO_TMDB_MEDIA_TYPE,
+  collectTitles,
+  extractImdbIdFromNeodb,
+  extractNeodbYear,
+  extractTmdbTargetFromNeodb,
+  toShelfType,
+} from '../src/rules/tmdb-mapping';
+import {
+  NOTION_COLUMN_TYPES,
+  PAGE_ICON_EMOJI,
+  buildPropertyValue,
+} from '../src/clients/notion';
+import {
+  DB_PROPERTIES,
+  ItemCategory,
+  ItemStatus,
+  NotionPropTypesEnum,
+  type NeodbItem,
+  type NotionNumberPropType,
+  type NotionRichTextPropType,
+  type NotionUrlPropType,
+  type TmdbSearchResult,
+} from '../src/types';
+
+let passed = 0;
+let failed = 0;
+
+function check(name: string, condition: boolean): void {
+  if (condition) {
+    passed += 1;
+    console.log(`  ok   ${name}`);
+  } else {
+    failed += 1;
+    console.error(`FAIL   ${name}`);
+  }
+}
+
+function section(name: string): void {
+  console.log(`\n${name}`);
+}
+
+function neodbItem(over: Partial<NeodbItem> = {}): NeodbItem {
+  return {
+    id: 'item-1',
+    type: 'Movie',
+    uuid: 'uuid-1',
+    url: '/movie/uuid-1',
+    api_url: '/api/movie/uuid-1',
+    category: 'movie',
+    parent_uuid: null,
+    display_title: '搏击俱乐部',
+    title: '搏击俱乐部',
+    brief: '',
+    description: '',
+    cover_image_url: '',
+    rating: 0,
+    rating_count: 0,
+    external_resources: [],
+    ...over,
+  };
+}
+
+function searchResult(over: Partial<TmdbSearchResult> = {}): TmdbSearchResult {
+  return { id: 550, media_type: 'movie', title: '搏击俱乐部', ...over };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Star conversion
+// 星制换算
+// ───────────────────────────────────────────────────────────────────────────
+
+section('doubanStarsToTenPoint — 1–5 星 → 0–10 分');
+
+check('5 stars → 10', doubanStarsToTenPoint(5) === 10);
+check('1 star → 2', doubanStarsToTenPoint(1) === 2);
+check('3 stars → 6', doubanStarsToTenPoint(3) === 6);
+check(
+  '0 / null / undefined all mean unrated → 0',
+  doubanStarsToTenPoint(0) === 0 &&
+    doubanStarsToTenPoint(null) === 0 &&
+    doubanStarsToTenPoint(undefined) === 0,
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// Douban status vocabulary
+// 豆瓣状态词汇
+// ───────────────────────────────────────────────────────────────────────────
+
+section('Douban status vocabulary / 豆瓣状态词汇');
+
+check(
+  'ANY_STATUS_PREFIX matches 看过 / 最近在看 / 想读 / 玩过',
+  ['看过 肖申克的救赎', '最近在看 某剧', '想读 某书', '玩过 某游戏'].every((t) =>
+    Boolean(t.match(ANY_STATUS_PREFIX)?.[1]),
+  ),
+);
+check(
+  'ANY_STATUS_PREFIX captures the status word itself',
+  '看过 肖申克的救赎'.match(ANY_STATUS_PREFIX)?.[1] === '看过',
+);
+check(
+  'ANY_STATUS_PREFIX does not match a title with no status word',
+  ANY_STATUS_PREFIX.test('肖申克的救赎') === false,
+);
+check(
+  'STRIP_STATUS_PREFIX removes the prefix and its trailing space',
+  '看过 肖申克的救赎'.replace(STRIP_STATUS_PREFIX, '') === '肖申克的救赎',
+);
+check(
+  'STRIP_STATUS_PREFIX also removes 最近',
+  '最近在看 某剧'.replace(STRIP_STATUS_PREFIX, '') === '某剧',
+);
+check(
+  'RATING_TEXT_TO_STARS covers all five star words',
+  Object.keys(RATING_TEXT_TO_STARS).length === 5 &&
+    RATING_TEXT_TO_STARS.很差 === 1 &&
+    RATING_TEXT_TO_STARS.力荐 === 5,
+);
+check(
+  'SEE_STATUS_MAP covers 看过 / 在看 / 想看',
+  SEE_STATUS_MAP.看过 === ItemStatus.Complete &&
+    SEE_STATUS_MAP.在看 === ItemStatus.Progress &&
+    SEE_STATUS_MAP.想看 === ItemStatus.Wishlist,
+);
+check(
+  'READ_STATUS_MAP covers 读过 / 在读 / 想读',
+  READ_STATUS_MAP.读过 === ItemStatus.Complete &&
+    READ_STATUS_MAP.在读 === ItemStatus.Progress &&
+    READ_STATUS_MAP.想读 === ItemStatus.Wishlist,
+);
+check(
+  'PLAY_STATUS_MAP covers 玩过 / 在玩 / 想玩',
+  PLAY_STATUS_MAP.玩过 === ItemStatus.Complete &&
+    PLAY_STATUS_MAP.在玩 === ItemStatus.Progress &&
+    PLAY_STATUS_MAP.想玩 === ItemStatus.Wishlist,
+);
+check(
+  'LISTEN_STATUS_MAP covers 听过 / 在听 / 想听',
+  LISTEN_STATUS_MAP.听过 === ItemStatus.Complete &&
+    LISTEN_STATUS_MAP.在听 === ItemStatus.Progress &&
+    LISTEN_STATUS_MAP.想听 === ItemStatus.Wishlist,
+);
+check(
+  'DOUBAN_EXPRESSED_STATUSES has exactly wishlist/progress/complete',
+  DOUBAN_EXPRESSED_STATUSES.size === 3 &&
+    DOUBAN_EXPRESSED_STATUSES.has(ItemStatus.Wishlist) &&
+    DOUBAN_EXPRESSED_STATUSES.has(ItemStatus.Progress) &&
+    DOUBAN_EXPRESSED_STATUSES.has(ItemStatus.Complete),
+);
+check(
+  'DOUBAN_EXPRESSED_STATUSES excludes dropped',
+  DOUBAN_EXPRESSED_STATUSES.has(ItemStatus.Dropped) === false,
+);
+// The four maps must not overlap: 看过 must never be reachable from a book title.
+check(
+  'the four status maps are disjoint',
+  Object.keys(SEE_STATUS_MAP).every(
+    (k) =>
+      !(k in READ_STATUS_MAP) && !(k in PLAY_STATUS_MAP) && !(k in LISTEN_STATUS_MAP),
+  ),
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// Bangumi ↔ NeoDB status mapping
+// Bangumi ↔ NeoDB 状态映射
+// ───────────────────────────────────────────────────────────────────────────
+
+section('Bangumi ↔ NeoDB status mapping / 状态映射');
+
+check(
+  'NEODB_TO_BANGUMI_COLLECTION maps the four statuses',
+  NEODB_TO_BANGUMI_COLLECTION[ItemStatus.Wishlist] === 1 &&
+    NEODB_TO_BANGUMI_COLLECTION[ItemStatus.Complete] === 2 &&
+    NEODB_TO_BANGUMI_COLLECTION[ItemStatus.Progress] === 3 &&
+    NEODB_TO_BANGUMI_COLLECTION[ItemStatus.Dropped] === 5,
+);
+check(
+  'BANGUMI_TO_NEODB_STATUS maps 1/2/3/5 back',
+  BANGUMI_TO_NEODB_STATUS[1] === ItemStatus.Wishlist &&
+    BANGUMI_TO_NEODB_STATUS[2] === ItemStatus.Complete &&
+    BANGUMI_TO_NEODB_STATUS[3] === ItemStatus.Progress &&
+    BANGUMI_TO_NEODB_STATUS[5] === ItemStatus.Dropped,
+);
+check(
+  'BANGUMI_TO_NEODB_STATUS folds 4 (搁置) into progress',
+  BANGUMI_TO_NEODB_STATUS[4] === ItemStatus.Progress,
+);
+check(
+  'round-trip wishlist/complete/progress/dropped is stable',
+  [
+    ItemStatus.Wishlist,
+    ItemStatus.Complete,
+    ItemStatus.Progress,
+    ItemStatus.Dropped,
+  ].every((s) => BANGUMI_TO_NEODB_STATUS[NEODB_TO_BANGUMI_COLLECTION[s]] === s),
+);
+check(
+  'BANGUMI_STATUSES_ABSENT_FROM_DOUBAN is exactly {4, 5}',
+  BANGUMI_STATUSES_ABSENT_FROM_DOUBAN.size === 2 &&
+    BANGUMI_STATUSES_ABSENT_FROM_DOUBAN.has(4) &&
+    BANGUMI_STATUSES_ABSENT_FROM_DOUBAN.has(5),
+);
+check(
+  'every Douban category except drama has Bangumi subject types',
+  [ItemCategory.Movie, ItemCategory.Book, ItemCategory.Music, ItemCategory.Game].every(
+    (c) => (CATEGORY_TO_BANGUMI_TYPES[c] ?? []).length > 0,
+  ),
+);
+check(
+  'drama deliberately has no Bangumi subject type',
+  CATEGORY_TO_BANGUMI_TYPES[ItemCategory.Drama] === undefined,
+);
+check(
+  'movie searches both anime (2) and real (6)',
+  JSON.stringify(CATEGORY_TO_BANGUMI_TYPES[ItemCategory.Movie]) === '[2,6]',
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// Progress mapping
+// 进度映射
+// ───────────────────────────────────────────────────────────────────────────
+
+section('bangumiCollectionToNeodbProgress / 进度映射');
+
+check(
+  'anime (2) with ep_status 12 → episode 12',
+  bangumiCollectionToNeodbProgress({ subject_type: 2, ep_status: 12 })?.type ===
+    'episode' &&
+    bangumiCollectionToNeodbProgress({ subject_type: 2, ep_status: 12 })?.value ===
+      '12',
+);
+check(
+  'real (6) with ep_status 1 → episode 1',
+  bangumiCollectionToNeodbProgress({ subject_type: 6, ep_status: 1 })?.value === '1',
+);
+check(
+  'anime with ep_status 0 → null (do not clear progress)',
+  bangumiCollectionToNeodbProgress({ subject_type: 2, ep_status: 0 }) === null,
+);
+check(
+  'book (1) prefers vol_status → chapter',
+  bangumiCollectionToNeodbProgress({ subject_type: 1, vol_status: 3, ep_status: 9 })
+    ?.type === 'chapter' &&
+    bangumiCollectionToNeodbProgress({ subject_type: 1, vol_status: 3, ep_status: 9 })
+      ?.value === '3',
+);
+check(
+  'book falls back to ep_status when vol_status is 0',
+  bangumiCollectionToNeodbProgress({ subject_type: 1, vol_status: 0, ep_status: 5 })
+    ?.value === '5',
+);
+check(
+  'book with nothing set → null',
+  bangumiCollectionToNeodbProgress({ subject_type: 1 }) === null,
+);
+check(
+  'music (3) with ep_status 4 → track 4',
+  bangumiCollectionToNeodbProgress({ subject_type: 3, ep_status: 4 })?.type === 'track',
+);
+check(
+  'game (4) is never mapped → null',
+  bangumiCollectionToNeodbProgress({ subject_type: 4, ep_status: 20 }) === null,
+);
+
+section('neodbItemSupportsProgress / 进度类型与目标分类的兼容性');
+
+check(
+  'episode + tv → allowed',
+  neodbItemSupportsProgress({ category: 'tv' }, { type: 'episode', value: '1' }),
+);
+check(
+  'episode + movie → refused (movie shares subject_type 6 with TV)',
+  neodbItemSupportsProgress({ category: 'movie' }, { type: 'episode', value: '1' }) ===
+    false,
+);
+check(
+  'chapter + book → allowed',
+  neodbItemSupportsProgress({ category: 'book' }, { type: 'chapter', value: '1' }),
+);
+check(
+  'chapter + movie → refused',
+  neodbItemSupportsProgress({ category: 'movie' }, { type: 'chapter', value: '1' }) ===
+    false,
+);
+check(
+  'page + book → allowed',
+  neodbItemSupportsProgress({ category: 'book' }, { type: 'page', value: '1' }),
+);
+check(
+  'track + music → allowed',
+  neodbItemSupportsProgress({ category: 'music' }, { type: 'track', value: '1' }),
+);
+check(
+  'track + book → refused',
+  neodbItemSupportsProgress({ category: 'book' }, { type: 'track', value: '1' }) ===
+    false,
+);
+check(
+  'unknown type + movie (by category or type field) → refused',
+  neodbItemSupportsProgress({ category: 'movie' }, { type: 'cycle', value: '1' }) ===
+    false &&
+    neodbItemSupportsProgress({ type: 'movie' }, { type: 'cycle', value: '1' }) ===
+      false,
+);
+check(
+  'unknown type + book → allowed (do not silently drop the progress)',
+  neodbItemSupportsProgress({ category: 'book' }, { type: 'cycle', value: '1' }),
+);
+check(
+  'category matching is case-insensitive',
+  neodbItemSupportsProgress({ category: 'TV' }, { type: 'episode', value: '1' }),
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// NeoDB mark merge
+// NeoDB 标记合并
+// ───────────────────────────────────────────────────────────────────────────
+
+section('mergeNeodbMark / 标记合并');
+
+const source = { shelfType: 'complete', ratingGrade: 8, comment: '来自豆瓣' };
+
+{
+  const merged = mergeNeodbMark(null, source, 'neodb_prefer', 2);
+  check('no existing mark → write source values', merged.shouldWrite);
+  check('no existing mark → rating/comment come from source', merged.ratingGrade === 8);
+  check(
+    'no existing mark → keptRating/keptComment are false',
+    !merged.keptRating && !merged.keptComment,
+  );
+}
+
+{
+  const existing = {
+    shelf_type: 'complete',
+    visibility: 2,
+    rating_grade: 10,
+    comment_text: 'NeoDB 原有',
+  };
+  const merged = mergeNeodbMark(existing, source, 'neodb_prefer', 2);
+  check('neodb_prefer keeps the existing rating', merged.ratingGrade === 10);
+  check('neodb_prefer keeps the existing comment', merged.comment === 'NeoDB 原有');
+  check(
+    'neodb_prefer reports which fields were kept',
+    merged.keptRating && merged.keptComment,
+  );
+  check(
+    'neodb_prefer with identical status → no write needed',
+    merged.shouldWrite === false,
+  );
+}
+
+{
+  const existing = {
+    shelf_type: 'progress',
+    visibility: 2,
+    rating_grade: 0,
+    comment_text: '',
+  };
+  const merged = mergeNeodbMark(existing, source, 'neodb_prefer', 2);
+  check(
+    'neodb_prefer with an empty existing rating still takes the source rating',
+    merged.ratingGrade === 8,
+  );
+  check(
+    'neodb_prefer fills an empty comment from source',
+    merged.comment === '来自豆瓣',
+  );
+  check(
+    'kept flags stay false when nothing was kept',
+    !merged.keptRating && !merged.keptComment,
+  );
+  check('a status change forces a write', merged.shouldWrite);
+}
+
+{
+  const existing = {
+    shelf_type: 'wishlist',
+    visibility: 2,
+    rating_grade: 3,
+    comment_text: 'x',
+  };
+  const merged = mergeNeodbMark(existing, source, 'overwrite', 2);
+  check('overwrite replaces the rating', merged.ratingGrade === 8);
+  check('overwrite replaces the comment', merged.comment === '来自豆瓣');
+  check(
+    'overwrite never reports kept fields',
+    !merged.keptRating && !merged.keptComment,
+  );
+}
+
+{
+  const existing = {
+    shelf_type: 'complete',
+    visibility: 0,
+    rating_grade: 8,
+    comment_text: '来自豆瓣',
+  };
+  const merged = mergeNeodbMark(existing, source, 'overwrite', 2);
+  check(
+    'a visibility mismatch forces a write even when everything else matches',
+    merged.shouldWrite,
+  );
+}
+
+{
+  const existing = {
+    shelf_type: 'complete',
+    visibility: 2,
+    rating_grade: 8,
+    comment_text: '来自豆瓣',
+  };
+  const merged = mergeNeodbMark(existing, source, 'overwrite', 2);
+  check(
+    'fully identical mark → shouldWrite false (idempotent)',
+    merged.shouldWrite === false,
+  );
+}
+
+{
+  const merged = mergeNeodbMark(
+    { shelf_type: 'complete', rating_grade: 0, comment_text: '' },
+    source,
+    'overwrite',
+    2,
+  );
+  check(
+    'a missing existing visibility is compared against target visibility, not treated as absent',
+    merged.shouldWrite === true,
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Title matching
+// 标题匹配
+// ───────────────────────────────────────────────────────────────────────────
+
+section('normalizeTitleKey / pickExactTmdbMatch / 标题匹配');
+
+check('normalizeTitleKey folds case', normalizeTitleKey('The Matrix') === 'thematrix');
+check(
+  'normalizeTitleKey strips all whitespace, including inner runs',
+  normalizeTitleKey('  The   Matrix  ') === 'thematrix',
+);
+check(
+  'different spacing/case collide on the same key',
+  normalizeTitleKey('Fight Club') === normalizeTitleKey('fight  club'),
+);
+check(
+  'pickExactTmdbMatch accepts an exact normalised title',
+  pickExactTmdbMatch([searchResult()], '搏击俱乐部')?.id === 550,
+);
+check(
+  'pickExactTmdbMatch is case-insensitive',
+  pickExactTmdbMatch([searchResult({ title: 'Fight Club' })], 'fight club')?.id === 550,
+);
+check(
+  'pickExactTmdbMatch never settles for a near match',
+  pickExactTmdbMatch([searchResult({ title: '搏击俱乐部 2' })], '搏击俱乐部') === null,
+);
+check(
+  'pickExactTmdbMatch returns null for an empty title',
+  pickExactTmdbMatch([searchResult()], '   ') === null,
+);
+check(
+  'year within tolerance (±1) is accepted',
+  pickExactTmdbMatch([searchResult({ release_date: '1999-10-15' })], '搏击俱乐部', 2000)
+    ?.id === 550,
+);
+check(
+  'year outside tolerance is rejected',
+  pickExactTmdbMatch(
+    [searchResult({ release_date: '1980-01-01' })],
+    '搏击俱乐部',
+    2000,
+  ) === null,
+);
+check(
+  'a result with no date is rejected when a year is expected',
+  pickExactTmdbMatch([searchResult()], '搏击俱乐部', 2000) === null,
+);
+check(
+  'a result with no date is accepted when no year is expected',
+  pickExactTmdbMatch([searchResult()], '搏击俱乐部')?.id === 550,
+);
+check(
+  'TV results are matched via `name`',
+  pickExactTmdbMatch([searchResult({ title: undefined, name: '某剧' })], '某剧')?.id ===
+    550,
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// NeoDB → TMDB extractors (the rest are covered by verify-tmdb-mapping)
+// NeoDB → TMDB 提取函数（其余由 verify-tmdb-mapping 覆盖）
+// ───────────────────────────────────────────────────────────────────────────
+
+section('NeoDB extractors / NeoDB 提取函数');
+
+check(
+  'NEODB_TO_TMDB_MEDIA_TYPE only knows movie and tv',
+  Object.keys(NEODB_TO_TMDB_MEDIA_TYPE).length === 2 &&
+    NEODB_TO_TMDB_MEDIA_TYPE.movie === 'movie' &&
+    NEODB_TO_TMDB_MEDIA_TYPE.tv === 'tv',
+);
+check(
+  'NEODB_CATEGORIES_WITHOUT_TMDB lists the five unsyncable categories',
+  NEODB_CATEGORIES_WITHOUT_TMDB.size === 5 &&
+    NEODB_CATEGORIES_WITHOUT_TMDB.has('book') &&
+    NEODB_CATEGORIES_WITHOUT_TMDB.has('performance'),
+);
+check(
+  'toShelfType accepts the four shelf types',
+  toShelfType('wishlist') === 'wishlist' &&
+    toShelfType('progress') === 'progress' &&
+    toShelfType('complete') === 'complete' &&
+    toShelfType('dropped') === 'dropped',
+);
+check('toShelfType rejects anything else', toShelfType('watched') === null);
+check(
+  'extractNeodbYear prefers `year`',
+  extractNeodbYear(neodbItem({ year: 1999, pub_year: 2001 })) === 1999,
+);
+check(
+  'extractNeodbYear falls back to `pub_year` for books',
+  extractNeodbYear(neodbItem({ pub_year: 2001 })) === 2001,
+);
+check(
+  'extractNeodbYear ignores 0 and negative values',
+  extractNeodbYear(neodbItem({ year: 0 })) === undefined,
+);
+check(
+  'extractImdbIdFromNeodb reads the tt id',
+  extractImdbIdFromNeodb(
+    neodbItem({
+      external_resources: [{ url: 'https://www.imdb.com/title/tt0137523/' }],
+    }),
+  ) === 'tt0137523',
+);
+check(
+  'extractImdbIdFromNeodb returns null without an IMDb link',
+  extractImdbIdFromNeodb(neodbItem({ external_resources: [] })) === null,
+);
+check(
+  'extractTmdbTargetFromNeodb parses both media types',
+  extractTmdbTargetFromNeodb(
+    neodbItem({ external_resources: [{ url: 'https://www.themoviedb.org/tv/1399' }] }),
+  )?.mediaType === 'tv',
+);
+check(
+  'extractTmdbTargetFromNeodb returns null without a TMDB link',
+  extractTmdbTargetFromNeodb(neodbItem()) === null,
+);
+check(
+  'collectTitles de-duplicates and keeps display_title first',
+  JSON.stringify(
+    collectTitles(
+      neodbItem({
+        display_title: '搏击俱乐部',
+        title: '搏击俱乐部',
+        localized_title: [{ text: 'Fight Club' }],
+      }),
+    ),
+  ) === JSON.stringify(['搏击俱乐部', 'Fight Club']),
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// Notion property payloads
+// Notion 属性载荷
+// ───────────────────────────────────────────────────────────────────────────
+
+section('buildPropertyValue / Notion 属性载荷');
+
+check(
+  'NOTION_COLUMN_TYPES covers every column except NAME',
+  Object.keys(NOTION_COLUMN_TYPES).length === Object.keys(DB_PROPERTIES).length - 1 &&
+    !('NAME' in NOTION_COLUMN_TYPES),
+);
+check(
+  'PAGE_ICON_EMOJI has one icon per Douban category',
+  Object.keys(PAGE_ICON_EMOJI).length === 5 && PAGE_ICON_EMOJI.movie === '🎞',
+);
+
+check(
+  'TITLE → {title:[{text:{content}}]}',
+  JSON.stringify(buildPropertyValue('标题', NotionPropTypesEnum.TITLE, 'k')) ===
+    JSON.stringify({
+      type: 'title',
+      title: [{ text: { content: '标题' } }],
+    }),
+);
+check(
+  'FILES → an external file whose url is the value',
+  (
+    buildPropertyValue(
+      'https://img1.doubanio.com/a.jpg',
+      NotionPropTypesEnum.FILES,
+      'k',
+    ) as any
+  ).files[0].external.url === 'https://img1.doubanio.com/a.jpg',
+);
+check(
+  'DATE → {date:{start}}',
+  (buildPropertyValue('1999-10-15', NotionPropTypesEnum.DATE, 'k') as any).date
+    .start === '1999-10-15',
+);
+check(
+  'URL → {url}',
+  (
+    buildPropertyValue(
+      'https://example.com',
+      NotionPropTypesEnum.URL,
+      'k',
+    ) as NotionUrlPropType
+  ).url === 'https://example.com',
+);
+check(
+  'MULTI_SELECT for 个人评分 carries a single value, not an array',
+  (
+    buildPropertyValue(
+      '5',
+      NotionPropTypesEnum.MULTI_SELECT,
+      DB_PROPERTIES.RATING,
+    ) as any
+  ).multi_select[0].name === '5',
+);
+check(
+  'MULTI_SELECT for 个人评分 with no value → empty list (never [undefined])',
+  (
+    buildPropertyValue(
+      null,
+      NotionPropTypesEnum.MULTI_SELECT,
+      DB_PROPERTIES.RATING,
+    ) as any
+  ).multi_select.length === 0,
+);
+check(
+  'MULTI_SELECT for 类型 maps an array of names',
+  (
+    buildPropertyValue(
+      ['剧情', '犯罪'],
+      NotionPropTypesEnum.MULTI_SELECT,
+      DB_PROPERTIES.GENRE,
+    ) as any
+  ).multi_select.length === 2,
+);
+check(
+  'RICH_TEXT → a single text block',
+  (
+    buildPropertyValue(
+      '短评',
+      NotionPropTypesEnum.RICH_TEXT,
+      'k',
+    ) as NotionRichTextPropType
+  ).rich_text[0].text.content === '短评',
+);
+check(
+  'RICH_TEXT with an empty value → empty string, not undefined',
+  (
+    buildPropertyValue(
+      undefined,
+      NotionPropTypesEnum.RICH_TEXT,
+      'k',
+    ) as NotionRichTextPropType
+  ).rich_text[0].text.content === '',
+);
+check(
+  'RICH_TEXT is truncated to 2000 characters (Notion 400s above that)',
+  (
+    buildPropertyValue(
+      'x'.repeat(3000),
+      NotionPropTypesEnum.RICH_TEXT,
+      'k',
+    ) as NotionRichTextPropType
+  ).rich_text[0].text.content.length === 2000,
+);
+check(
+  'RICH_TEXT keeps a 2000-character value intact',
+  (
+    buildPropertyValue(
+      'x'.repeat(2000),
+      NotionPropTypesEnum.RICH_TEXT,
+      'k',
+    ) as NotionRichTextPropType
+  ).rich_text[0].text.content.length === 2000,
+);
+check(
+  'NUMBER keeps a positive integer',
+  (buildPropertyValue(9, NotionPropTypesEnum.NUMBER, 'k') as NotionNumberPropType)
+    .number === 9,
+);
+check(
+  'NUMBER maps 0 to null (so Notion does not render a literal 0)',
+  (buildPropertyValue(0, NotionPropTypesEnum.NUMBER, 'k') as NotionNumberPropType)
+    .number === null,
+);
+check(
+  'an unknown property type yields undefined, so the caller skips that column',
+  buildPropertyValue('x', 'not-a-type' as NotionPropTypesEnum, 'k') === undefined,
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) {
+  process.exitCode = 1;
+}

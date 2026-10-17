@@ -1,0 +1,456 @@
+/**
+ * NeoDB shelf client — item marks, progress, and shelf listing.
+ * NeoDB 书架客户端 —— 条目标记、进度、以及书架列表。
+ *
+ * Scope: everything that touches the current user's own shelf. Catalogue lookup lives in
+ * `neodb-catalog.ts`; credentials and transport helpers live in `neodb-http.ts`.
+ * 范围：一切涉及当前用户自己书架的操作。目录查询在 `neodb-catalog.ts`；凭据与传输助手在
+ * `neodb-http.ts`。
+ */
+import { HTTPError } from 'got';
+import { consola } from 'consola';
+import { DOUBAN_EXPRESSED_STATUSES, doubanStarsToTenPoint } from '../rules/douban';
+import { mergeNeodbMark } from '../rules/neodb-mark-merge';
+import { neodbTmdbConfig, syncConfig } from '../sync-config';
+import {
+  logNeodbUnauthorized,
+  neodbAuthHeaders,
+  neodbClient,
+  neodbFailureCode,
+  neodbThrottle,
+  neodbToken,
+  neodbVisibility,
+  redirectUrlFromError,
+} from './neodb-http';
+import { fetchNeodbItemByUrl } from './neodb-catalog';
+import {
+  ItemStatus,
+  type FeedItem,
+  type ItemSyncOutcome,
+  type NeodbItem,
+  type NeodbMe,
+  type NeodbPagedMark,
+  type NeodbProgressType,
+  type ShelfType,
+} from '../types';
+
+/** The current user's mark on one catalog item (no item payload — see `NeodbShelfMark`). / 当前用户在某条目录条目上的标记（不含条目内容，条目级结构见 `NeodbShelfMark`）。 */
+export type NeodbMark = {
+  shelf_type: ItemStatus | string;
+  visibility?: number;
+  comment_text?: string;
+  rating_grade?: number;
+  created_time?: string;
+};
+
+/**
+ * Get the current user's mark for a NeoDB item. Returns null if not marked.
+ * 取当前用户在某条 NeoDB 条目上的标记；未标记时返回 null。
+ */
+export async function getNeodbMark(uuid: string): Promise<NeodbMark | null> {
+  if (!neodbToken) {
+    return null;
+  }
+
+  try {
+    return (await neodbClient(`api/me/shelf/item/${uuid}`, {
+      headers: neodbAuthHeaders(),
+    }).json()) as NeodbMark;
+  } catch (error: any) {
+    if (error.code === 'ERR_NON_2XX_3XX_RESPONSE') {
+      return null;
+    }
+    consola.error("Query item's mark with error code: ", error.code);
+    return null;
+  }
+}
+
+export type MarkNeodbOptions = {
+  shelfType: ItemStatus | string;
+  comment?: string | null;
+  /** Douban 1–5 stars; will be converted to a 0–10 grade. Pass null to clear. / 豆瓣 1–5 星；会换算为 0–10 分。传 null 表示清空。 */
+  rating?: number | null;
+  /** Already in the NeoDB 0–10 scale. Takes precedence over `rating` when set. / 已是 NeoDB 的 0–10 分制；设置时优先于 `rating`。 */
+  ratingGrade?: number | null;
+  createdTime?: string | null;
+  visibility?: number;
+};
+
+/**
+ * Mark (create or update) an item on the current user's NeoDB shelf.
+ * 在当前用户的 NeoDB 书架上看护（新建或更新）一个条目。
+ *
+ * Note: `post_to_fediverse` is pinned to `false` so a sync never posts to the fediverse.
+ * 注意：`post_to_fediverse` 固定为 `false`，使同步永远不会向联邦宇宙发帖。
+ */
+export async function markNeodbItem(
+  neodbItem: NeodbItem,
+  options: MarkNeodbOptions,
+): Promise<boolean> {
+  if (!neodbToken) {
+    return false;
+  }
+
+  const label = `${neodbItem.title || neodbItem.display_title}[${neodbItem.uuid}]`;
+  consola.info('Going to mark on NeoDB: ', label);
+
+  let ratingGrade = 0;
+  if (options.ratingGrade != null) {
+    ratingGrade = options.ratingGrade;
+  } else {
+    ratingGrade = doubanStarsToTenPoint(options.rating);
+  }
+
+  try {
+    await neodbClient.post(`api/me/shelf/item/${neodbItem.uuid}`, {
+      headers: neodbAuthHeaders(),
+      json: {
+        shelf_type: options.shelfType,
+        visibility: options.visibility ?? neodbVisibility,
+        comment_text: options.comment || '',
+        rating_grade: ratingGrade,
+        created_time: options.createdTime || undefined,
+        post_to_fediverse: false,
+      },
+    });
+    return true;
+  } catch (error) {
+    consola.error('Failed to mark item: ', neodbItem?.title, ' with error: ', error);
+    return false;
+  }
+}
+
+export type NeodbProgress = {
+  type: NeodbProgressType | null;
+  value: string | null;
+};
+
+async function neodbProgressRequest<T>(
+  method: 'get' | 'post',
+  url: string,
+  json?: { type: NeodbProgressType; value: string },
+  retried = false,
+): Promise<T | null> {
+  if (!neodbToken) {
+    return null;
+  }
+
+  try {
+    const options = {
+      headers: neodbAuthHeaders(),
+      followRedirect: false,
+      throwHttpErrors: true,
+      ...(json ? { json } : {}),
+    };
+    if (method === 'post') {
+      return (await neodbClient.post(url, options).json()) as T;
+    }
+    return (await neodbClient(url, options).json()) as T;
+  } catch (error) {
+    const status = error instanceof HTTPError ? error.response.statusCode : 0;
+    // GET merge → 302; POST/DELETE merge → 307. Retry once against the returned url.
+    // GET 合并返回 302，POST/DELETE 合并返回 307。按返回的 url 重试一次。
+    if (error instanceof HTTPError && (status === 302 || status === 307) && !retried) {
+      const redirected = redirectUrlFromError(error);
+      if (redirected) {
+        consola.info('NeoDB progress redirected, retry: ', redirected);
+        return neodbProgressRequest<T>(method, redirected, json, true);
+      }
+    }
+    if (error instanceof HTTPError && status === 404) {
+      return null;
+    }
+    if (error instanceof HTTPError) {
+      const body = error.response.body;
+      consola.error(
+        'NeoDB progress request failed: ',
+        `${status} ${error.message}`,
+        typeof body === 'string' ? body : body,
+      );
+      return null;
+    }
+    consola.error('NeoDB progress request failed: ', error);
+    return null;
+  }
+}
+
+function neodbProgressUrl(uuid: string): string {
+  return `api/me/shelf/item/${uuid}/progress`;
+}
+
+export async function getNeodbProgress(uuid: string): Promise<NeodbProgress | null> {
+  return neodbProgressRequest<NeodbProgress>('get', neodbProgressUrl(uuid));
+}
+
+export async function setNeodbProgress(
+  neodbItem: NeodbItem,
+  progress: { type: NeodbProgressType; value: string },
+): Promise<boolean> {
+  const label = `${neodbItem.title || neodbItem.display_title}[${neodbItem.uuid}]`;
+  consola.info(
+    'Going to set NeoDB progress: ',
+    `${label} ${progress.type}=${progress.value}`,
+  );
+  const result = await neodbProgressRequest<NeodbProgress>(
+    'post',
+    neodbProgressUrl(neodbItem.uuid),
+    progress,
+  );
+  return result != null;
+}
+
+/**
+ * Sync one Douban RSS item to NeoDB: fetch by link, compare the mark, update only if needed.
+ * 把一条豆瓣 RSS 条目同步到 NeoDB：按链接抓取、比较标记、仅在需要时更新。
+ *
+ * @returns The `ItemSyncOutcome` for this single item, so the caller's report adds up.
+ *   该单条条目的 `ItemSyncOutcome`，使调用方的报告自洽。
+ */
+export async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
+  const neodbItem = await fetchNeodbItemByUrl(item.link);
+  if (!neodbItem?.uuid) {
+    // No catalog counterpart on NeoDB. A data gap, not an error — do not turn CI red.
+    // NeoDB 目录里没有对应条目。这是数据缺口而非错误 —— 不应让 CI 变红。
+    return 'unresolved';
+  }
+
+  const label = `${neodbItem.title}[${item.link}]`;
+  consola.info('Going to check item mark status: ', label);
+
+  const mark = await getNeodbMark(neodbItem.uuid);
+  const sourceGrade = doubanStarsToTenPoint(item.rating);
+
+  if (!mark) {
+    consola.info('Item is not marked, going to mark now: ', label);
+    const ok = await markNeodbItem(neodbItem, {
+      shelfType: item.status,
+      comment: item.comment,
+      ratingGrade: sourceGrade,
+      createdTime: item.time,
+    });
+    return ok ? 'written' : 'failed';
+  }
+
+  // Preserve NeoDB statuses Douban RSS cannot express (e.g. dropped ← Bangumi 搁置/抛弃).
+  // 保留豆瓣 RSS 无法表达的目标端状态（例如 dropped ← Bangumi 的搁置/抛弃）。
+  const existingStatus = mark.shelf_type as ItemStatus;
+  if (existingStatus && !DOUBAN_EXPRESSED_STATUSES.has(existingStatus)) {
+    consola.info(
+      'NeoDB has Douban-absent status, skip overwrite: ',
+      `${label} shelf_type=${mark.shelf_type}`,
+    );
+    return 'skipped';
+  }
+
+  const merged = mergeNeodbMark(
+    mark,
+    {
+      shelfType: item.status,
+      ratingGrade: sourceGrade,
+      comment: item.comment || '',
+    },
+    syncConfig.doubanNeodbMerge,
+    neodbVisibility,
+  );
+
+  if (!merged.shouldWrite) {
+    consola.info('NeoDB mark unchanged, skip: ', label);
+    return 'unchanged';
+  }
+
+  if (merged.keptRating || merged.keptComment) {
+    consola.info(
+      'NeoDB prefer: keeping existing ',
+      [merged.keptRating ? 'rating' : null, merged.keptComment ? 'comment' : null]
+        .filter(Boolean)
+        .join('+'),
+      ' on ',
+      label,
+    );
+  }
+
+  consola.info('Item mark changed, going to update: ', label);
+  const ok = await markNeodbItem(neodbItem, {
+    shelfType: merged.shelfType,
+    comment: merged.comment,
+    ratingGrade: merged.ratingGrade,
+    createdTime: item.time,
+  });
+  return ok ? 'written' : 'failed';
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Shelf listing
+// 书架列表
+//
+// Verified endpoints (see README "接口依据" for sources):
+//   GET /api/token                            → credential probe
+//   GET /api/me                               → current account
+//   GET /api/me/shelf/{type}?category=&page=  → PagedMarkSchema
+//
+// `type` is a PATH parameter, not a query parameter. That is the single most
+// likely integration bug here, hence the explicit URL construction below.
+//
+// Unlike the per-item calls above, this half goes through `neodbShelfClient`,
+// which honours the configurable `NEODB_BASE_URL` (self-hosted instances).
+//
+// 已验证的端点（来源见 README「接口依据」）：
+//   GET /api/token                            → 凭据探测
+//   GET /api/me                               → 当前账号
+//   GET /api/me/shelf/{type}?category=&page=  → PagedMarkSchema
+//
+// `type` 是**路径参数**，不是查询参数。这是本处最容易踩的集成坑，因此下面的 URL 显式拼接。
+//
+// 与上面的条目级调用不同，本部分经由 `neodbShelfClient`，它遵守可配置的 `NEODB_BASE_URL`
+// （用于自建实例）。
+// ───────────────────────────────────────────────────────────────────────────
+
+// Extends `neodbClient`, so the base URL is inherited from the one place that knows it; only the
+// retry/timeout policy is overridden here.
+// 从 `neodbClient` 扩展而来，因此 base URL 继承自唯一了解它的地方；这里只覆盖重试/超时策略。
+const neodbShelfClient = neodbClient.extend({
+  headers: { accept: 'application/json' },
+  timeout: { request: 30000 },
+  retry: {
+    limit: 3,
+    methods: ['GET'],
+    statusCodes: [408, 429, 500, 502, 503, 504],
+    errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN'],
+    calculateDelay: ({ attemptCount, error, computedValue }) => {
+      const retryAfter = Number(error?.response?.headers?.['retry-after']);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        return retryAfter * 1000;
+      }
+      return Math.min(2 ** attemptCount * 500, 8000) || computedValue;
+    },
+  },
+});
+
+/** GET /api/token — cheap way to validate credentials before a full run. / GET /api/token —— 在整轮运行前低成本校验凭据。 */
+export async function verifyNeodbToken(): Promise<boolean> {
+  if (!neodbToken) {
+    return false;
+  }
+  try {
+    await neodbShelfClient('api/token', { headers: neodbAuthHeaders() });
+    return true;
+  } catch (error) {
+    if (error instanceof HTTPError && error.response.statusCode === 401) {
+      logNeodbUnauthorized();
+    } else {
+      consola.error('NeoDB token check failed: ', neodbFailureCode(error));
+    }
+    return false;
+  }
+}
+
+/** `GET /api/me` — the current account. / `GET /api/me` —— 当前账号。 */
+export async function getNeodbMe(): Promise<NeodbMe | null> {
+  if (!neodbToken) {
+    return null;
+  }
+  try {
+    return (await neodbShelfClient('api/me', {
+      headers: neodbAuthHeaders(),
+    }).json()) as NeodbMe;
+  } catch (error) {
+    if (error instanceof HTTPError && error.response.statusCode === 401) {
+      logNeodbUnauthorized();
+    } else {
+      consola.error('Failed to fetch NeoDB account: ', neodbFailureCode(error));
+    }
+    return null;
+  }
+}
+
+/**
+ * One page of GET /api/me/shelf/{type}.
+ * Returns null on failure so callers can tell "error" from "empty page".
+ *
+ * GET /api/me/shelf/{type} 的一页。失败时返回 null，使调用方能区分「出错」与「空页」。
+ */
+export async function fetchShelfPage(options: {
+  shelfType: ShelfType;
+  category?: string;
+  page: number;
+}): Promise<NeodbPagedMark | null> {
+  if (!neodbToken) {
+    return null;
+  }
+
+  const searchParams: Record<string, string | number> = { page: options.page };
+  if (options.category) {
+    searchParams.category = options.category;
+  }
+
+  try {
+    const result = (await neodbShelfClient(`api/me/shelf/${options.shelfType}`, {
+      headers: neodbAuthHeaders(),
+      searchParams,
+    }).json()) as NeodbPagedMark;
+
+    // Defensive: the shape is verified, but a proxy or a fork could differ.
+    // 防御性处理：结构已实测，但代理或分支实现可能不同。
+    if (!Array.isArray(result?.data)) {
+      consola.warn(
+        `Unexpected shelf response for ${options.shelfType} page ${options.page}; treating as empty.`,
+      );
+      return { data: [], pages: 1, count: 0 };
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof HTTPError && error.response.statusCode === 401) {
+      logNeodbUnauthorized();
+    } else if (error instanceof HTTPError && error.response.statusCode === 404) {
+      consola.warn(
+        `Shelf "${options.shelfType}" returned 404 — it may not exist on this instance.`,
+      );
+    } else {
+      consola.error(
+        `Failed to fetch shelf ${options.shelfType} page ${options.page}: `,
+        neodbFailureCode(error),
+      );
+    }
+    return null;
+  }
+}
+
+/**
+ * Walk the pages of one shelf, up to `neodbTmdbConfig.maxPages`.
+ * Stops early on an empty page or when the reported page count is reached.
+ *
+ * 遍历某个书架的分页，最多到 `neodbTmdbConfig.maxPages`。遇到空页或已达到上报的总页数时提前停止。
+ */
+export async function fetchShelf(
+  shelfType: ShelfType,
+  category?: string,
+): Promise<NeodbPagedMark['data']> {
+  const collected: NeodbPagedMark['data'] = [];
+
+  for (let page = 1; page <= neodbTmdbConfig.neodb.maxPages; page += 1) {
+    const result = await fetchShelfPage({ shelfType, category, page });
+    if (result === null) {
+      consola.warn(`Aborting shelf "${shelfType}" at page ${page} after an error.`);
+      break;
+    }
+    if (result.data.length === 0) {
+      break;
+    }
+
+    collected.push(...result.data);
+
+    const reportedPages = Number(result.pages);
+    if (Number.isFinite(reportedPages) && page >= reportedPages) {
+      break;
+    }
+    if (page === neodbTmdbConfig.neodb.maxPages) {
+      consola.warn(
+        `Shelf "${shelfType}" hit NEODB_MAX_PAGES (${neodbTmdbConfig.neodb.maxPages}); more items remain.`,
+      );
+      break;
+    }
+    await neodbThrottle();
+  }
+
+  return collected;
+}

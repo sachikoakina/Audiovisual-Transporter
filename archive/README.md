@@ -1,9 +1,21 @@
+> ⚠️ **已废弃 / DEPRECATED** —— 本目录下的脚本仅作追溯用途，不在任何检查范围内：`tsconfig.include`
+> 不含它，`eslint.config.js` 与 `.prettierignore` 都忽略 `archive/`；它们依赖的 `puppeteer`、`lowdb`
+> 也根本不在 `package.json` 里。**不要据这些脚本推断当前的同步逻辑** —— 现行逻辑在 `src/`。
+>
+> ⚠️ **Deprecated** — the scripts here are kept for provenance only and are outside every check
+> (`tsconfig.include`, `eslint.config.js`, `.prettierignore`). Their dependencies (`puppeteer`,
+> `lowdb`) are not in `package.json`. Do not read them as the current sync behaviour.
+
 ## Puppeteer crawler
 
 这个文件夹里是之前尝试用 puppeteer 去爬取豆瓣电影条目页面的数据的一些脚本。
 主要流程如下：
 
-1. 首先使用油猴脚本 [`export.user.js`](../export.user.js) 从豆瓣上导出自己标记的电影条目数据，得到的是一个 csv 文件。数据格式大致如下：
+> 另见 `update-notion.ts`（原 `scripts/update-notion.ts`，已于结构重构时归档到此）：它读取油猴脚本
+> 导出的 csv，抓取豆瓣电影条目页并**直接创建 Notion 页面**。它已被 `src/paths/douban-to-notion.ts`
+> 的常态化同步覆盖，且重复实现了一份豆瓣条目页解析（缺少 PoW / CookieJar 处理），因此不再维护。
+
+1. 首先使用油猴脚本 [`export.user.js`](../userscript/export.user.js) 从豆瓣上导出自己标记的电影条目数据，得到的是一个 csv 文件。数据格式大致如下：
 
 ```csv
 title,rate,rate_date,link,comment

@@ -11,9 +11,5 @@
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": [
-    "src/**/*.ts",
-    "scripts/probe-neodb-shelf.ts",
-    "scripts/verify-tmdb-mapping.ts"
-  ]
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
 }

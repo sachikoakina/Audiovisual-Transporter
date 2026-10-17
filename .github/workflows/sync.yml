@@ -1,21 +1,48 @@
 # Timed / manual sync: Douban RSS and Bangumi → configured destinations.
+# 定时 / 手动同步：豆瓣 RSS 与 Bangumi → 各自配置的目标端。
 name: sync
 
+# Least privilege. This workflow only reads the repository and talks to external APIs; without an
+# explicit block the token's permissions come from the repository default, which may be far broader
+# than anything here needs.
+# 最小权限。本工作流只读取仓库并与外部 API 通信；不显式声明时，令牌权限取自仓库默认设置，
+# 可能远宽于这里的任何需要。
+permissions:
+  contents: read
+
+# Never let two syncs overlap. A second run would race the first for `.cache/` state and could
+# double-write to Notion / NeoDB / TMDB. `cancel-in-progress: false` is deliberate: cancelling a
+# half-finished sync is worse than queueing the next one.
+# 绝不让两次同步重叠。第二次运行会与第一次争用 `.cache/` 状态，并可能向 Notion / NeoDB / TMDB
+# 重复写入。`cancel-in-progress: false` 是刻意的：中断一次做到一半的同步，比让下一次排队更糟。
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
 on:
-  workflow_dispatch: # manual trigger
+  workflow_dispatch: # manual trigger / 手动触发
   schedule:
     # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events
-    # Runs every 6 hours
+    # Every Monday at 08:00 UTC (the line below is the schedule; the old "every 6 hours" note was wrong)
+    # 每周一 08:00 UTC（调度以下面这行为准；原先"每 6 小时"的注释是错的）
     - cron: '0 8 * * 1'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A hung network call would otherwise burn the default 360-minute budget. The run itself is
+    # paced by NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS and capped by SYNC_MAX_ITEMS /
+    # NEODB_MAX_PAGES, so an hour is generous.
+    # 否则一次卡住的网络调用会烧掉默认的 360 分钟额度。运行本身已受
+    # NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS 节流，并由 SYNC_MAX_ITEMS / NEODB_MAX_PAGES
+    # 封顶，因此一小时足够宽裕。
+    timeout-minutes: 60
 
     strategy:
       matrix:
         node-version: [24.x]
         # See supported Node.js release schedule at https://nodejs.org/en/about/previous-releases
+        # Node.js 支持周期见上方链接
 
     env:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -83,4 +110,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm ci
+      # Gate the sync on the offline assertions. They need no credentials and no network, so they
+      # cost seconds — and a rule that silently changed should stop the run before it writes
+      # anything to Notion / NeoDB / TMDB.
+      # 用离线断言给同步设门禁。它们不需要凭据也不需要网络，只需几秒；而规则若被悄悄改坏，
+      # 应当**在**任何内容写入 Notion / NeoDB / TMDB 之前就把这一轮拦下来。
+      - run: npm run verify:all || exit 1
       - run: npm run sync || exit 1

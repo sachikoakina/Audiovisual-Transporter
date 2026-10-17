@@ -10,12 +10,30 @@
  *
  * Requires NEODB_API_TOKEN in .env. Writes raw responses to .cache/probe-*.json
  * (git-ignored), and prints a field-by-field summary to the console.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * 探测真实的 NeoDB 书架 API，并原样转储其响应结构。
+ *
+ * 在信任数据模型**之前**先跑这个脚本 —— 它打印服务器真正返回的内容，而不是文档声称的内容。
+ *
+ * 用法：
+ *   npm run probe:neodb                 # 探测所有书架类型的第一页
+ *   npm run probe:neodb -- complete     # 只探测某一个书架类型
+ *
+ * 需要在 .env 中配置 NEODB_API_TOKEN。原始响应写入 .cache/probe-*.json（已被 git 忽略），
+ * 并在控制台打印逐字段摘要。
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { consola } from 'consola';
-import { neodbToken, fetchShelfPage, getNeodbMe, verifyNeodbToken } from '../src/neodb';
+import { neodbToken } from '../src/clients/neodb-http';
+import {
+  fetchShelfPage,
+  getNeodbMe,
+  verifyNeodbToken,
+} from '../src/clients/neodb-shelf';
 import { neodbTmdbConfig, validateNeodbTmdbCredentials } from '../src/sync-config';
 import { SHELF_TYPES, type ShelfType } from '../src/types';
 

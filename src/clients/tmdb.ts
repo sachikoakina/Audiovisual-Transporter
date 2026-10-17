@@ -1,13 +1,13 @@
 import got, { HTTPError } from 'got';
 import { consola } from 'consola';
-import { neodbTmdbConfig } from './sync-config';
-import { sleep } from './utils';
+import { neodbTmdbConfig } from '../sync-config';
+import { sleep } from '../utils';
 import type {
   TmdbAccountStates,
   TmdbMediaType,
   TmdbSearchResult,
   TmdbTarget,
-} from './types';
+} from '../types';
 
 /**
  * TMDB API client.
@@ -19,6 +19,22 @@ import type {
  *   - add-rating implicitly drops the item from the watchlist (undocumented)
  *   - `account_states.rated` is `{ value }` or `false`, never a boolean
  *   - writes require a v3 session_id; favorite/watchlist also need account_id
+ *
+ * Title matching is NOT here: it lives in `rules/tmdb-matching.ts`, because "which real entity
+ * does this title refer to" is a decision worth asserting offline.
+ *
+ * TMDB API 客户端。
+ *
+ * 已实测的能力边界（来源见 README）：
+ *   - 只有 movie / tv（没有 book / music / game）
+ *   - 条目级唯一可写的状态是 watchlist、favorite 与 rating
+ *   - 没有「已看」或「在看」状态 → 由用户列表代为表达
+ *   - 打分会隐式把条目移出 watchlist（未见于文档）
+ *   - `account_states.rated` 是 `{ value }` 或 `false`，绝不是布尔值
+ *   - 写入需要 v3 session_id；favorite/watchlist 还需要 account_id
+ *
+ * 标题匹配**不在**这里：它位于 `rules/tmdb-matching.ts`，因为「这个标题对应哪个真实实体」
+ * 是一个值得离线断言的判断。
  */
 
 const tmdb = got.extend({
@@ -325,52 +341,6 @@ export async function searchTmdb(
     consola.error(`TMDB search failed for "${query}": `, failureCode(error));
     return [];
   }
-}
-
-function normalizeTitleKey(title: string): string {
-  return title.trim().toLowerCase().replace(/\s+/g, '');
-}
-
-function titleCandidates(result: TmdbSearchResult): string[] {
-  return [
-    result.title,
-    result.original_title,
-    result.name,
-    result.original_name,
-  ].filter((t): t is string => typeof t === 'string' && t.trim() !== '');
-}
-
-function resultYear(result: TmdbSearchResult): number | undefined {
-  const raw = result.release_date || result.first_air_date;
-  const match = raw?.match(/^(\d{4})/);
-  return match ? Number(match[1]) : undefined;
-}
-
-/** Exact normalized title match only — never settle for the closest hit. */
-export function pickExactTmdbMatch(
-  results: TmdbSearchResult[],
-  title: string,
-  expectedYear?: number,
-  tolerance = 1,
-): TmdbSearchResult | null {
-  const wanted = normalizeTitleKey(title);
-  if (!wanted) {
-    return null;
-  }
-
-  return (
-    results.find((result) => {
-      const titles = titleCandidates(result).map(normalizeTitleKey);
-      if (!titles.includes(wanted)) {
-        return false;
-      }
-      if (expectedYear == null) {
-        return true;
-      }
-      const year = resultYear(result);
-      return year != null && Math.abs(year - expectedYear) <= tolerance;
-    }) ?? null
-  );
 }
 
 // ───────────────────────────────────────────────────────────────────────────

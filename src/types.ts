@@ -1,5 +1,17 @@
+/**
+ * Shared vocabulary — every type and enum the rest of the codebase agrees on.
+ * 共享词汇表 —— 其余代码共同约定的全部类型与枚举。
+ *
+ * Also the single gateway to `cols.json`: re-exporting `DB_PROPERTIES` here means no module
+ * nested in a subdirectory needs a `../../` import, and there is exactly one place that knows
+ * where the Notion column definitions live.
+ * 同时也是 `cols.json` 的唯一入口：在这里再导出 `DB_PROPERTIES`，使任何处于子目录的模块都不必
+ * 写 `../../` 形式的导入，并且「Notion 列定义放在哪里」只有一处知道。
+ */
 import Parser from 'rss-parser';
 import DB_PROPERTIES from '../cols.json';
+
+export { DB_PROPERTIES };
 
 export type DB_PROPERTIES_KEYS = Exclude<keyof typeof DB_PROPERTIES, 'NAME'>;
 
@@ -73,7 +85,9 @@ export type NotionRichTextPropType = {
 };
 
 export type NotionTitlePropType = {
-  id?: 'title';
+  // Notion returns a real (random) property id here — it is not the literal `'title'`.
+  // Notion 在这里返回的是真实的（随机）属性 id，并不是字面量 `'title'`。
+  id?: string;
   type: NotionPropTypesEnum.TITLE;
   title: {
     text: {
@@ -97,10 +111,16 @@ export type NotionFilesPropType = {
 export type NotionDatePropType = {
   id?: string;
   type: NotionPropTypesEnum.DATE;
+  /**
+   * Only `start` is ever sent; Notion fills the rest of the range in itself, so `end` and
+   * `time_zone` are optional rather than required.
+   * 实际只会发送 `start`，其余区间信息由 Notion 自行补全，因此 `end` 与 `time_zone` 是可选
+   * 而不是必填。
+   */
   date: {
     start: string;
-    end: string | null;
-    time_zone: string | null;
+    end?: string | null;
+    time_zone?: string | null;
   };
 };
 
@@ -174,7 +194,12 @@ export const NEODB_CATEGORIES: readonly NeodbCategory[] = [
  *
  * This is the union of what the two sync paths need: the legacy Douban/Notion
  * fields (`id`, `brief`) and the shelf fields (`year`, `pub_year`,
- * `description`). Kept in types.ts so nothing imports back into neodb.ts.
+ * `description`). Kept in `types.ts` — the shared vocabulary module — so that no
+ * client has to import a type out of another client.
+ *
+ * 这是两条同步链路所需字段的并集：旧有豆瓣/Notion 字段（`id`、`brief`）与书架字段
+ * （`year`、`pub_year`、`description`）。保留在 `types.ts`（共享词汇表）里，使任何客户端都不必
+ * 从另一个客户端导入类型。
  */
 export type NeodbItem = {
   /** Legacy field required by the existing mark logic. */
@@ -206,8 +231,12 @@ export type NeodbItem = {
 /**
  * MarkSchema — one element of `data[]` in PagedMarkSchema.
  *
- * Named `NeodbShelfMark` to avoid colliding with `NeodbMark` in neodb.ts,
- * which is a different (item-less) shape used by the legacy mark logic.
+ * Named `NeodbShelfMark` to distinguish it from `NeodbMark` in
+ * `clients/neodb-shelf.ts`, which is a different (item-less) shape used by the
+ * mark read/write calls. The two are easy to confuse and are not interchangeable.
+ *
+ * 命名为 `NeodbShelfMark` 是为了与 `clients/neodb-shelf.ts` 里的 `NeodbMark` 区分开：后者是
+ * 标记读写调用使用的另一种（不含条目内容的）结构。两者很容易混淆，且不可互换。
  */
 export type NeodbShelfMark = {
   shelf_type: ShelfType | string;
@@ -366,3 +395,28 @@ export function newPathReport(label: string): PathReport {
 export function pathHasFailed(report: PathReport): boolean {
   return report.aborted || report.failed > 0;
 }
+
+/**
+ * Outcome of syncing ONE source item to one destination.
+ * 把**单条**源条目同步到一个目标端的结果。
+ *
+ * The five names are deliberately identical to the `PathReport` counter fields, so a per-path loop
+ * can aggregate with `report[outcome] += 1` — and the summary's self-check
+ * (`written + unchanged + skipped + unresolved + failed = scanned`) then holds by construction
+ * rather than by careful bookkeeping.
+ * 这五个名字刻意与 `PathReport` 的计数字段完全一致，使每条链路的循环可以直接写
+ * `report[outcome] += 1` —— 于是汇总的自检等式
+ * （`written + unchanged + skipped + unresolved + failed = scanned`）**由构造保证**，而不是靠
+ * 小心翼翼地记账。
+ *
+ *  - `written`    — the destination was changed. / 目标端被改动。
+ *  - `unchanged`  — compared and already correct; no write issued. / 比较后已正确，未发起写入。
+ *  - `skipped`    — deliberately not written (category allowlist, or a status the source cannot
+ *                   express and must therefore not overwrite). / 刻意不写（分类白名单，或源端无法
+ *                   表达、因此不得覆盖的状态）。
+ *  - `unresolved` — the destination has no counterpart for this item. A data gap, not an error.
+ *                   目标端没有对应条目。这是数据缺口，不是错误。
+ *  - `failed`     — something threw or the destination rejected the write. / 抛错或目标端拒绝了写入。
+ */
+export type ItemSyncOutcome =
+  'written' | 'unchanged' | 'skipped' | 'unresolved' | 'failed';

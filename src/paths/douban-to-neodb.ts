@@ -1,0 +1,70 @@
+/**
+ * Path ② — Douban RSS → NeoDB.
+ * 链路② —— 豆瓣 RSS → NeoDB。
+ *
+ * Unlike its siblings (③ Douban→Bangumi, ④ Bangumi→NeoDB, ⑤ NeoDB→TMDB) this path used to make
+ * back-to-back calls with no pause, which made it the most likely to be rate-limited. It now
+ * waits `NEODB_REQUEST_DELAY_MS` (default 300 ms) between items — the same knob paths ③ and ⑤ use.
+ *
+ * 与它的兄弟链路（③ 豆瓣→Bangumi、④ Bangumi→NeoDB、⑤ NeoDB→TMDB）不同，本链路原先连续调用
+ * API、中间不做停顿，因此最容易被限流。现在它在条目之间等待 `NEODB_REQUEST_DELAY_MS`
+ * （默认 300 ms），与链路 ③ 和 ⑤ 用的是同一个开关。
+ *
+ * A path that is switched on but cannot run reports `aborted` rather than returning silently, so a
+ * missing token cannot be misread as a successful no-op. `aborted` also makes the run exit
+ * non-zero — deliberately: an enabled path with no credentials is a misconfiguration.
+ *
+ * 已启用但无法运行的链路会上报 `aborted`，而不是静默返回，因此缺少令牌不会被误读成
+ * 「跑过且无事」。`aborted` 同时会让整轮以非零退出码结束 —— 这是刻意的：启用了链路却没有凭据
+ * 属于配置错误。
+ */
+import dotenv from 'dotenv';
+import { consola } from 'consola';
+import type { FeedItem, PathReport } from '../types';
+import { newPathReport } from '../types';
+import { neodbThrottle, neodbToken } from '../clients/neodb-http';
+import { syncFeedItemToNeodb } from '../clients/neodb-shelf';
+import { filterDoubanFeedsByCategory, syncConfig } from '../sync-config';
+import { printPathSummary } from '../sync-report';
+
+dotenv.config();
+
+const LABEL = 'Douban → NeoDB';
+
+/**
+ * Sync Douban RSS feed items to NeoDB, one item at a time.
+ * 把豆瓣 RSS 条目逐条同步到 NeoDB。
+ *
+ * @param feeds - Feed items to sync. 待同步的条目。
+ * @returns The path's report; `aborted` when the path could not run.
+ *   本条链路的报告；无法运行时 `aborted` 为真。
+ */
+export default async function handleNeodb(feeds: FeedItem[]): Promise<PathReport> {
+  const report = newPathReport(LABEL);
+
+  if (!neodbToken) {
+    consola.warn('Douban → NeoDB needs NEODB_API_TOKEN; skip.');
+    report.aborted = true;
+    printPathSummary(report);
+    return report;
+  }
+
+  const filtered = filterDoubanFeedsByCategory(
+    feeds,
+    syncConfig.doubanNeodbCategories,
+    LABEL,
+  );
+  report.scanned = feeds.length;
+  report.skipped = feeds.length - filtered.length;
+
+  consola.start('Going to sync to NeoDB...');
+  for (const item of filtered) {
+    const outcome = await syncFeedItemToNeodb(item);
+    report[outcome] += 1;
+    await neodbThrottle();
+  }
+  consola.success('NeoDB synced ✨');
+
+  printPathSummary(report);
+  return report;
+}

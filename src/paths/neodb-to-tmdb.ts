@@ -1,3 +1,25 @@
+/**
+ * Path ⑤ — NeoDB shelf → TMDB.
+ * 链路⑤ —— NeoDB 书架 → TMDB。
+ *
+ * The only path whose source is NeoDB's own shelf rather than the Douban RSS feed, which is why
+ * it runs last and independently: nothing above it can change how it behaves.
+ * 这是唯一以 NeoDB 自身书架（而非豆瓣 RSS）为数据源的链路，因此它最后独立执行：它上面的任何链路
+ * 都不会改变它的行为。
+ *
+ * Read the mapping table in `rules/tmdb-mapping.ts` before changing anything here — it is the
+ * single source of truth for what this path does. Also worth knowing:
+ *   - every write is preceded by a read (`getTmdbAccountStates`), which is what makes it idempotent;
+ *   - `SYNC_DRY_RUN=1` prints the plan and issues no writes at all, so it is safe to run repeatedly;
+ *   - matching failures are recorded as `unresolved`, not `failed` — a missing counterpart on TMDB
+ *     is a data gap, not an error, and must not turn CI red.
+ *
+ * 改动这里之前请先读 `rules/tmdb-mapping.ts` 的映射表 —— 它是本链路行为的唯一真源。另外值得知道：
+ *   - 每次写入之前都先读一次（`getTmdbAccountStates`），这正是它幂等的来源；
+ *   - `SYNC_DRY_RUN=1` 只打印计划、完全不写入，因此可以反复运行；
+ *   - 匹配失败记为 `unresolved` 而不是 `failed` —— TMDB 没有对应条目是数据缺口，不是错误，
+ *     不应让 CI 变红。
+ */
 import { consola } from 'consola';
 import {
   NEODB_CATEGORIES_WITHOUT_TMDB,
@@ -6,31 +28,32 @@ import {
   extractImdbIdFromNeodb,
   extractNeodbYear,
   extractTmdbTargetFromNeodb,
+  resolveTmdbOperations,
   toShelfType,
-} from './const';
+} from '../rules/tmdb-mapping';
+import { pickExactTmdbMatch } from '../rules/tmdb-matching';
 import {
   neodbTmdbConfig,
   describeNeodbTmdbConfig,
   resolveTargetCategories,
   validateNeodbTmdbCredentials,
-} from './sync-config';
-import { resolveTmdbOperations, type TmdbOperationPlan } from './tmdb-mapping';
-import { fetchShelf, getNeodbMe, neodbThrottle, verifyNeodbToken } from './neodb';
+} from '../sync-config';
+import { neodbThrottle } from '../clients/neodb-http';
+import { fetchShelf, getNeodbMe, verifyNeodbToken } from '../clients/neodb-shelf';
 import {
   findTmdbByImdbId,
   getTmdbAccount,
   getTmdbAccountStates,
   getTmdbById,
   memberKey,
-  pickExactTmdbMatch,
   resolveTmdbAuth,
   searchTmdb,
   setTmdbRating,
   setTmdbWatchlist,
   tmdbThrottle,
   type TmdbAuth,
-} from './tmdb';
-import { planTmdbWrites, type TmdbPatch } from './tmdb-merge';
+} from '../clients/tmdb';
+import { planTmdbWrites, type TmdbPatch } from '../rules/tmdb-write-plan';
 import {
   fingerprintMark,
   readState,
@@ -38,7 +61,7 @@ import {
   upsertReviewEntry,
   writeState,
   type SyncState,
-} from './utils';
+} from '../utils';
 import {
   newPathReport,
   newSyncCounters,
@@ -49,8 +72,8 @@ import {
   type SyncCounters,
   type TmdbMediaType,
   type TmdbTarget,
-} from './types';
-import { printPathSummary } from './sync-report';
+} from '../types';
+import { printPathSummary } from '../sync-report';
 
 const LABEL = 'NeoDB → TMDB';
 
@@ -372,12 +395,21 @@ async function resolveTarget(
   const imdbId = extractImdbIdFromNeodb(item);
   if (imdbId) {
     const hits = await findTmdbByImdbId(imdbId);
-    const hit = hits.find((candidate) => candidate.mediaType === mediaType) ?? hits[0];
+    // Only accept a hit of the SAME media type. One IMDb id can resolve to both a movie and a TV
+    // entry, and the old `?? hits[0]` fallback would then write the rating onto a different entity.
+    // Writing nothing is the lesser harm — matching has to be wrong-never, not best-effort.
+    // 只接受**同一媒体类型**的命中。同一个 IMDb id 可能同时解析出电影与剧集，而原先的
+    // `?? hits[0]` 回退会把评分写到另一个实体上。什么都不写，危害更小 —— 匹配宁可漏配，
+    // 不可错配。
+    const hit = hits.find((candidate) => candidate.mediaType === mediaType);
     if (hit) {
       ctx.counters.matchedImdb += 1;
       consola.info(`Matched via IMDb ${imdbId}: ${memberKey(hit)}`);
       return hit;
     }
+    consola.warn(
+      `IMDb ${imdbId} resolved to no ${mediaType} entry; falling through to title search.`,
+    );
   }
 
   const year = extractNeodbYear(item);
@@ -424,6 +456,3 @@ function printSummary(ctx: SyncContext): void {
     consola.warn('DRY RUN — nothing was written to TMDB.');
   }
 }
-
-// Re-exported for tests and future callers.
-export type { TmdbOperationPlan };
