@@ -86,19 +86,24 @@ export default async function handleNotion(feeds: FeedItem[]): Promise<PathRepor
     const categorizedFeeds = groupByCategory[category as ItemCategory] as FeedItem[];
     try {
       const outcome = await syncNotionDB(categorizedFeeds, category as ItemCategory);
-      report.scanned += outcome.scanned;
+      // `scanned` is NOT added here on purpose: it is already `feeds.length` (set above), and the
+      // categories partition `filtered`, so their `outcome.scanned` sums to `filtered.length` —
+      // a subset of `feeds.length`. Adding both double-counted, which the self-check caught as
+      // `2+0+0+0+0 = 2 ✘ expected 4` in a real run.
+      // 此处刻意**不**累加 `scanned`：它已在上面设为 `feeds.length`，而各分类恰好划分 `filtered`，
+      // 其 `outcome.scanned` 之和等于 `filtered.length` —— 是 `feeds.length` 的子集。两处都加会
+      // 重复计数，真实运行中正是它让自检打出 `2+0+0+0+0 = 2 ✘ expected 4`。
       report.written += outcome.written;
       report.unchanged += outcome.unchanged;
       report.skipped += outcome.skipped;
       report.failed += outcome.failed;
       AllFailedItems.push(...outcome.failedItems);
     } catch (error) {
-      // Count the whole category as scanned-and-failed, so the summary's self-check still adds up,
-      // and keep going: one bad category must not cost the other four, nor the paths after this one.
-      // 整个分类计入「已扫描 + 失败」，使汇总的自检等式仍成立，同时继续执行：一个分类出问题不该
-      // 连累其余四个分类，也不该连累本条链路之后的链路。
+      // Count the whole category as failed and keep going: one bad category must not cost the
+      // other four, nor the paths after this one. (`scanned` already covers these items.)
+      // 整个分类计入「失败」并继续：一个分类出问题，不该连累其余四个分类，也不该连累本条链路
+      // 之后的链路。（这些条目已包含在 `scanned` 里。）
       consola.error(`Failed to handle ${category} feeds. `, error);
-      report.scanned += categorizedFeeds.length;
       report.failed += categorizedFeeds.length;
       for (const feed of categorizedFeeds) {
         AllFailedItems.push({ link: feed.link, title: feed.title ?? '' });

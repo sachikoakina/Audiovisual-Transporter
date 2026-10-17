@@ -42,8 +42,13 @@ import {
   upsertBangumiCollection,
 } from '../clients/bangumi';
 import { doubanStarsToTenPoint } from '../rules/douban';
-import { filterDoubanFeedsByCategory, syncConfig } from '../sync-config';
+import {
+  filterDoubanFeedsByCategory,
+  syncConfig,
+  unmatchedLogFile,
+} from '../sync-config';
 import { printPathSummary } from '../sync-report';
+import { upsertReviewEntry } from '../utils';
 
 dotenv.config();
 
@@ -89,12 +94,38 @@ export default async function handleBangumi(feeds: FeedItem[]): Promise<PathRepo
   for (const item of filtered) {
     const outcome = await syncFeedItemToBangumi(item, me.username);
     report[outcome] += 1;
+    if (outcome === 'unresolved') {
+      recordUnresolved(item, report);
+    }
     await bangumiThrottle();
   }
   consola.success('Bangumi synced ✨');
 
   printPathSummary(report);
   return report;
+}
+
+/**
+ * Remember an unresolved item for the closing listing AND the on-disk review log.
+ * Without this, the summary said "3 unresolved … and 3 more" with no titles at all, because the
+ * listing reads `unresolvedTitles` — which this path never filled — and the notice pointed at a
+ * review log this path never wrote.
+ *
+ * 把未匹配条目记入收尾清单**和**磁盘上的留档日志。缺了这一步，汇总只会打出
+ * 「3 unresolved … and 3 more」却一个标题都没有 —— 因为清单读的是 `unresolvedTitles`，而这条
+ * 链路此前从未填充它；同时 notice 指向的留档日志也从未被本链路写过。
+ */
+function recordUnresolved(item: FeedItem, report: PathReport): void {
+  report.unresolvedTitles.push(item.title || item.id);
+  report.reviewLog = unmatchedLogFile;
+
+  upsertReviewEntry(unmatchedLogFile, {
+    source: 'douban→bangumi',
+    reason: 'no-bangumi-match',
+    title: item.title || item.id,
+    externalId: item.id,
+    externalUrl: item.link,
+  });
 }
 
 /**
