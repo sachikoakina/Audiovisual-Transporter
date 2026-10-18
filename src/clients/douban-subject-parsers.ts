@@ -72,9 +72,9 @@ export function buildMovieItem(doc: Document) {
         .map((i) => i.textContent)
         .join(' / ')
     : '';
-  const writersPl = infoPl.filter((i) => i.textContent === '编剧');
-  const writerLinks = writersPl[0]?.nextElementSibling?.querySelectorAll('span a');
-  const writers = writerLinks
+  const screenwritersPl = infoPl.filter((i) => i.textContent === '编剧');
+  const writerLinks = screenwritersPl[0]?.nextElementSibling?.querySelectorAll('span a');
+  const screenwriters = writerLinks
     ? [...writerLinks]
         .slice(0, 5)
         .map((i) => i.textContent)
@@ -97,7 +97,7 @@ export function buildMovieItem(doc: Document) {
     [DB_PROPERTIES.YEAR]: year,
     [DB_PROPERTIES.POSTER]: poster, // optional / 可选
     [DB_PROPERTIES.DIRECTORS]: directors,
-    [DB_PROPERTIES.SCREENWRITERS]: writers, // optional / 可选
+    [DB_PROPERTIES.SCREENWRITERS]: screenwriters, // optional / 可选
     [DB_PROPERTIES.ACTORS]: actors,
     [DB_PROPERTIES.GENRE]: genre,
     [DB_PROPERTIES.IMDB_LINK]: imdbLink, // optional / 可选

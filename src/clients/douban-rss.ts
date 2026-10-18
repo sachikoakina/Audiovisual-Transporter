@@ -133,10 +133,10 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
     const dom = new JSDOM(item.content!.trim());
     const contents = [...dom.window.document.querySelectorAll('td p')];
     const ratingElements = contents.filter((el) => el.textContent!.startsWith('推荐'));
-    let ratingNumber = 0;
+    let stars = 0;
     if (ratingElements.length) {
       const rating = ratingElements[0].textContent!.replace(/^推荐: /, '').trim();
-      ratingNumber = RATING_TEXT_TO_STARS[rating as keyof typeof RATING_TEXT_TO_STARS];
+      stars = RATING_TEXT_TO_STARS[rating as keyof typeof RATING_TEXT_TO_STARS];
     }
     const commentElements = contents.filter((el) => el.textContent!.startsWith('备注'));
     let comment = '';
@@ -144,17 +144,17 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
       comment = commentElements[0].textContent!.replace(/^备注: /, '').trim();
     }
     const title = (item.title || '').replace(STRIP_STATUS_PREFIX, '').trim();
-    const result = {
+    const feedItem = {
       id,
       link: item.link,
       title,
-      rating: ratingNumber || null,
+      rating: stars || null,
       comment: typeof comment === 'string' ? comment : null, // 备注：XXX -> 短评
       time: item.isoDate, // '2021-05-30T06:49:34.000Z'
       status,
       category,
     } as FeedItem;
-    normalizedFeeds.push(result);
+    normalizedFeeds.push(feedItem);
   });
 
   return normalizedFeeds;

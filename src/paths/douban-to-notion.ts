@@ -69,7 +69,7 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
 
-  const groupByCategory: Partial<Record<ItemCategory, FeedItem[]>> = filtered.reduce(
+  const feedsByCategory: Partial<Record<ItemCategory, FeedItem[]>> = filtered.reduce(
     (acc, feed) => {
       if (!acc[feed.category]) {
         acc[feed.category] = [];
@@ -80,10 +80,10 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
     {} as Partial<Record<ItemCategory, FeedItem[]>>,
   );
 
-  const AllFailedItems: FailedItem[] = [];
+  const failedItems: FailedItem[] = [];
 
-  for (const category in groupByCategory) {
-    const categorizedFeeds = groupByCategory[category as ItemCategory] as FeedItem[];
+  for (const category in feedsByCategory) {
+    const categorizedFeeds = feedsByCategory[category as ItemCategory] as FeedItem[];
     try {
       const outcome = await syncCategoryToNotion(categorizedFeeds, category as ItemCategory);
       // `scanned` is NOT added here on purpose: it is already `feeds.length` (set above), and the
@@ -97,7 +97,7 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
       report.unchanged += outcome.unchanged;
       report.skipped += outcome.skipped;
       report.failed += outcome.failed;
-      AllFailedItems.push(...outcome.failedItems);
+      failedItems.push(...outcome.failedItems);
     } catch (error) {
       // Count the whole category as failed and keep going: one bad category must not cost the
       // other four, nor the paths after this one. (`scanned` already covers these items.)
@@ -106,14 +106,14 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
       consola.error(`Failed to handle ${category} feeds. `, error);
       report.failed += categorizedFeeds.length;
       for (const feed of categorizedFeeds) {
-        AllFailedItems.push({ link: feed.link, title: feed.title ?? '' });
+        failedItems.push({ link: feed.link, title: feed.title ?? '' });
       }
     }
   }
 
-  if (AllFailedItems.length) {
+  if (failedItems.length) {
     consola.warn('Failed to handle the following feeds to insert into Notion:');
-    for (const item of AllFailedItems) {
+    for (const item of failedItems) {
       consola.warn(`${item.title}: ${item.link}`);
     }
   }
@@ -217,7 +217,7 @@ async function syncCategoryToNotion(
   categorizedFeeds: FeedItem[],
   category: ItemCategory,
 ): Promise<CategoryOutcome> {
-  const empty: CategoryOutcome = {
+  const emptyOutcome: CategoryOutcome = {
     scanned: 0,
     written: 0,
     unchanged: 0,
@@ -228,7 +228,7 @@ async function syncCategoryToNotion(
 
   if (categorizedFeeds.length === 0) {
     consola.info(`No new ${category} feeds.`);
-    return empty;
+    return emptyOutcome;
   }
 
   const dataSourceId = getDataSourceId(category);
@@ -237,7 +237,7 @@ async function syncCategoryToNotion(
     // 没有配置目标端 → 这些条目属于「跳过」，不是「失败」。
     consola.warn(`No notion data source id for ${category}`);
     return {
-      ...empty,
+      ...emptyOutcome,
       scanned: categorizedFeeds.length,
       skipped: categorizedFeeds.length,
     };
@@ -247,10 +247,10 @@ async function syncCategoryToNotion(
 
   // `dataSourceId` is already known to be defined here (checked above).
   // 到这里 `dataSourceId` 已确定有值（上面已检查）。
-  let alreadyInsertedItems: Set<string>;
+  let alreadyInsertedLinks: Set<string>;
   try {
     // after @notionhq sdk upgraded to v5.0.0, use dataSource instead of database
-    alreadyInsertedItems = await collectAlreadyInsertedLinks(
+    alreadyInsertedLinks = await collectAlreadyInsertedLinks(
       dataSourceId,
       categorizedFeeds,
     );
@@ -280,12 +280,12 @@ async function syncCategoryToNotion(
     throw error;
   }
 
-  const newFeeds = categorizedFeeds.filter((item) => {
-    return !alreadyInsertedItems.has(item.link);
+  const feedsToInsert = categorizedFeeds.filter((item) => {
+    return !alreadyInsertedLinks.has(item.link);
   });
 
   consola.info(
-    `There are total ${newFeeds.length} new ${category} item(s) need to insert.`,
+    `There are total ${feedsToInsert.length} new ${category} item(s) need to insert.`,
   );
 
   const outcome: CategoryOutcome = {
@@ -293,13 +293,13 @@ async function syncCategoryToNotion(
     written: 0,
     // Already present in Notion → nothing to write.
     // 已存在于 Notion → 无需写入。
-    unchanged: categorizedFeeds.length - newFeeds.length,
+    unchanged: categorizedFeeds.length - feedsToInsert.length,
     skipped: 0,
     failed: 0,
     failedItems: [],
   };
 
-  for (const newFeedItem of newFeeds) {
+  for (const newFeedItem of feedsToInsert) {
     try {
       const itemData = await scrapeDoubanSubjectPage(newFeedItem.link, category);
       itemData[DB_PROPERTIES.ITEM_LINK] = newFeedItem.link;
@@ -405,7 +405,7 @@ async function addItemToNotion(
       }
     }
 
-    const postData: CreatePageParameters = {
+    const createPageRequest: CreatePageParameters = {
       parent: {
         type: 'data_source_id',
         data_source_id: dataSourceId,
@@ -420,7 +420,7 @@ async function addItemToNotion(
 
     if (properties[DB_PROPERTIES.POSTER] || properties[DB_PROPERTIES.COVER]) {
       // use poster for the page cover
-      postData.cover = {
+      createPageRequest.cover = {
         type: 'external',
         external: {
           url: (properties[DB_PROPERTIES.POSTER] || properties[DB_PROPERTIES.COVER])
@@ -429,7 +429,7 @@ async function addItemToNotion(
       };
     }
 
-    const response = await notion.pages.create(postData);
+    const response = await notion.pages.create(createPageRequest);
     if (response && response.id) {
       consola.success(
         itemData[DB_PROPERTIES.NAME] +

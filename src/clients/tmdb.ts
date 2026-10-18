@@ -75,7 +75,7 @@ function logUnauthorized(): void {
   );
 }
 
-function readParams(): Record<string, string> {
+function apiKeyParams(): Record<string, string> {
   return { api_key: neodbTmdbConfig.tmdb.apiKey ?? '' };
 }
 
@@ -242,7 +242,7 @@ export async function getTmdbAccount(auth: TmdbAuth): Promise<{ id: number } | n
 // ───────────────────────────────────────────────────────────────────────────
 
 /** Stable identity of an item inside a list. */
-export function memberKey(target: { mediaType: string; id: number }): string {
+export function targetKey(target: { mediaType: string; id: number }): string {
   return `${target.mediaType}:${target.id}`;
 }
 
@@ -261,7 +261,7 @@ export async function getTmdbAccountStates(
       logUnauthorized();
     } else {
       consola.error(
-        `Failed to read account states for ${memberKey(target)}: `,
+        `Failed to read account states for ${targetKey(target)}: `,
         failureCode(error),
       );
     }
@@ -277,7 +277,7 @@ export async function getTmdbAccountStates(
 export async function findTmdbByImdbId(imdbId: string): Promise<TmdbTarget[]> {
   try {
     const data = (await tmdb(`find/${imdbId}`, {
-      searchParams: { ...readParams(), external_source: 'imdb_id', language: 'en-US' },
+      searchParams: { ...apiKeyParams(), external_source: 'imdb_id', language: 'en-US' },
     }).json()) as Record<string, TmdbSearchResult[] | undefined>;
 
     const targets: TmdbTarget[] = [];
@@ -305,7 +305,7 @@ export async function getTmdbById(
 ): Promise<TmdbTarget | null> {
   try {
     const data = (await tmdb(`${mediaType}/${id}`, {
-      searchParams: { ...readParams(), language: neodbTmdbConfig.tmdb.language },
+      searchParams: { ...apiKeyParams(), language: neodbTmdbConfig.tmdb.language },
     }).json()) as TmdbSearchResult;
     if (!data?.id) {
       return null;
@@ -324,7 +324,7 @@ export async function searchTmdb(
 ): Promise<TmdbSearchResult[]> {
   try {
     const searchParams: Record<string, string | number | boolean> = {
-      ...readParams(),
+      ...apiKeyParams(),
       query,
       language: neodbTmdbConfig.tmdb.language,
       include_adult: neodbTmdbConfig.tmdb.includeAdult,
@@ -365,7 +365,7 @@ export async function setTmdbWatchlist(
       logUnauthorized();
     } else {
       consola.error(
-        `Failed to set watchlist for ${memberKey(target)}: `,
+        `Failed to set watchlist for ${targetKey(target)}: `,
         failureCode(error),
       );
     }
@@ -390,7 +390,7 @@ export async function setTmdbRating(
       logUnauthorized();
     } else {
       consola.error(
-        `Failed to set rating for ${memberKey(target)}: `,
+        `Failed to set rating for ${targetKey(target)}: `,
         failureCode(error),
       );
     }

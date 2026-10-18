@@ -45,7 +45,7 @@ import {
   getTmdbAccount,
   getTmdbAccountStates,
   getTmdbById,
-  memberKey,
+  targetKey,
   resolveTmdbAuth,
   searchTmdb,
   setTmdbRating,
@@ -272,7 +272,7 @@ async function syncMark(
   }
 
   // 4) Resolve to a concrete TMDB item.
-  const target = await resolveTarget(item, mediaType, ctx);
+  const target = await resolveTmdbTarget(item, mediaType, ctx);
   if (!target) {
     ctx.counters.unmatched += 1;
     ctx.unmatchedTitles.push(label);
@@ -291,7 +291,7 @@ async function syncMark(
   }
 
   // 5) Run-local dedupe — the same item can appear in several shelves.
-  const identity = memberKey(target);
+  const identity = targetKey(target);
   if (ctx.seen.has(identity)) {
     ctx.counters.skippedDuplicate += 1;
     return;
@@ -339,7 +339,7 @@ async function applyPatch(
 ): Promise<boolean> {
   if (neodbTmdbConfig.dryRun) {
     for (const reason of patch.reasons) {
-      consola.info(`[dry-run] ${reason} — ${memberKey(target)} ${label}`);
+      consola.info(`[dry-run] ${reason} — ${targetKey(target)} ${label}`);
     }
     if (patch.setRating !== null) ctx.counters.writtenRating += 1;
     if (patch.setWatchlist !== null) ctx.counters.writtenWatchlist += 1;
@@ -377,7 +377,7 @@ async function applyPatch(
  *   2) its IMDb id → /3/find                       — exact, zero false positives
  *   3) title + year → /3/search                    — strict exact-title comparison
  */
-async function resolveTarget(
+async function resolveTmdbTarget(
   item: NeodbShelfMark['item'],
   mediaType: TmdbMediaType,
   ctx: SyncContext,
@@ -387,7 +387,7 @@ async function resolveTarget(
     const target = await getTmdbById(tmdbLink.mediaType, tmdbLink.id);
     if (target) {
       ctx.counters.matchedTmdbLink += 1;
-      consola.info(`Matched via NeoDB TMDB link: ${memberKey(target)}`);
+      consola.info(`Matched via NeoDB TMDB link: ${targetKey(target)}`);
       return target;
     }
   }
@@ -404,7 +404,7 @@ async function resolveTarget(
     const hit = hits.find((candidate) => candidate.mediaType === mediaType);
     if (hit) {
       ctx.counters.matchedImdb += 1;
-      consola.info(`Matched via IMDb ${imdbId}: ${memberKey(hit)}`);
+      consola.info(`Matched via IMDb ${imdbId}: ${targetKey(hit)}`);
       return hit;
     }
     consola.warn(
