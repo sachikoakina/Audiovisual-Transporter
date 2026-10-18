@@ -96,10 +96,10 @@ TypeScript 编写，`tsx` 直跑，无需构建。技术基础上延续 [douban-
 
   ┌────────────────────────────────────────────────────────────────────────────────────────┐
   │                              链路⑤ NeoDB → TMDB（默认关）                              │
-  │                    独立入口 src/neodb-to-tmdb-cli.ts，不读豆瓣 RSS                     │
+  │                  全量入口 src/neodb-to-tmdb-full-cli.ts，不读豆瓣 RSS                  │
   └────────────────────────────────────────────────────────────────────────────────────────┘
                                                │ clients/neodb-shelf.ts 读书架
-                                               │ （每书架最多 10 页，NEODB_MAX_PAGES）
+                                               │ （每书架 10 页上限；全量模式不限）
                                                ▼
   ┌────────────────────────────────────────────────────────────────────────────────────────┐
   │                            paths/neodb-to-tmdb.ts 三级匹配                             │
@@ -123,7 +123,7 @@ TypeScript 编写，`tsx` 直跑，无需构建。技术基础上延续 [douban-
 | 同步链路              | **5 条**   | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立           |
 | `src/` 文件           | **27 个**  | `clients/` 9 · `rules/` 6 · `paths/` 5 · 顶层 7             |
 | 离线断言              | **232 条** | `npm run verify:all`，不需网络与凭据                        |
-| 环境变量              | **47 个**  | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名 |
+| 环境变量              | **48 个**  | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名 |
 | `process.exit()`      | **0 处**   | 无实际调用；失败一律走 `PathReport` → 退出码                |
 | 硬编码 `neodb.social` | **1 处**   | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`   |
 
@@ -184,7 +184,7 @@ SYNC_DRY_RUN=1 npm run sync  # 空跑：只打印计划，不写任何数据
 npm run sync                 # 正式同步全部链路
 ```
 
-建议按顺序执行，尤其是**先空跑再实跑**。只跑单条链路用 `npm run sync:neodb-tmdb`（链路⑤）或 `npm run sync:bangumi-full`（链路④全量）。
+建议按顺序执行，尤其是**先空跑再实跑**。只跑单条链路的**全量**入口有两个：`npm run sync:neodb-tmdb-full`（链路⑤）与 `npm run sync:bangumi-full`（链路④）——注意两者都**取消常规上限**；只想跑某条链路的常规模式，用 `npm run sync` 配合开关（例如 `SYNC_NEODB_TMDB=0` 跳过链路⑤）。
 
 ---
 
@@ -196,7 +196,7 @@ npm run sync                 # 正式同步全部链路
 
 ```mermaid
 flowchart TB
-    L0["入口层<br/>index.ts + 2 个独立 cli"]
+    L0["入口层<br/>index.ts + 2 个全量 cli"]
     L1["编排层 paths/ · 每条链路返回 PathReport"]
     L2["客户端层 clients/"]
     L3["规则层 rules/ · 零 I/O、零 env"]
@@ -231,7 +231,7 @@ flowchart TB
 Audiovisual-Transporter/
 ├── src/                          核心源码（27 个文件）
 │   ├── index.ts                  总入口：按开关调度所有链路，豆瓣 RSS 只抓一次；豆瓣链路失败被捕获后继续，其余失败设退出码 1
-│   ├── neodb-to-tmdb-cli.ts      NeoDB → TMDB 独立入口：只跑链路⑤，不影响原有 cron；不带命令行参数
+│   ├── neodb-to-tmdb-full-cli.ts NeoDB → TMDB 全量入口：只跑链路⑤、取消单轮上限（fullSync = true）；不带命令行参数
 │   ├── bangumi-to-neodb-full-cli.ts  Bangumi 全量入口：追加执行补齐历史（fullSync = true）；不带命令行参数
 │   ├── sync-config.ts            配置中枢：集中解析全部环境变量，并打印成一行便于审计；含 syncConfig 与 neodbTmdbConfig 两组
 │   ├── types.ts                  共享词汇表 + cols.json 的唯一入口；NeodbItem 为两条链路的合并超集，PathReport 为各链路的结果契约
@@ -284,7 +284,7 @@ Audiovisual-Transporter/
 <details>
 <summary><b>更名对照（历史文件名 → 现行位置）</b></summary>
 
-`handle-notion.ts → paths/douban-to-notion.ts` · `handle-neodb.ts → paths/douban-to-neodb.ts` · `handle-bangumi.ts → paths/douban-to-bangumi.ts` · `handle-bangumi-neodb.ts → paths/bangumi-to-neodb.ts` · `handle-neodb-tmdb.ts → paths/neodb-to-tmdb.ts` · `handle-rss.ts → clients/douban-rss.ts` · `handle-douban.ts → clients/douban-subject-page.ts + douban-subject-parsers.ts` · `const.ts → rules/douban.ts + rules/bangumi-neodb.ts` · `neodb-merge.ts → rules/neodb-mark-merge.ts` · `tmdb-merge.ts → rules/tmdb-write-plan.ts` · `sync-tmdb-only.ts → neodb-to-tmdb-cli.ts` · `sync-bangumi-full.ts → bangumi-to-neodb-full-cli.ts` · `scripts/update-notion.ts → archive/update-notion.ts` · `db-notes-img-dl.ts → scripts/download-douban-note-images.ts`
+`handle-notion.ts → paths/douban-to-notion.ts` · `handle-neodb.ts → paths/douban-to-neodb.ts` · `handle-bangumi.ts → paths/douban-to-bangumi.ts` · `handle-bangumi-neodb.ts → paths/bangumi-to-neodb.ts` · `handle-neodb-tmdb.ts → paths/neodb-to-tmdb.ts` · `handle-rss.ts → clients/douban-rss.ts` · `handle-douban.ts → clients/douban-subject-page.ts + douban-subject-parsers.ts` · `const.ts → rules/douban.ts + rules/bangumi-neodb.ts` · `neodb-merge.ts → rules/neodb-mark-merge.ts` · `tmdb-merge.ts → rules/tmdb-write-plan.ts` · `sync-tmdb-only.ts → neodb-to-tmdb-full-cli.ts`（中间名 `neodb-to-tmdb-cli.ts`，已并入全量入口） · `sync-bangumi-full.ts → bangumi-to-neodb-full-cli.ts` · `scripts/update-notion.ts → archive/update-notion.ts` · `db-notes-img-dl.ts → scripts/download-douban-note-images.ts`
 
 </details>
 
@@ -692,10 +692,10 @@ flowchart TD
 
 两条链路都**不遍历全部收藏**，但机制不同：
 
-| 链路            | 默认行为                                     | 全量模式                                             |
-| --------------- | -------------------------------------------- | ---------------------------------------------------- |
-| Bangumi → NeoDB | **只取第一页**（`BANGUMI_COLLECTION_LIMIT`） | `BANGUMI_FULL_SYNC=1` 或 `npm run sync:bangumi-full` |
-| NeoDB → TMDB    | 逐书架翻页，最多 `NEODB_MAX_PAGES` 页 / 书架 | —（没有全量开关，调大两个上限即可）                  |
+| 链路            | 默认行为                                                             | 全量模式                                                   |
+| --------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Bangumi → NeoDB | **只取第一页**（`BANGUMI_COLLECTION_LIMIT`）                         | `BANGUMI_FULL_SYNC=1` 或 `npm run sync:bangumi-full`       |
+| NeoDB → TMDB    | 逐书架翻页，最多 `NEODB_MAX_PAGES` 页 / 书架、共 `SYNC_MAX_ITEMS` 条 | `NEODB_TMDB_FULL_SYNC=1` 或 `npm run sync:neodb-tmdb-full` |
 
 <details>
 <summary><b>Bangumi → NeoDB：默认只取的第一页，是怎么筛出来的</b></summary>
@@ -717,23 +717,41 @@ flowchart TD
 </details>
 
 <details>
-<summary><b>NeoDB → TMDB：为什么没有全量开关</b></summary>
+<summary><b>NeoDB → TMDB：全量开关做了什么，与 Bangumi 侧有何不同</b></summary>
 
-它**默认就在尽量翻页**（不像 Bangumi 那样只取第一页），所以「全量」在它这里不是开关，而是**上限**问题：
+它**默认就在尽量翻页**（不像 Bangumi 那样只取第一页），所以「全量」在它这里是**上限**问题。三道闸门：
 
-| 机制               | 作用                                                     |
-| ------------------ | -------------------------------------------------------- |
-| `SYNC_SHELF_TYPES` | 决定跑哪几个书架；`dropped` 通常排除以省请求（原因见下） |
-| `NEODB_MAX_PAGES`  | 每个书架最多翻几页。翻到上限会打警告说「还有剩余」       |
-| `SYNC_MAX_ITEMS`   | **跨书架、跨类别的总熔断**，达到即停止整轮               |
+| 机制               | 作用                                                                 |
+| ------------------ | -------------------------------------------------------------------- |
+| `SYNC_SHELF_TYPES` | 决定跑哪几个书架；`dropped` 通常排除以省请求（原因见下）             |
+| `NEODB_MAX_PAGES`  | 每个书架最多翻几页。翻到上限会打警告说「还有剩余」                   |
+| `SYNC_MAX_ITEMS`   | **跨书架、跨类别的总熔断**，按**真正进入 TMDB 的条数**计，达到即停止 |
 
-因此它的范围特征与 Bangumi → NeoDB 有三点本质差异：
+`NEODB_TMDB_FULL_SYNC=1`（或专用入口 `npm run sync:neodb-tmdb-full`）一次性取消前两道，并关闭增量去重：
+
+| 参数                                   | 常规模式 | 全量模式   | 说明                                                 |
+| -------------------------------------- | -------- | ---------- | ---------------------------------------------------- |
+| `SYNC_MAX_ITEMS`                       | 生效     | **忽略**   | 按进入 TMDB 的条数计；`0` 不是无限，会静默回落默认值 |
+| `NEODB_MAX_PAGES`                      | 生效     | **忽略**   | 每书架页数上限；`0` 同样回落默认值                   |
+| `SYNC_INCREMENTAL`                     | 生效     | **强制关** | 全量必须重扫，增量会跳过「指纹未变」的条目           |
+| `SYNC_DRY_RUN`                         | 生效     | 生效       | 全量 + 空跑是推荐的第一步                            |
+| `SYNC_SHELF_TYPES` / `SYNC_CATEGORIES` | 生效     | 生效       | 全量指「单轮不截断」，不是「无视你选的书架 / 分类」  |
+
+因此它的范围特征与 Bangumi → NeoDB 有三点不同：
 
 1. **覆盖面更广但有硬顶**：翻页上限远高于 Bangumi 侧的「只取第一页」；但每个书架的上限是硬性的，超出的旧记录不会被检查（会打 `NEODB_MAX_PAGES` 警告）。
-2. **受总熔断约束**：`SYNC_MAX_ITEMS` 是全局计数，与 `NEODB_MAX_PAGES` 是**两道独立的闸**，谁先到谁生效。
-3. **可以做到「事实全量」**：把 `NEODB_MAX_PAGES` 与 `SYNC_MAX_ITEMS` 同时调大（并确认 `SYNC_SHELF_TYPES` 包含 `dropped`），即可覆盖全部收藏——这与 Bangumi 侧的 `BANGUMI_FULL_SYNC=1` 效果等价，**只是通过调参实现，而非专门的开关**。
+2. **受总熔断约束**：`SYNC_MAX_ITEMS` 是全局计数，与 `NEODB_MAX_PAGES` 是**两道独立的闸**，谁先到谁生效。熔断只中止本轮，剩余书架 / 分类**顺延到下一轮**。
+3. **日常模式本身已在翻页**：Bangumi 侧要显式开全量才离开第一页；链路⑤的常规模式默认就翻多个书架、多页，全量开关只是把两道上限一起拿掉。
 
-> 为什么不直接给个全量开关：`dropped` 在映射里本就被跳过（写了也是空操作），默认排除它是为了**省请求**；而 `wishlist/progress/complete` 三个书架本就该全覆盖，无需开关——真正的限制只在翻页上限，调整它即可。
+**首次全量的推荐顺序**（前提：`SYNC_NEODB_TMDB=1`）：
+
+```bash
+SYNC_DRY_RUN=1 npm run sync:neodb-tmdb-full   # 1) 空跑：看规模、估算耗时，不写任何数据
+npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手动跑时勾选 full_sync 等效）
+# 3) 之后什么都不用设：NEODB_TMDB_FULL_SYNC 默认 0，回到常规封顶模式
+```
+
+> 为什么 `dropped` 默认排除：它在映射里本就被跳过（写了也是空操作），排除它是为了**省请求**；`wishlist` / `progress` / `complete` 三个书架本就该全覆盖。要连它也遍历，显式写进 `SYNC_SHELF_TYPES` 即可——**全量模式不会替你改这个选择**。
 
 **为什么默认只取最近一批**：日常使用中变化的总是最近几条，处理「最近的一批」就够，全量留给首次补齐历史。注意 Bangumi 的 `updated_at` 字段**不可靠**（代码注释明确说明），所以「最近」实际依赖 API 返回的默认顺序。
 
@@ -755,11 +773,11 @@ flowchart TD
 
 「三层节流」这个说法**只完整适用于 NeoDB → TMDB**。Bangumi → NeoDB 有三层结构中的第一层的缺失与第三层的替代，但两者的写入前比对机制完全不同：
 
-| 节流层             | NeoDB → TMDB                                           | Bangumi → NeoDB                   |
-| ------------------ | ------------------------------------------------------ | --------------------------------- |
-| ① 内容指纹跳过     | ✅ `SYNC_INCREMENTAL`，未变化条目**在匹配前**就 return | ❌ 无（每轮都重新解析并比对）     |
-| ② 写入前字段级比对 | ✅ 先读 `account_states`，逐字段 diff                  | ⚠️ **有比对，但机制不同**（见下） |
-| ③ 熔断上限         | ✅ `SYNC_MAX_ITEMS`（跨书架跨类别总计）                | ❌ 无（由「只取第一页」天然限流） |
+| 节流层             | NeoDB → TMDB                                                  | Bangumi → NeoDB                   |
+| ------------------ | ------------------------------------------------------------- | --------------------------------- |
+| ① 内容指纹跳过     | ✅ `SYNC_INCREMENTAL`，未变化条目**在匹配前**就 return        | ❌ 无（每轮都重新解析并比对）     |
+| ② 写入前字段级比对 | ✅ 先读 `account_states`，逐字段 diff                         | ⚠️ **有比对，但机制不同**（见下） |
+| ③ 熔断上限         | ✅ `SYNC_MAX_ITEMS`（跨书架跨类别总计，按进入 TMDB 的条数计） | ❌ 无（由「只取第一页」天然限流） |
 
 **为什么 Bangumi → NeoDB 不需要 `account_states`**：TMDB 的 `account_states` 是**独立的第三方接口**，读它才能知道目标端现状。而 NeoDB 侧读取标记用的是同一个客户端的 `getNeodbMark(uuid)`，返回结构与写入体同源，可直接做字段级比对——**不需要为「读现状」额外设计一套枚举接口**。两者目的相同（避免无差异写入），手段因目标平台的 API 形态而异。
 
@@ -767,7 +785,7 @@ flowchart TD
 
 1. **指纹跳过**（`SYNC_INCREMENTAL`，本地默认 1）——用「书架状态 + 评分 + 短评」算内容指纹，**未变化的条目在匹配之前就 return**，零 TMDB 请求
 2. **幂等写入**——变化过的条目也要先读 `account_states` 比对，只写有差异的字段
-3. **熔断**（`SYNC_MAX_ITEMS`）——单次运行的处理上限
+3. **熔断**（`SYNC_MAX_ITEMS`）——单次运行的处理上限，按**进入 TMDB 的条数**计（不是走过的标记数）；全量模式取消这道闸
 
 所以稳态运行的主要开销是**书架分页读取**（不遍历就无法知道哪些变了），而不是写入。想进一步压低请求量可调小 `NEODB_MAX_PAGES`，代价是较早的条目不再被检查。
 
@@ -989,9 +1007,14 @@ NOTION_BOOK_DATABASE_ID  NOTION_GAME_DATABASE_ID  NOTION_DRAMA_DATABASE_ID
 
 配置位置：仓库 → **Settings → Secrets and variables → Actions**。密钥一律放 **Secrets**（清单与获取方式见[凭证](#凭证)），其余变量放 **Variables**。
 
-**Variables（共 35 个，明文，只放非敏感开关）**
+**触发方式**
 
-35 = 5 个路径开关（对照见[总览](#总览)）＋ 下面六组表里的 30 个。名称、默认值与说明都在各组表内——**本地 `.env` 与 CI Variables 用同一套名字**，只是存放位置不同（工作流里 `|| '…'` 的兜底值与表内默认一致）。
+- **定时**：每周一、三、五 08:00 UTC（`.github/workflows/sync.yml` 的 `cron`）。三次而非一次，是因为豆瓣 RSS 只保留约 10 条——一周一次可能在集中标记时漏掉周初的条目。这**只是缩小**丢失窗口，不是消除：两次运行之间新增超过约 10 条仍会丢。
+- **手动**：`workflow_dispatch`，可勾选 `full_sync` → 本次运行 `NEODB_TMDB_FULL_SYNC=1`（取消链路⑤的两道单轮上限、关闭增量），超时预算同时从 60 分钟提到 180 分钟。
+
+**Variables（共 36 个，明文，只放非敏感开关）**
+
+36 = 5 个路径开关（对照见[总览](#总览)）＋ 下面六组表里的 31 个。名称、默认值与说明都在各组表内——**本地 `.env` 与 CI Variables 用同一套名字**，只是存放位置不同（工作流里 `|| '…'` 的兜底值与表内默认一致）。
 
 > ⚠️ 1. **变量只有在工作流里被引用才会生效**。GitHub 上设了 Variable，如果 `.github/workflows/sync.yml` 没有声明它，程序读到的仍是空值——这是最容易踩的坑，会导致「设置了却没反应」。
 >
@@ -1053,19 +1076,20 @@ NOTION_BOOK_DATABASE_ID  NOTION_GAME_DATABASE_ID  NOTION_DRAMA_DATABASE_ID
 
 #### NeoDB → TMDB（链路⑤）
 
-| 变量                  | 默认                         | CI 差异 | 说明                                                          |
-| --------------------- | ---------------------------- | ------- | ------------------------------------------------------------- |
-| `SYNC_SHELF_TYPES`    | `wishlist,progress,complete` | —       | 处理哪些书架。`dropped` 默认排除                              |
-| `SYNC_DRY_RUN`        | `0`                          | —       | `1` = 只计算并打印计划，不写数据                              |
-| `SYNC_MAX_ITEMS`      | `200`                        | —       | 单次运行处理上限（熔断保护）                                  |
-| `SYNC_RATING_PROFILE` | `tmdb_prefer`                | —       | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖 |
-| `SYNC_YEAR_TOLERANCE` | `1`                          | —       | 标题匹配时允许的年份差                                        |
-| `SYNC_INCREMENTAL`    | `1`                          | **`0`** | 跳过内容指纹未变的条目                                        |
-| `SYNC_STATE_FILE`     | `.cache/sync-state.json`     | —       | 增量状态文件位置                                              |
+| 变量                   | 默认                         | CI 差异               | 说明                                                               |
+| ---------------------- | ---------------------------- | --------------------- | ------------------------------------------------------------------ |
+| `NEODB_TMDB_FULL_SYNC` | `0`                          | 手动 `full_sync` 覆盖 | 全量：取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，强制关闭增量      |
+| `SYNC_SHELF_TYPES`     | `wishlist,progress,complete` | —                     | 处理哪些书架。`dropped` 默认排除                                   |
+| `SYNC_DRY_RUN`         | `0`                          | —                     | `1` = 只计算并打印计划，不写数据（全量模式下同样生效）             |
+| `SYNC_MAX_ITEMS`       | `200`                        | —                     | 单次运行处理上限（熔断保护），按进入 TMDB 的条数计；`0` 会回落 200 |
+| `SYNC_RATING_PROFILE`  | `tmdb_prefer`                | —                     | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖      |
+| `SYNC_YEAR_TOLERANCE`  | `1`                          | —                     | 标题匹配时允许的年份差                                             |
+| `SYNC_INCREMENTAL`     | `1`                          | **`0`**               | 跳过内容指纹未变的条目；全量模式强制关                             |
+| `SYNC_STATE_FILE`      | `.cache/sync-state.json`     | —                     | 增量状态文件位置                                                   |
 
-> 这一组就是链路⑤的行为旋钮（`SYNC_CATEGORIES` 见上方[类别白名单](#类别白名单)）。`SYNC_INCREMENTAL` 在 CI 里默认 `0` 的原因见上文警告 2。
+> 这一组就是链路⑤的行为旋钮（`SYNC_CATEGORIES` 见上方[类别白名单](#类别白名单)）。`SYNC_INCREMENTAL` 在 CI 里默认 `0` 的原因见上文警告 2。`NEODB_TMDB_FULL_SYNC=1` 时，`SYNC_MAX_ITEMS` 与 `NEODB_MAX_PAGES` **被忽略**、`SYNC_INCREMENTAL` **强制关闭**（启动行会打印 `fullSync=on` 与 `maxItems=∞, maxPages=∞`，可据此确认是否生效）；`SYNC_DRY_RUN`、书架与分类不受影响。
 
-工作流本身还带三道保险：`permissions: contents: read`（最小权限）、`concurrency`（不让两次同步重叠，`cancel-in-progress: false`——中断一次做到一半的同步比排队更糟）、`timeout-minutes: 60`；并且在 `npm run sync` **之前**先跑 `npm run verify:all`——规则若被改坏，会在写入任何数据之前就拦下这一轮。
+工作流本身还带三道保险：`permissions: contents: read`（最小权限）、`concurrency`（不让两次同步重叠，`cancel-in-progress: false`——中断一次做到一半的同步比排队更糟）、`timeout-minutes`（常规 60，手动全量 180）；并且在 `npm run sync` **之前**先跑 `npm run verify:all`——规则若被改坏，会在写入任何数据之前就拦下这一轮。
 
 ---
 
@@ -1290,7 +1314,7 @@ TMDB 没有「已看」字段，评分是唯一能表达它的东西。所以一
 
 豆瓣的 RSS 接口对 User-Agent 敏感。设置 `DOUBAN_RSS_USER_AGENT` 为常见浏览器 UA 再试。
 
-另外注意：**豆瓣 RSS 每次只返回最近约 10 条**（含「想*」状态）。这是**豆瓣侧的限制**，不是本项目截断——所以单次运行能同步的就这么多。集中标记过多时可能漏掉较早的记录，可手动触发 workflow，或把定时任务改密一些。
+另外注意：**豆瓣 RSS 每次只返回最近约 10 条**（含「想*」状态）。这是**豆瓣侧的限制**，不是本项目截断——所以单次运行能同步的就这么多。工作流现在每周跑三次（周一、三、五 08:00 UTC），把丢失窗口从 7 天压到约 2–3 天；但**窗口本身仍是约 10 条**：两次运行之间新增超过这个数，较早的条目仍会被覆盖。集中标记时可以手动触发 workflow 立即补跑一次。
 
 ### GitHub Actions 里增量同步为什么不生效？
 
