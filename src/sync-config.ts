@@ -471,6 +471,23 @@ export const neodbTmdbConfig = {
   /** Incremental de-duplication store. Empty string disables it. / 增量去重存储；空字符串表示关闭。 */
   stateFile: process.env.SYNC_STATE_FILE ?? '.cache/sync-state.json',
   incremental: envEnabled('SYNC_INCREMENTAL', true),
+  /**
+   * Full-sync intent from the environment, same idea as `BANGUMI_FULL_SYNC`. It lifts the two
+   * per-run caps (`SYNC_MAX_ITEMS`, `NEODB_MAX_PAGES`) and turns the incremental store off; the
+   * dedicated full entry overrides it for its own run by passing `true` explicitly.
+   *
+   * Note the trap this exists to remove: `envInt(name, default, min)` returns the default for any
+   * value below `min`, and both caps use `min = 1` — so `SYNC_MAX_ITEMS=0` is *not* "unlimited",
+   * it silently falls back to 200.
+   *
+   * 环境变量里的全量意图，与 `BANGUMI_FULL_SYNC` 同一思路。它取消两道单轮上限
+   * （`SYNC_MAX_ITEMS`、`NEODB_MAX_PAGES`）并关闭增量存储；专用的全量入口会在该次运行中显式
+   * 传入 `true` 覆盖它。
+   *
+   * 注意它要消除的那个陷阱：`envInt(name, default, min)` 对任何小于 `min` 的值都返回默认值，
+   * 而两道上限的 `min` 都是 `1` —— 所以 `SYNC_MAX_ITEMS=0` **不是**「无限」，而是静默回落到 200。
+   */
+  fullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
   /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
   unmatchedLog: unmatchedLogFile,
 
@@ -506,13 +523,74 @@ export function resolveTargetCategories(): string[] {
     : ['movie', 'tv'];
 }
 
-export function describeNeodbTmdbConfig(): string {
+/**
+ * The limits a single run actually uses, after full-sync intent is folded in.
+ *
+ * 一次运行实际使用的上限 —— 全量意图折算之后的结果。
+ */
+export type NeodbTmdbRunMode = {
+  fullSync: boolean;
+  /** `SYNC_MAX_ITEMS`; `Infinity` in full mode. Compared against items that reached TMDB. / 全量模式下为 `Infinity`；与实际进入 TMDB 的条数比较。 */
+  maxItems: number;
+  /** `NEODB_MAX_PAGES`; `Infinity` in full mode. / 全量模式下为 `Infinity`。 */
+  maxPages: number;
+  /** `SYNC_INCREMENTAL`; forced off in full mode. / 全量模式下强制关闭。 */
+  incremental: boolean;
+};
+
+/**
+ * Fold `fullSync` into the per-run limits.
+ *
+ * Full sync does **not** mean "ignore what you selected": shelves and categories still apply. It
+ * only lifts the two per-run caps and turns the incremental store off, because a full import has
+ * to re-examine every mark — and the store would skip exactly the ones already recorded.
+ * `SYNC_DRY_RUN` is deliberately untouched: full + dry-run is a legal and useful combination.
+ *
+ * 把 `fullSync` 折算成本次运行的上限。
+ *
+ * 全量**不**意味着「无视你的选择」：书架与分类依然生效。它只取消两道单轮上限，并关闭增量存储，
+ * 因为全量导入必须重新检查每一条标记 —— 而增量存储恰好会跳过那些已经记录过的条目。
+ * `SYNC_DRY_RUN` 刻意不受影响：全量 + 空跑是合法且有用的组合。
+ */
+export function resolveNeodbTmdbRunMode(fullSync: boolean): NeodbTmdbRunMode {
+  if (!fullSync) {
+    return {
+      fullSync: false,
+      maxItems: neodbTmdbConfig.maxItems,
+      maxPages: neodbTmdbConfig.neodb.maxPages,
+      incremental: neodbTmdbConfig.incremental,
+    };
+  }
+
+  return {
+    fullSync: true,
+    maxItems: Number.POSITIVE_INFINITY,
+    maxPages: Number.POSITIVE_INFINITY,
+    incremental: false,
+  };
+}
+
+/**
+ * One-line summary of the configuration this run actually uses.
+ *
+ * Takes the resolved mode instead of reading `neodbTmdbConfig` directly, so that a full run
+ * triggered by the dedicated entry (where the env var may be unset) still logs the truth.
+ *
+ * 本次运行实际所用配置的单行摘要。
+ *
+ * 接收折算后的 mode 而不是直接读 `neodbTmdbConfig`：这样由专用入口触发的全量运行（环境变量可能
+ * 未设置）也会打印真实生效的值。
+ */
+export function describeNeodbTmdbConfig(mode: NeodbTmdbRunMode): string {
   const shelves = neodbTmdbConfig.shelfTypes.join('|') || '(none)';
+  const limit = (value: number): string =>
+    Number.isFinite(value) ? String(value) : '∞';
   return (
     `NeoDB→TMDB: ${neodbTmdbConfig.enabled ? 'on' : 'off'} ` +
     `shelves=${shelves}, categories=${resolveTargetCategories().join('|')}, ` +
-    `dryRun=${neodbTmdbConfig.dryRun}, incremental=${neodbTmdbConfig.incremental}, ` +
-    `rating=${neodbTmdbConfig.ratingProfile}, maxItems=${neodbTmdbConfig.maxItems}`
+    `dryRun=${neodbTmdbConfig.dryRun}, incremental=${mode.incremental}, ` +
+    `rating=${neodbTmdbConfig.ratingProfile}, fullSync=${mode.fullSync ? 'on' : 'off'}, ` +
+    `maxItems=${limit(mode.maxItems)}, maxPages=${limit(mode.maxPages)}`
   );
 }
 

@@ -11,12 +11,18 @@
  * single source of truth for what this path does. Also worth knowing:
  *   - every write is preceded by a read (`getTmdbAccountStates`), which is what makes it idempotent;
  *   - `SYNC_DRY_RUN=1` prints the plan and issues no writes at all, so it is safe to run repeatedly;
+ *   - `fullSync` (env `NEODB_TMDB_FULL_SYNC`, or the dedicated full entry) lifts `SYNC_MAX_ITEMS`
+ *     and `NEODB_MAX_PAGES` and turns incremental off for that run; the shelf and category
+ *     selections still apply — "full" means "no per-run truncation", not "ignore your filters";
  *   - matching failures are recorded as `unresolved`, not `failed` — a missing counterpart on TMDB
  *     is a data gap, not an error, and must not turn CI red.
  *
  * 改动这里之前请先读 `rules/tmdb-mapping.ts` 的映射表 —— 它是本链路行为的唯一真源。另外值得知道：
  *   - 每次写入之前都先读一次（`getTmdbAccountStates`），这正是它幂等的来源；
  *   - `SYNC_DRY_RUN=1` 只打印计划、完全不写入，因此可以反复运行；
+ *   - `fullSync`（环境变量 `NEODB_TMDB_FULL_SYNC`，或专用的全量入口）在该次运行中取消
+ *     `SYNC_MAX_ITEMS` 与 `NEODB_MAX_PAGES` 并关闭增量；书架与分类的选择仍然生效 ——
+ *     「全量」指的是「单轮不截断」，不是「无视你的过滤条件」；
  *   - 匹配失败记为 `unresolved` 而不是 `failed` —— TMDB 没有对应条目是数据缺口，不是错误，
  *     不应让 CI 变红。
  */
@@ -35,8 +41,10 @@ import { pickExactTmdbMatch } from '../rules/tmdb-matching';
 import {
   neodbTmdbConfig,
   describeNeodbTmdbConfig,
+  resolveNeodbTmdbRunMode,
   resolveTargetCategories,
   validateNeodbTmdbCredentials,
+  type NeodbTmdbRunMode,
 } from '../sync-config';
 import { neodbThrottle } from '../clients/neodb-http';
 import { fetchShelf, getNeodbMe, verifyNeodbToken } from '../clients/neodb-shelf';
@@ -78,6 +86,8 @@ import { printPathSummary } from '../sync-report';
 const LABEL = 'NeoDB → TMDB';
 
 type SyncContext = {
+  /** Effective limits for this run, full-sync intent already folded in. / 本次运行的实际上限，全量意图已折算。 */
+  mode: NeodbTmdbRunMode;
   auth: TmdbAuth;
   accountId: number;
   /** `${mediaType}:${id}` seen this run, to dedupe across shelves/categories. */
@@ -85,7 +95,11 @@ type SyncContext = {
   counters: SyncCounters;
   state: SyncState;
   stateDirty: boolean;
-  /** `SYNC_MAX_ITEMS` cut the run short; more items remain unwalked. */
+  /**
+   * `SYNC_MAX_ITEMS` cut the run short; more items remain unwalked and roll over to the next run.
+   *
+   * `SYNC_MAX_ITEMS` 提前中止了本轮；仍有条目未走到，顺延到下一轮。
+   */
   capped: boolean;
   /** Labels of unmatched items, in encounter order, for the closing listing. */
   unmatchedTitles: string[];
@@ -96,17 +110,33 @@ type SyncContext = {
 /**
  * NeoDB shelf → TMDB, one-way.
  *
- * Each mark is resolved through `resolveTmdbOperations` (see mapping.ts) into a
- * plan, then diffed against the live TMDB state so that re-running is always
- * safe. Nothing here encodes mapping knowledge.
+ * Each mark is resolved through `resolveTmdbOperations` (see mapping.ts) into a plan, then diffed
+ * against the live TMDB state so that re-running is always safe. Nothing here encodes mapping
+ * knowledge.
  *
- * @returns a report of what happened. The caller decides the exit code from it
- * (`pathHasFailed`), and `index.ts` folds it into the closing summary.
+ * `fullSync` lifts `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` and skips the incremental store for this
+ * run. It defaults to the `NEODB_TMDB_FULL_SYNC` switch, so `index.ts` needs no argument; the
+ * dedicated full entry passes `true` explicitly, which wins over the environment.
+ *
+ * 单向的 NeoDB 书架 → TMDB。
+ *
+ * 每条标记都先经 `resolveTmdbOperations`（见 mapping.ts）解析成计划，再与 TMDB 的实时状态做差分，
+ * 因此重复运行始终安全。这里不包含任何映射知识。
+ *
+ * `fullSync` 在本次运行中取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 并跳过增量存储。默认取
+ * `NEODB_TMDB_FULL_SYNC` 开关，因此 `index.ts` 无需传参；专用的全量入口显式传入 `true`，
+ * 优先级高于环境变量。
+ *
+ * @returns a report of what happened. The caller decides the exit code from it (`pathHasFailed`),
+ *   and `index.ts` folds it into the closing summary.
  */
-export default async function runNeodbToTmdb(): Promise<PathReport> {
+export default async function runNeodbToTmdb(
+  fullSync: boolean = neodbTmdbConfig.fullSync,
+): Promise<PathReport> {
   const report = newPathReport(LABEL);
+  const mode = resolveNeodbTmdbRunMode(fullSync);
 
-  consola.info('NeoDB → TMDB sync: ', describeNeodbTmdbConfig());
+  consola.info('NeoDB → TMDB sync: ', describeNeodbTmdbConfig(mode));
 
   const credentials = validateNeodbTmdbCredentials();
   if (!credentials.ok) {
@@ -141,11 +171,15 @@ export default async function runNeodbToTmdb(): Promise<PathReport> {
   }
 
   const ctx: SyncContext = {
+    mode,
     auth,
     accountId: account.id,
     seen: new Set<string>(),
     counters: newSyncCounters(),
-    state: neodbTmdbConfig.incremental
+    // Read through the *resolved* mode: a full run must not consult (or update) the store, even
+    // when `SYNC_INCREMENTAL` happens to be on in the environment.
+    // 用**折算后**的 mode 判断：全量运行不读也不写增量存储，即使环境里 `SYNC_INCREMENTAL` 是开的。
+    state: mode.incremental
       ? readState(neodbTmdbConfig.stateFile)
       : { version: 1, updatedAt: '', synced: {} },
     stateDirty: false,
@@ -195,13 +229,30 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<void> 
   consola.start(`Shelf "${shelfType}"`);
 
   for (const category of resolveTargetCategories()) {
-    const marks = await fetchShelf(shelfType, category);
+    const marks = await fetchShelf(shelfType, category, ctx.mode.maxPages);
     consola.info(`  ${shelfType}/${category}: ${marks.length} mark(s).`);
 
     for (const mark of marks) {
-      if (ctx.counters.scanned >= neodbTmdbConfig.maxItems) {
-        ctx.capped = true;
-        consola.warn(`Reached SYNC_MAX_ITEMS (${neodbTmdbConfig.maxItems}); stopping.`);
+      // The cap counts items that reached TMDB (`processed`), not marks walked (`scanned`):
+      // counting `scanned` lets unchanged marks at the head of a shelf fill the quota without any
+      // of them being processed, so an incremental run would never get past them.
+      // Full mode sets `maxItems` to Infinity, so this branch never fires there.
+      //
+      // 配额计的是真正进入 TMDB 的条数（`processed`），不是走过的标记数（`scanned`）：用 `scanned`
+      // 会让书架头部那些「未变化」的标记在一条都没被处理的情况下吃满配额，增量运行永远推不过它们。
+      // 全量模式把 `maxItems` 设为 Infinity，因此这里不会触发。
+      if (ctx.counters.processed >= ctx.mode.maxItems) {
+        // Warn once: every remaining shelf hits the same wall, and repeating the message for each
+        // of them would bury the number that explains what happened.
+        // 只警告一次：其余书架会撞到同一面墙，逐个重复只会把解释原因的那个数字淹没。
+        if (!ctx.capped) {
+          ctx.capped = true;
+          consola.warn(
+            `Reached SYNC_MAX_ITEMS (${ctx.mode.maxItems}) after ${ctx.counters.processed} item(s); ` +
+              'the remaining shelves/categories roll over to the next run. ' +
+              'For a one-off full import set NEODB_TMDB_FULL_SYNC=1 (or run `npm run sync:neodb-tmdb-full`).',
+          );
+        }
         return;
       }
 
@@ -265,11 +316,17 @@ async function syncMark(
   // 3) Incremental de-duplication — unchanged marks cost zero TMDB requests.
   const cacheKey = stateKey(shelfType, item.uuid);
   const fingerprint = fingerprintMark(mark);
-  if (neodbTmdbConfig.incremental && ctx.state.synced[cacheKey]?.fp === fingerprint) {
+  if (ctx.mode.incremental && ctx.state.synced[cacheKey]?.fp === fingerprint) {
     ctx.counters.skippedCached += 1;
     consola.debug(`Unchanged since last run; skip ${label}.`);
     return;
   }
+
+  // This mark will actually be resolved against TMDB, so it counts against `SYNC_MAX_ITEMS`.
+  // Placed after the gates and the incremental skip on purpose — see the note on `processed`.
+  // 这条标记将真正拿去 TMDB 解析，因此计入 `SYNC_MAX_ITEMS`。刻意放在各闸门与增量跳过之后 ——
+  // 原因见 `processed` 上的注释。
+  ctx.counters.processed += 1;
 
   // 4) Resolve to a concrete TMDB item.
   const target = await resolveTmdbTarget(item, mediaType, ctx);
@@ -316,7 +373,7 @@ async function syncMark(
 }
 
 function recordSynced(ctx: SyncContext, key: string, fingerprint: string): void {
-  if (!neodbTmdbConfig.incremental) {
+  if (!ctx.mode.incremental) {
     return;
   }
   ctx.state.synced[key] = { fp: fingerprint, at: new Date().toISOString() };
@@ -438,6 +495,7 @@ function printCounterBreakdown(ctx: SyncContext): void {
   const c = ctx.counters;
   consola.info('Sync summary:', {
     scanned: c.scanned,
+    processed: c.processed,
     skippedCategory: c.skippedCategory,
     skippedShelf: c.skippedShelf,
     skippedCached: c.skippedCached,

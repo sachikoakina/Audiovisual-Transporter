@@ -332,18 +332,25 @@ export async function fetchShelfPage(options: {
 }
 
 /**
- * Walk the pages of one shelf, up to `neodbTmdbConfig.maxPages`.
+ * Walk the pages of one shelf, up to `maxPages`.
  * Stops early on an empty page or when the reported page count is reached.
  *
- * 遍历某个书架的分页，最多到 `neodbTmdbConfig.maxPages`。遇到空页或已达到上报的总页数时提前停止。
+ * Only path ⑤ calls this. `maxPages` defaults to `NEODB_MAX_PAGES`; full-sync mode passes
+ * `Infinity` to walk until the API itself says it is done.
+ *
+ * 遍历某个书架的分页，最多到 `maxPages`。遇到空页或已达到上报的总页数时提前停止。
+ *
+ * 只有链路⑤调用它。`maxPages` 默认取 `NEODB_MAX_PAGES`；全量模式传入 `Infinity`，一直走到
+ * API 自己表示没有下一页为止。
  */
 export async function fetchShelf(
   shelfType: ShelfType,
   category?: string,
+  maxPages: number = neodbTmdbConfig.neodb.maxPages,
 ): Promise<NeodbPagedMark['data']> {
   const collected: NeodbPagedMark['data'] = [];
 
-  for (let page = 1; page <= neodbTmdbConfig.neodb.maxPages; page += 1) {
+  for (let page = 1; page <= maxPages; page += 1) {
     const result = await fetchShelfPage({ shelfType, category, page });
     if (result === null) {
       consola.warn(`Aborting shelf "${shelfType}" at page ${page} after an error.`);
@@ -359,9 +366,9 @@ export async function fetchShelf(
     if (Number.isFinite(reportedPages) && page >= reportedPages) {
       break;
     }
-    if (page === neodbTmdbConfig.neodb.maxPages) {
+    if (page === maxPages) {
       consola.warn(
-        `Shelf "${shelfType}" hit NEODB_MAX_PAGES (${neodbTmdbConfig.neodb.maxPages}); more items remain.`,
+        `Shelf "${shelfType}" hit NEODB_MAX_PAGES (${maxPages}); more items remain.`,
       );
       break;
     }

@@ -307,6 +307,33 @@ export type RatingProfile = 'tmdb_prefer' | 'overwrite';
 
 export type SyncCounters = {
   scanned: number;
+  /**
+   * Marks that actually reached TMDB: past the shelf/category gates **and** past the incremental
+   * skip. `SYNC_MAX_ITEMS` is compared against this counter, not against `scanned`.
+   *
+   * Why it cannot be `scanned`:
+   *   1. `scanned` is the left-hand side of the per-path self-check
+   *      (`scanned = written + unchanged + skipped + unresolved + failed`), so it has to count
+   *      every mark that entered the loop — including the ones a gate skipped.
+   *   2. `scanned` grows at the top of `syncMark`, i.e. *before* the incremental skip. Counting
+   *      the quota there lets N unchanged marks at the head of a shelf fill it up without any of
+   *      them being processed, so the run can never reach the items behind them.
+   *
+   * Internal only — deliberately absent from `PathReport`.
+   *
+   * 真正进入 TMDB 的标记数：已通过书架/分类闸门，**且**已通过增量跳过。`SYNC_MAX_ITEMS` 比较的
+   * 是它，而不是 `scanned`。
+   *
+   * 不能用 `scanned` 的原因：
+   *   1. `scanned` 是每条链路自检等式的左边
+   *      （`scanned = written + unchanged + skipped + unresolved + failed`），必须计入进入循环的
+   *      每一条标记 —— 包括被闸门跳过的那些。
+   *   2. `scanned` 在 `syncMark` 开头就自增，即**早于**增量跳过。在那里计配额会让书架头部的 N
+   *      条「未变化」标记在一条都没被处理的情况下吃满配额，后面的条目永远轮不到。
+   *
+   * 仅内部使用 —— 刻意不进入 `PathReport`。
+   */
+  processed: number;
   skippedCategory: number;
   skippedShelf: number;
   skippedCached: number;
@@ -329,6 +356,7 @@ export type SyncCounters = {
 export function newSyncCounters(): SyncCounters {
   return {
     scanned: 0,
+    processed: 0,
     skippedCategory: 0,
     skippedShelf: 0,
     skippedCached: 0,
