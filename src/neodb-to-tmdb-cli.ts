@@ -17,6 +17,9 @@ import { pathHasFailed } from './types';
  * 当你想单独同步这一条链路、不动豆瓣/Bangumi 的定时任务时使用。合并入口是 `src/index.ts`。
  *
  *   npm run sync:neodb-tmdb
+ *
+ * This entry takes no command-line arguments; run it via its npm script.
+ * 本入口不带任何命令行参数，通过对应的 npm script 运行。
  */
 async function main(): Promise<void> {
   if (!neodbTmdbConfig.enabled) {

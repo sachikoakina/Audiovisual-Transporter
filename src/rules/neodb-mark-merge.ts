@@ -2,12 +2,12 @@
  * NeoDB mark merge rule — decide what an existing NeoDB mark should become.
  * NeoDB 标记合并规则 —— 决定一条已存在的 NeoDB 标记最终应该变成什么。
  *
- * Zero I/O, zero environment reads. The only import is a *type* from the config layer, so the
- * rule can be asserted directly with literal objects.
- * 零 I/O、零环境读取。唯一的导入是从配置层引入的一个**类型**，因此本规则可直接用字面量
- * 对象断言。
+ * Zero I/O, zero environment reads. The only import is a *type* from the shared vocabulary
+ * (`types.ts`), so the rule can be asserted directly with literal objects.
+ * 零 I/O、零环境读取。唯一的导入是从共享词汇表（`types.ts`）引入的一个**类型**，因此本规则
+ * 可直接用字面量对象断言。
  */
-import type { NeodbMergeProfile } from '../sync-config';
+import type { NeodbMergeProfile } from '../types';
 
 /**
  * Structural shape of a NeoDB mark, deliberately not imported from the NeoDB client.

@@ -267,6 +267,9 @@ export type NeodbMe = {
   url?: string;
 };
 
+/** How Douban/Bangumi marks merge into an existing NeoDB mark. / 豆瓣/Bangumi 的标记如何合并进 NeoDB 已有标记。 */
+export type NeodbMergeProfile = 'overwrite' | 'neodb_prefer';
+
 /** Only movie and tv can carry a TMDB user mark. */
 export type TmdbMediaType = 'movie' | 'tv';
 

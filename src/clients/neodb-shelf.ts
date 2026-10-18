@@ -9,9 +9,8 @@
  */
 import { HTTPError } from 'got';
 import { consola } from 'consola';
-import { DOUBAN_EXPRESSED_STATUSES, doubanStarsToTenPoint } from '../rules/douban';
-import { mergeNeodbMark } from '../rules/neodb-mark-merge';
-import { neodbTmdbConfig, syncConfig } from '../sync-config';
+import { doubanStarsToTenPoint } from '../rules/douban';
+import { neodbTmdbConfig } from '../sync-config';
 import {
   logNeodbUnauthorized,
   neodbAuthHeaders,
@@ -22,11 +21,8 @@ import {
   neodbVisibility,
   redirectUrlFromError,
 } from './neodb-http';
-import { fetchNeodbItemByUrl } from './neodb-catalog';
 import {
   ItemStatus,
-  type FeedItem,
-  type ItemSyncOutcome,
   type NeodbItem,
   type NeodbMe,
   type NeodbPagedMark,
@@ -197,86 +193,6 @@ export async function setNeodbProgress(
     progress,
   );
   return result != null;
-}
-
-/**
- * Sync one Douban RSS item to NeoDB: fetch by link, compare the mark, update only if needed.
- * 把一条豆瓣 RSS 条目同步到 NeoDB：按链接抓取、比较标记、仅在需要时更新。
- *
- * @returns The `ItemSyncOutcome` for this single item, so the caller's report adds up.
- *   该单条条目的 `ItemSyncOutcome`，使调用方的报告自洽。
- */
-export async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
-  const neodbItem = await fetchNeodbItemByUrl(item.link);
-  if (!neodbItem?.uuid) {
-    // No catalog counterpart on NeoDB. A data gap, not an error — do not turn CI red.
-    // NeoDB 目录里没有对应条目。这是数据缺口而非错误 —— 不应让 CI 变红。
-    return 'unresolved';
-  }
-
-  const label = `${neodbItem.title}[${item.link}]`;
-  consola.info('Going to check item mark status: ', label);
-
-  const mark = await getNeodbMark(neodbItem.uuid);
-  const sourceGrade = doubanStarsToTenPoint(item.rating);
-
-  if (!mark) {
-    consola.info('Item is not marked, going to mark now: ', label);
-    const ok = await markNeodbItem(neodbItem, {
-      shelfType: item.status,
-      comment: item.comment,
-      ratingGrade: sourceGrade,
-      createdTime: item.time,
-    });
-    return ok ? 'written' : 'failed';
-  }
-
-  // Preserve NeoDB statuses Douban RSS cannot express (e.g. dropped ← Bangumi 搁置/抛弃).
-  // 保留豆瓣 RSS 无法表达的目标端状态（例如 dropped ← Bangumi 的搁置/抛弃）。
-  const existingStatus = mark.shelf_type as ItemStatus;
-  if (existingStatus && !DOUBAN_EXPRESSED_STATUSES.has(existingStatus)) {
-    consola.info(
-      'NeoDB has Douban-absent status, skip overwrite: ',
-      `${label} shelf_type=${mark.shelf_type}`,
-    );
-    return 'skipped';
-  }
-
-  const merged = mergeNeodbMark(
-    mark,
-    {
-      shelfType: item.status,
-      ratingGrade: sourceGrade,
-      comment: item.comment || '',
-    },
-    syncConfig.doubanNeodbMerge,
-    neodbVisibility,
-  );
-
-  if (!merged.shouldWrite) {
-    consola.info('NeoDB mark unchanged, skip: ', label);
-    return 'unchanged';
-  }
-
-  if (merged.keptRating || merged.keptComment) {
-    consola.info(
-      'NeoDB prefer: keeping existing ',
-      [merged.keptRating ? 'rating' : null, merged.keptComment ? 'comment' : null]
-        .filter(Boolean)
-        .join('+'),
-      ' on ',
-      label,
-    );
-  }
-
-  consola.info('Item mark changed, going to update: ', label);
-  const ok = await markNeodbItem(neodbItem, {
-    shelfType: merged.shelfType,
-    comment: merged.comment,
-    ratingGrade: merged.ratingGrade,
-    createdTime: item.time,
-  });
-  return ok ? 'written' : 'failed';
 }
 
 // ───────────────────────────────────────────────────────────────────────────

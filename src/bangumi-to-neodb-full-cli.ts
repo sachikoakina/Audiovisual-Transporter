@@ -15,6 +15,9 @@ import { pathHasFailed } from './types';
  * told otherwise, so this entry passes `fullSync = true` to make it walk every page.
  * 与定时任务链路的区别：`paths/bangumi-to-neodb.ts` 默认只走一页，本入口传入
  * `fullSync = true` 让它遍历全部分页。
+ *
+ * This entry takes no command-line arguments; run it via its npm script.
+ * 本入口不带任何命令行参数，通过对应的 npm script 运行。
  */
 async function main(): Promise<void> {
   if (!syncConfig.bangumiNeodb) {

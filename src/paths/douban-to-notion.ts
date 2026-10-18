@@ -202,9 +202,9 @@ type CategoryOutcome = {
  * Sync one category's feeds into its Notion data source.
  * 把某个分类的条目同步进它对应的 Notion data source。
  *
- * De-duplication is a single unpaginated `dataSources.query` over the items' links; the query
- * returns only the first page of results.
- * 去重依赖一次不分页的 `dataSources.query`（按条目链接查询）；该查询只返回第一页结果。
+ * De-duplication queries the data source in batches of `NOTION_PAGE_SIZE` and follows `has_more`
+ * pagination, so items on later pages are still recognised as already inserted.
+ * 去重会按 `NOTION_PAGE_SIZE` 分批查询并跟随 `has_more` 翻页，因此后几页的条目也会被识别为已插入。
  *
  * @param categorizedFeeds - Feeds already filtered to one category. 已过滤到单一分类的条目。
  * @param category - That category. 该分类。

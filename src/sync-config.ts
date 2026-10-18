@@ -16,6 +16,7 @@ import {
   SHELF_TYPES,
   type BangumiSubjectType,
   type FeedItem,
+  type NeodbMergeProfile,
   type RatingProfile,
   type ShelfType,
 } from './types';
@@ -87,9 +88,6 @@ export type CategoryAllowlist<T extends string> =
   | { mode: 'all' }
   | { mode: 'none'; raw: string }
   | { mode: 'set'; values: ReadonlySet<T> };
-
-/** How Douban/Bangumi marks merge into an existing NeoDB mark. / 豆瓣/Bangumi 的标记如何合并进 NeoDB 已有标记。 */
-export type NeodbMergeProfile = 'overwrite' | 'neodb_prefer';
 
 /**
  * Parse merge profile. Empty/unset → defaultValue.

@@ -15,8 +15,9 @@
  * 日期 —— Bangumi 的 `updated_at` 不足以可信到可以覆盖它（见 `syncCollectionToNeodb` 内的注释）。
  *
  * When resolving a Bangumi URL it prefers the Douban-linked twin, so that marks land on the same
- * NeoDB uuid as path ① and ②.
- * 解析 Bangumi URL 时优先选择带豆瓣外链的孪生条目，使标记落在与链路① ② 相同的 NeoDB uuid 上。
+ * NeoDB uuid as path ② (Douban → NeoDB).
+ * 解析 Bangumi URL 时优先选择带豆瓣外链的孪生条目，使标记落在与链路②（豆瓣 RSS → NeoDB）
+ * 相同的 NeoDB uuid 上。
  */
 import dotenv from 'dotenv';
 import { consola } from 'consola';
