@@ -102,7 +102,7 @@ function newBangumiCounters(): BangumiCounters {
  * not fail the run; `failed` and `aborted` do — the caller decides via
  * `pathHasFailed`.
  */
-export default async function handleBangumiToNeodb(
+export default async function syncBangumiToNeodb(
   fullSync = false,
 ): Promise<PathReport> {
   const report = newPathReport(LABEL);

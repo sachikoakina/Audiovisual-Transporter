@@ -64,7 +64,7 @@ const LABEL = 'Douban → Bangumi';
  * @returns The path's report; `aborted` when the path could not run.
  *   本条链路的报告；无法运行时 `aborted` 为真。
  */
-export default async function handleBangumi(feeds: FeedItem[]): Promise<PathReport> {
+export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<PathReport> {
   const report = newPathReport(LABEL);
 
   if (!bangumiToken) {

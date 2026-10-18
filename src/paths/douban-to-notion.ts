@@ -2,7 +2,7 @@ import { consola } from 'consola';
 import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 import { type CreatePageParameters } from '@notionhq/client/build/src/api-endpoints';
-import scrapyDouban from '../clients/douban-subject-page';
+import scrapeDoubanSubjectPage from '../clients/douban-subject-page';
 import {
   NOTION_COLUMN_TYPES,
   PAGE_ICON_EMOJI,
@@ -58,7 +58,7 @@ dotenv.config();
  * @param feeds - Feed items to sync. 待同步的条目。
  * @returns The path's report. 本条链路的报告。
  */
-export default async function handleNotion(feeds: FeedItem[]): Promise<PathReport> {
+export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<PathReport> {
   const report = newPathReport('Douban → Notion');
 
   const filtered = filterDoubanFeedsByCategory(
@@ -85,7 +85,7 @@ export default async function handleNotion(feeds: FeedItem[]): Promise<PathRepor
   for (const category in groupByCategory) {
     const categorizedFeeds = groupByCategory[category as ItemCategory] as FeedItem[];
     try {
-      const outcome = await syncNotionDB(categorizedFeeds, category as ItemCategory);
+      const outcome = await syncCategoryToNotion(categorizedFeeds, category as ItemCategory);
       // `scanned` is NOT added here on purpose: it is already `feeds.length` (set above), and the
       // categories partition `filtered`, so their `outcome.scanned` sums to `filtered.length` —
       // a subset of `feeds.length`. Adding both double-counted, which the self-check caught as
@@ -213,7 +213,7 @@ type CategoryOutcome = {
  * @throws When the de-duplication query itself fails — the caller counts the category and continues.
  *   去重查询本身失败时抛出 —— 由调用方计入该分类并继续。
  */
-async function syncNotionDB(
+async function syncCategoryToNotion(
   categorizedFeeds: FeedItem[],
   category: ItemCategory,
 ): Promise<CategoryOutcome> {
@@ -301,7 +301,7 @@ async function syncNotionDB(
 
   for (const newFeedItem of newFeeds) {
     try {
-      const itemData = await scrapyDouban(newFeedItem.link, category);
+      const itemData = await scrapeDoubanSubjectPage(newFeedItem.link, category);
       itemData[DB_PROPERTIES.ITEM_LINK] = newFeedItem.link;
       itemData[DB_PROPERTIES.RATING] = newFeedItem.rating;
       // `dayjs(undefined)` returns *now*, which would silently stamp today's date as the rating

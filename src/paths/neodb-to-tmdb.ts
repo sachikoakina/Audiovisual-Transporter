@@ -103,7 +103,7 @@ type SyncContext = {
  * @returns a report of what happened. The caller decides the exit code from it
  * (`pathHasFailed`), and `index.ts` folds it into the closing summary.
  */
-export default async function runSync(): Promise<PathReport> {
+export default async function runNeodbToTmdb(): Promise<PathReport> {
   const report = newPathReport(LABEL);
 
   consola.info('NeoDB → TMDB sync: ', describeNeodbTmdbConfig());
@@ -162,7 +162,7 @@ export default async function runSync(): Promise<PathReport> {
   }
 
   fillReport(report, ctx);
-  printSummary(ctx);
+  printCounterBreakdown(ctx);
   printPathSummary(report);
 
   if (pathHasFailed(report)) {
@@ -434,7 +434,7 @@ async function resolveTarget(
  * count, and `watchlist` collided with the `SYNC_RATING_PROFILE` vocabulary.
  * The aggregated view lives in `printPathSummary`.
  */
-function printSummary(ctx: SyncContext): void {
+function printCounterBreakdown(ctx: SyncContext): void {
   const c = ctx.counters;
   consola.info('Sync summary:', {
     scanned: c.scanned,

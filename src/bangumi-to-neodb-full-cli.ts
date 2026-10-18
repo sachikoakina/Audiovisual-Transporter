@@ -1,5 +1,5 @@
 import { consola } from 'consola';
-import handleBangumiToNeodb from './paths/bangumi-to-neodb';
+import syncBangumiToNeodb from './paths/bangumi-to-neodb';
 import { syncConfig } from './sync-config';
 import { printOverallSummary } from './sync-report';
 import { pathHasFailed } from './types';
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   }
   consola.start('Starting Bangumi → NeoDB full sync...');
 
-  const report = await handleBangumiToNeodb(true);
+  const report = await syncBangumiToNeodb(true);
   printOverallSummary([report]);
 
   if (pathHasFailed(report)) {

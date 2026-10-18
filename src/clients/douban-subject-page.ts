@@ -105,7 +105,7 @@ async function solveDoubanPoW(html: string) {
  * 用浏览器 UA 构造 got 客户端 → 请求 → 若响应是 PoW 挑战页则解出、提交、随机等待
  * 600–1200 ms 后重试 → 解析 → 按分类分派。
  */
-export default async function scrapyDouban(
+export default async function scrapeDoubanSubjectPage(
   link: string,
   category: ItemCategory,
 ): Promise<{

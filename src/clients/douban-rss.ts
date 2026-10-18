@@ -121,7 +121,7 @@ export async function fetchRSSFeeds(): Promise<RSSFeedItem[]> {
  * @returns Normalized items; entries whose title carries no recognizable status are dropped.
  *   归一化后的条目；标题中状态不可识别的条目会被丢弃。
  */
-export function handleRSSFeeds(feeds: RSSFeedItem[]): FeedItem[] {
+export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
   const normalizedFeeds: FeedItem[] = [];
 
   feeds.forEach((item) => {

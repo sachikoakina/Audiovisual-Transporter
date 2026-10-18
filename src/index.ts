@@ -22,11 +22,11 @@
  *      链路会上报 `aborted`，并**刻意**让整轮失败 —— 启用了链路却没有凭据属于配置错误。
  */
 import { consola } from 'consola';
-import { fetchRSSFeeds, handleRSSFeeds } from './clients/douban-rss';
-import handleNotion from './paths/douban-to-notion';
-import handleNeodb from './paths/douban-to-neodb';
-import handleBangumi from './paths/douban-to-bangumi';
-import handleBangumiToNeodb from './paths/bangumi-to-neodb';
+import { fetchRSSFeeds, normalizeRssFeeds } from './clients/douban-rss';
+import syncDoubanToNotion from './paths/douban-to-notion';
+import syncDoubanToNeodb from './paths/douban-to-neodb';
+import syncDoubanToBangumi from './paths/douban-to-bangumi';
+import syncBangumiToNeodb from './paths/bangumi-to-neodb';
 import runNeodbToTmdb from './paths/neodb-to-tmdb';
 import { ItemStatus, newPathReport, pathHasFailed, type PathReport } from './types';
 import {
@@ -60,24 +60,24 @@ async function main(): Promise<void> {
       if (feeds.length === 0) {
         consola.info('No new Douban RSS items.');
       } else {
-        const normalizedFeeds = handleRSSFeeds(feeds);
+        const normalizedFeeds = normalizeRssFeeds(feeds);
         const completeFeeds = normalizedFeeds.filter(
           (f) => f.status === ItemStatus.Complete,
         );
 
         if (syncConfig.doubanNotion && completeFeeds.length) {
-          reports.push(await handleNotion(completeFeeds));
+          reports.push(await syncDoubanToNotion(completeFeeds));
         }
 
         // Both paths always return a report; when they cannot run they report `aborted`, which
         // `pathHasFailed` turns into a non-zero exit code.
         // 两条链路始终返回报告；无法运行时报告 `aborted`，由 `pathHasFailed` 折算为非零退出码。
         if (syncConfig.doubanNeodb) {
-          reports.push(await handleNeodb(normalizedFeeds));
+          reports.push(await syncDoubanToNeodb(normalizedFeeds));
         }
 
         if (syncConfig.doubanBangumi) {
-          reports.push(await handleBangumi(normalizedFeeds));
+          reports.push(await syncDoubanToBangumi(normalizedFeeds));
         }
       }
     } catch (error) {
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     // 与其他所有开关一样走 `envEnabled`，因此 `'true'` / `'yes'` / `'on'` 同样生效。原先这里是
     // 与字面量 `'1'` 比较，导致只有 `BANGUMI_FULL_SYNC=1` 这一种写法有效，其余写法被静默忽略。
     const fullSync = envEnabled('BANGUMI_FULL_SYNC', false);
-    reports.push(await handleBangumiToNeodb(fullSync));
+    reports.push(await syncBangumiToNeodb(fullSync));
   }
 
   // NeoDB → TMDB runs last. It reads NeoDB's own shelf rather than the Douban
