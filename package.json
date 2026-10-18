@@ -7,7 +7,7 @@
   "scripts": {
     "sync": "tsx src/index.ts",
     "sync:bangumi-full": "tsx src/bangumi-to-neodb-full-cli.ts",
-    "sync:neodb-tmdb": "tsx src/neodb-to-tmdb-cli.ts",
+    "sync:neodb-tmdb-full": "tsx src/neodb-to-tmdb-full-cli.ts",
     "probe:neodb": "tsx scripts/probe-neodb-shelf.ts",
     "verify:mapping": "tsx scripts/verify-tmdb-mapping.ts",
     "verify:rules": "tsx scripts/verify-rules.ts",

@@ -30,7 +30,6 @@ import syncBangumiToNeodb from './paths/bangumi-to-neodb';
 import runNeodbToTmdb from './paths/neodb-to-tmdb';
 import { ItemStatus, newPathReport, pathHasFailed, type PathReport } from './types';
 import {
-  describeNeodbTmdbConfig,
   describeSyncConfig,
   envEnabled,
   needsDoubanRss,
@@ -105,7 +104,12 @@ async function main(): Promise<void> {
   // RSS feed, so it is independent of everything above: it cannot change how
   // any existing path behaves, and a failure here only sets the exit code.
   if (neodbTmdbConfig.enabled) {
-    consola.start('NeoDB → TMDB: ', describeNeodbTmdbConfig());
+    // Only the start marker here: the path itself prints the effective configuration, so printing
+    // it here as well would show the same line twice (and would drift the moment a full-mode run
+    // resolves its limits differently from the raw environment).
+    // 这里只留开始标记：配置由链路自身打印。在这里再打一次会重复同一行，而且一旦全量运行折算出的
+    // 上限与原始环境变量不同，就会出现两行互相矛盾的配置。
+    consola.start('NeoDB → TMDB');
     try {
       reports.push(await runNeodbToTmdb());
     } catch (error) {
