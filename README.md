@@ -20,6 +20,7 @@ TypeScript 编写，`tsx` 直跑，无需构建。技术基础上延续 [douban-
 - [架构与分层](#架构与分层)
 - [五条链路](#五条链路)
 - [平台读写边界](#平台读写边界)
+- [接口依据](#接口依据)
 - [同步范围与幂等](#同步范围与幂等)
 - [异常处理与结果契约](#异常处理与结果契约)
 
@@ -44,42 +45,76 @@ TypeScript 编写，`tsx` 直跑，无需构建。技术基础上延续 [douban-
 
 ### 数据流总图
 
-```mermaid
-flowchart LR
-    subgraph SRC["数据源"]
-        direction TB
-        RSS["豆瓣 RSS<br/>feed/people/{UID}/interests"]
-        FI["FeedItem[]<br/>状态 · 分类 · 评分 · 短评"]
-        RSS -->|"fetchRSSFeeds + normalizeRssFeeds<br/>每轮只抓一次"| FI
-    end
-    subgraph PATHS["链路 paths/ · 单向 · 幂等"]
-        direction TB
-        P1["① 豆瓣 → Notion<br/>默认关 · 仅 Complete"]
-        P2["② 豆瓣 → NeoDB<br/>默认开 · 三种状态"]
-        P3["③ 豆瓣 → Bangumi<br/>默认开 · 标题精确匹配"]
-        P4["④ Bangumi → NeoDB<br/>默认开 · 默认只取第一页"]
-        P5["⑤ NeoDB → TMDB<br/>默认关 · 独立入口"]
-    end
-    subgraph DST["目标端"]
-        direction TB
-        Notion[("Notion")]
-        NeoDB[("NeoDB")]
-        Bangumi[("Bangumi")]
-        TMDB[("TMDB")]
-    end
-    FI --> P1
-    FI --> P2
-    FI --> P3
-    Bangumi -->|"收藏列表"| P4
-    NeoDB -->|"书架"| P5
-    P1 --> Notion
-    P2 --> NeoDB
-    P3 --> Bangumi
-    P4 --> NeoDB
-    P5 --> TMDB
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                      豆瓣 RSS 兴趣流                                       │
+│                                   clients/douban-rss.ts                                    │
+│                            每轮仅返回最近约 10 条（豆瓣侧限制）                            │
+└────────────────────────────────────────────────────────────────────────────────────────────┘
+                                               │ fetchRSSFeeds()
+                                               │ 浏览器 UA + 对 401/403 限次重试
+┌────────────────────────────────────────────────────────────────────────────────────────────┐
+│                          归一化 normalizeRssFeeds() → FeedItem[]                           │
+│                  状态 Complete / Progress / Wishlist · 分类 · 评分 · 短评                  │
+└──────────────┬───────────────────────────────┬───────────────────────────────┬─────────────┘
+               │ ① 仅 Complete                 │ ② 三种状态                    │ ③ 三种状态
+               ▼                               ▼                               ▼
+┌────────────────────────────┐  ┌────────────────────────────┐  ┌────────────────────────────┐
+│ ① 豆瓣 → Notion（默认关）  │  │  ② 豆瓣 → NeoDB（默认开）  │  │ ③ 豆瓣 → Bangumi（默认开） │
+│      仅 Complete 状态      │  │       三种状态全处理       │  │       三种状态全处理       │
+│    clients/notion.ts +     │  │  clients/neodb-catalog.ts  │  │     clients/bangumi.ts     │
+│    douban-subject-page/    │  │       解析豆瓣 URL；       │  │    NeoDB 外链优先，否则    │
+│      parsers 抓详情页      │  │   clients/neodb-shelf.ts   │  │       标题精确匹配；       │
+│   查重（分批 or + 翻页）   │  │    upsert 标记 / 评分 /    │  │    upsert 只写 4 字段：    │
+│      后建页；不做匹配      │  │ 短评 / 可见性（不写进度）  │  │ type/rate/comment/private  │
+└────────────────────────────┘  └────────────────────────────┘  └────────────────────────────┘
+               ▼                               ▼                               ▼
+          ┌─────────┐                    ┌──────────┐                    ┌──────────┐
+          │ Notion  │                    │  NeoDB   │                    │ Bangumi  │
+          └─────────┘                    └──────────┘                    └──────────┘
+
+  ┌────────────────────────┐
+  │    Bangumi 收藏列表    │
+  │   clients/bangumi.ts   │
+  │   GET /v0/users/{u}/   │
+  │  collections（分页）   │
+  └───────────┬────────────┘
+              │ 默认每页 50 条、只取第一页
+              │ （BANGUMI_COLLECTION_LIMIT）
+              ▼
+  ┌────────────────────────────────────────────────────────────────────────────────────────┐
+  │                            链路④ Bangumi → NeoDB（默认开）                             │
+  │                     paths/bangumi-to-neodb.ts + clients/neodb-*.ts                     │
+  │                  孪生对齐（优先落到带豆瓣链接的同一 uuid）后写标记；                   │
+  │                    进度同步默认关（SYNC_BANGUMI_NEODB_PROGRESS=0）                     │
+  └────────────────────────────────────────────────────────────────────────────────────────┘
+                                               │
+                                               ▼
+                                         ┌──────────┐
+                                         │  NeoDB   │
+                                         └──────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────────────────┐
+  │                              链路⑤ NeoDB → TMDB（默认关）                              │
+  │                    独立入口 src/neodb-to-tmdb-cli.ts，不读豆瓣 RSS                     │
+  └────────────────────────────────────────────────────────────────────────────────────────┘
+                                               │ clients/neodb-shelf.ts 读书架
+                                               │ （每书架最多 10 页，NEODB_MAX_PAGES）
+                                               ▼
+  ┌────────────────────────────────────────────────────────────────────────────────────────┐
+  │                            paths/neodb-to-tmdb.ts 三级匹配                             │
+  │                        ① TMDB 外链 → ② IMDb id → ③ 标题 + 年份                         │
+  │                          （归一化精确相等，年份容差 ±1 佐证）                          │
+  └────────────────────────────────────────────────────────────────────────────────────────┘
+                                               │ clients/tmdb.ts 先读 account_states
+                                               │ 逐字段 diff，只写有差异的 rating / watchlist
+                                               ▼
+                                          ┌────────┐
+                                          │  TMDB  │
+                                          └────────┘
 ```
 
-> 箭头 = **运行时数据流向**（不是 import 方向）；import 方向见[架构与分层](#架构与分层)。NeoDB 与 Bangumi 各只有一个节点，同时承担两种角色：被写目标（②④ / ③）与下游链路的数据源（→④ / →⑤）。
+> 箭头 = **运行时数据流向**（不是 import 方向）；import 方向见[架构与分层](#架构与分层)。NeoDB 与 Bangumi 各只画了一个方框，却承担两种角色：被写目标（②④ / ③）与下游链路的数据源（→④ / →⑤）。链路①②③ 同源（同一份 `FeedItem[]`），④⑤ 各自独立取数——⑤ 更是独立入口，不读豆瓣 RSS。每张图的匹配细节见[五条链路](#五条链路)各节。
 
 ### 关键数字
 
@@ -373,9 +408,18 @@ flowchart TD
 
 > 官方文档：[NeoDB 开发者页面](https://neodb.social/developer/)
 
-▸ **匹配方式**：把豆瓣条目的 URL 交给 NeoDB 自己解析，调用 `GET /api/catalog/fetch?url=<豆瓣链接>`，由 NeoDB 返回它的 catalog item。
+▸ **匹配级联**（把豆瓣条目交给 NeoDB 自己解析；解析中的抓取会轮询重试）：
 
-▸ **重试机制（重要）**：NeoDB 完成抓取需要时间。若返回尚无 `uuid`（正在抓取），会**重试 3 次、每次间隔 1.5 秒**。
+```mermaid
+flowchart TD
+    A["豆瓣条目 URL"] --> B{"GET /api/catalog/fetch?url=<br/>返回带 uuid 的 catalog item？"}
+    B -->|是| C["解析成功<br/>零猜测，进入写入前比对"]
+    B -->|"否 · 尚无 uuid（抓取中）"| D{"还要重试吗<br/>（上限 3 次）？"}
+    D -->|"是 · sleep 1.5s 后重取"| B
+    D -->|否| E["unresolved<br/>（数据缺口，不计失败）"]
+```
+
+> 请求本身抛错（网络 / 鉴权）时走同一条落点：`fetchNeodbItemByUrl` 的 catch 直接返回 `null`，上游按未解析跳过。端点与字段口径见[接口依据 · NeoDB 侧](#neodb-侧)。
 
 ▸ **逐条同步逻辑**（`paths/douban-to-neodb.ts` 的 `syncFeedItemToNeodb`——链路②的条目级编排，与其余四条链路一样住在 `paths/`）：
 
@@ -385,26 +429,30 @@ flowchart TD
 4. `markNeodbItem` 写入；`post_to_fediverse` 固定 `false`，同步永不发联邦帖
 5. 条间等待 `NEODB_REQUEST_DELAY_MS`
 
-▸ **接口依据**（NeoDB 侧。结构来自官方 API 参考与两个独立客户端类型定义的交叉验证）：
-
-| 端点 / 字段                | 说明                                                                                                     |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `GET /api/me/shelf/{type}` | `type` 是**路径参数**（`wishlist` / `progress` / `complete` / `dropped`），查询参数为 `category`、`page` |
-| `GET /api/catalog/fetch`   | 用 `?url=` 传入豆瓣链接，解析出 catalog item（无 `uuid` 时轮询重试）                                     |
-| 响应结构                   | `{ data: MarkSchema[], pages, count }`；`MarkSchema` **内联完整 `item`**，无需二次请求                   |
-| `rating_grade`             | 0–10 整数，**`0` 表示未评分**                                                                            |
-| 年份字段                   | movie / tv 为 `year`，图书为 `pub_year`                                                                  |
-
-运行 `npm run probe:neodb` 可随时复核上述假设。
+▸ **接口依据**：NeoDB 侧的端点、响应结构与字段口径见[接口依据 · NeoDB 侧](#neodb-侧)。
 
 #### 链路③ 豆瓣 RSS → Bangumi
 
 > 官方文档：[Bangumi API](https://bangumi.github.io/api/)　·　[个人令牌页面](https://next.bgm.tv/demo/access-token)
 
-▸ **匹配方式**（两级递进）：
+▸ **匹配级联**（两级递进，越靠前越零猜测）：
 
-1. 先看 NeoDB 条目的 `external_resources` 里有没有 Bangumi 链接，有就直接取 subject id
-2. 没有则用标题搜索，限定 subject_type 候选（电影会同时试「动画」和「真人」两种），**必须精确匹配标题**；NeoDB 标题与 feed 标题不同时还会换标题再搜一次
+```mermaid
+flowchart TD
+    A["豆瓣条目 + 其 NeoDB 条目"] --> B{"external_resources<br/>有 Bangumi 链接？"}
+    B -->|是| C["直接取 subject id<br/>零猜测"]
+    B -->|否| D{"类别是话剧 drama？"}
+    D -->|是| E["unresolved<br/>（Bangumi 无话剧类型）"]
+    D -->|否| F["searchBangumiSubjects 标题搜索<br/>限定 subject_type（电影同时试动画 / 真人）"]
+    F --> G{"pickExactBangumiMatch<br/>归一化后标题完全相等？"}
+    G -->|是| C
+    G -->|否| H{"NeoDB 标题 ≠ 豆瓣标题？"}
+    H -->|是| I["先用豆瓣标题在同一批结果里再挑；<br/>仍不中则以豆瓣标题重新搜索一次"]
+    H -->|否| J["unresolved + 写留档"]
+    I --> G
+```
+
+> 第二级**只认精确匹配**：搜索结果与候选关键词归一化后必须完全相等（同[设计原则](#三条设计原则)「宁可漏配，不可错配」）。换标题重搜只会发生在一级落空、且 NeoDB 标题与豆瓣条目标题确实不同的时候。
 
 ▸ **类别限制**：话剧（drama）在 Bangumi 没有对应类型，只有 NeoDB 上已存在 Bangumi 链接时才会同步。
 
@@ -412,12 +460,22 @@ flowchart TD
 
 ### 链路 4：Bangumi → NeoDB
 
-▸ **匹配方式**：`resolveNeodbItemForBangumiUrl()`，**刻意做了一次「对齐」**：
+▸ **匹配级联**（`resolveNeodbItemForBangumiUrl()`，四级，越靠前越对齐）：
 
-1. 先用 Bangumi URL 在 NeoDB 取到对应 catalog item
-2. 如果该条目上挂了豆瓣链接 → **改用它指向的豆瓣条目**
-3. 否则按标题搜索，找一个**既有豆瓣链接、标题又精确相等**的条目
-4. 都找不到才用 Bangumi 自己的条目
+```mermaid
+flowchart TD
+    A["Bangumi 收藏 URL"] --> B["fetchNeodbItemByUrl<br/>取 NeoDB catalog item"]
+    B --> C{"该条目的 external_resources<br/>已带豆瓣链接？"}
+    C -->|是| D["fetchNeodbItemByUrl(豆瓣链接)<br/>uuid 不同 → 改拿豆瓣孪生条目"]
+    C -->|否| E["按标题搜索 NeoDB 目录<br/>（name_cn / name / item.title / display_title）"]
+    E --> F{"找到标题完全相同<br/>且带豆瓣外链的孪生条目？"}
+    F -->|是| D
+    F -->|否| G["就用 Bangumi 自己的条目"]
+    D --> H["NeoDBItem<br/>两条链路落到同一 uuid"]
+    G --> H
+```
+
+> 第三级的标题搜索**先按类别查一遍、找不到再不限类别查一遍**（类别由 `subject_type` 映射而来）；候选取 Bangumi 的 `name_cn` / `name` 与 NeoDB 条目的 `title` / `display_title`，全部要求归一化后完全相等。
 
 ▸ **为什么要这样对齐**：让 Bangumi → NeoDB 与豆瓣 → NeoDB **落在同一个 NeoDB 条目上**。否则同一部作品会在两个 uuid 下各存一份标记，你在 NeoDB 上会看到重复条目。
 
@@ -475,13 +533,13 @@ flowchart TD
 
 ▸ **状态映射规则**（本章核心。权威定义在 **`src/rules/tmdb-mapping.ts` 的 `resolveTmdbOperations()`**，改行为只改这里）：
 
-| NeoDB 状态      | 条件               | TMDB 操作                           |
-| --------------- | ------------------ | ----------------------------------- |
-| `wishlist` 想看 | —                  | 加入 watchlist                      |
-| `progress` 在看 | —                  | 加入 watchlist（TMDB 无「在看」态） |
-| `complete` 看过 | `rating_grade > 0` | **写入评分** ＋ **移出 watchlist**  |
-| `complete` 看过 | 无评分             | 加入 watchlist                      |
-| `dropped` 弃看  | —                  | **跳过**，不做任何操作              |
+| NeoDB 状态      | 条件               | TMDB 操作                           | TMDB 能否承载                           |
+| --------------- | ------------------ | ----------------------------------- | --------------------------------------- |
+| `wishlist` 想看 | —                  | 加入 watchlist                      | ✅ 完整承载                             |
+| `progress` 在看 | —                  | 加入 watchlist（TMDB 无「在看」态） | ⚠️ 与「想看」无法区分                   |
+| `complete` 看过 | `rating_grade > 0` | **写入评分** ＋ **移出 watchlist**  | ✅ 评分是 TMDB 唯一能表达「看过」的方式 |
+| `complete` 看过 | 无评分             | 加入 watchlist                      | ⚠️ 无评分时退化为与「想看」相同         |
+| `dropped` 弃看  | —                  | **跳过**，不做任何操作              | —（TMDB 无对应状态，**不当作想看**）    |
 
 **执行顺序固定为「先写评分 → 再调整 watchlist」**。因为 TMDB 的 `add-rating` 本身会隐式把条目移出 watchlist；先评分、后显式移除，最终状态就不依赖这个未写进官方文档的行为。
 
@@ -574,25 +632,45 @@ flowchart TD
 | TMDB    | `POST /3/{type}/{id}/rating`              | **仅评分**                                                                 | —                                                |
 | TMDB    | `POST /3/account/{id}/watchlist`          | **仅 watchlist 增删**                                                      | —                                                |
 
-### TMDB：能力边界与接口依据
+### TMDB：能力边界
 
-这套同步**注定是有损的**——下表合并了「TMDB 有什么能力」与「想同步的内容能否承载」两个视角，它是整条链路⑤「有损」的根源：
+这套同步**注定是有损的**。状态类内容（想看 / 在看 / 看过 / 弃看）的有损方式是[链路 5](#链路-5neodb--tmdb)「状态映射规则」表的主题（那张表多了「TMDB 能否承载」一列），此处不再重复；下表覆盖**状态之外**的内容，与状态映射合起来就是链路⑤「有损」的全部根源：
 
-| 想同步的内容                     | TMDB 能否承载 | 实际结果                                                      |
-| -------------------------------- | ------------- | ------------------------------------------------------------- |
-| 状态 · 想看                      | ✅            | watchlist                                                     |
-| 状态 · 在看                      | ⚠️            | 退化为加入 watchlist，与「想看」无法区分                      |
-| 状态 · 看过                      | ⚠️            | 有评分 → 写评分 + 移出 watchlist；无评分 → 只能加入 watchlist |
-| 状态 · 弃看                      | —             | **跳过**，不当作想看                                          |
-| 评分                             | ✅            | 0.5–10，步进 0.5                                              |
-| 短评                             | ❌            | **丢弃**——无写入接口                                          |
-| 进度（看到第几集）               | ❌            | **丢弃**——无对应字段                                          |
-| 图书 / 音乐 / 游戏 / 播客 / 演出 | ❌            | **整条跳过**——TMDB 无这些类型                                 |
-| 反向回写（TMDB 改动回流）        | ❌            | **单向**，不回写                                              |
-| `favorite` 收藏                  | ✅ 但未使用   | TMDB 支持，本项目不用                                         |
-| 用户自建 List                    | ✅ 但未使用   | 可承载「看过/在看」，本项目不用                               |
+| 想同步的内容                     | TMDB 能否承载 | 实际结果                        |
+| -------------------------------- | ------------- | ------------------------------- |
+| 评分                             | ✅            | 0.5–10，步进 0.5                |
+| 短评                             | ❌            | **丢弃**——无写入接口            |
+| 进度（看到第几集）               | ❌            | **丢弃**——无对应字段            |
+| 图书 / 音乐 / 游戏 / 播客 / 演出 | ❌            | **整条跳过**——TMDB 无这些类型   |
+| 反向回写（TMDB 改动回流）        | ❌            | **单向**，不回写                |
+| `favorite` 收藏                  | ✅ 但未使用   | TMDB 支持，本项目不用           |
+| 用户自建 List                    | ✅ 但未使用   | 可承载「看过/在看」，本项目不用 |
 
-**接口依据**——TMDB 侧实际调用的端点：
+**接口依据**——TMDB 侧实际调用的端点见[接口依据 · TMDB 侧](#tmdb-侧)。
+
+---
+
+## 接口依据
+
+原先散在链路②与 TMDB 节里的两份「结构怎么来的」，合并到这一章。与[平台读写边界](#平台读写边界)的分工：那张表按**读 / 写**列出全部平台的端点；这里补充**响应结构与字段口径**——同样的端点不重复第二遍。
+
+### NeoDB 侧
+
+结构来自官方 API 参考与两个独立客户端类型定义的交叉验证。
+
+| 端点 / 字段                | 说明                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET /api/me/shelf/{type}` | `type` 是**路径参数**（`wishlist` / `progress` / `complete` / `dropped`），查询参数为 `category`、`page` |
+| `GET /api/catalog/fetch`   | 用 `?url=` 传入豆瓣链接，解析出 catalog item（无 `uuid` 时轮询重试）                                     |
+| 响应结构                   | `{ data: MarkSchema[], pages, count }`；`MarkSchema` **内联完整 `item`**，无需二次请求                   |
+| `rating_grade`             | 0–10 整数，**`0` 表示未评分**                                                                            |
+| 年份字段                   | movie / tv 为 `year`，图书为 `pub_year`                                                                  |
+
+运行 `npm run probe:neodb` 可随时复核上述假设（原始响应存 `.cache/`）。
+
+### TMDB 侧
+
+只列本项目**实际调用**的端点：
 
 | 端点                                       | 用途                                |
 | ------------------------------------------ | ----------------------------------- |
@@ -882,7 +960,7 @@ flowchart TD
 
 ### 凭证
 
-全部凭证都是密钥：GitHub Actions 里放 **Secret**，本地放 `.env`——**不要**放进 Variables，更不要提交进仓库。
+全部凭证都是密钥：**本地放 `.env`，GitHub Actions 里放 Secrets**（共 12 个，即下表全部变量——加密存储、日志自动打码）。**不要**放进 Variables，更不要提交进仓库。
 
 | 变量                                                                                                                                                     | 说明                                                                           | 获取方式                                                                     |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
@@ -898,7 +976,28 @@ flowchart TD
 > Notion 数据库的**列名与类型必须与项目根目录的 `cols.json` 一致**，否则写入会失败。  
 > Bangumi token 到期时日志会出现 401 /「token 可能已过期」，重新生成并更新即可。
 
-### 类别白名单
+**GitHub Actions 的 Secrets 清单（共 12 个）**：
+
+```
+NEODB_API_TOKEN          DOUBAN_USER_ID           BANGUMI_ACCESS_TOKEN
+TMDB_API_KEY             TMDB_ACCESS_TOKEN        TMDB_SESSION_ID
+NOTION_TOKEN             NOTION_MOVIE_DATABASE_ID NOTION_MUSIC_DATABASE_ID
+NOTION_BOOK_DATABASE_ID  NOTION_GAME_DATABASE_ID  NOTION_DRAMA_DATABASE_ID
+```
+
+### GitHub Actions 部署
+
+配置位置：仓库 → **Settings → Secrets and variables → Actions**。密钥一律放 **Secrets**（清单与获取方式见[凭证](#凭证)），其余变量放 **Variables**。
+
+**Variables（共 35 个，明文，只放非敏感开关）**
+
+35 = 5 个路径开关（对照见[总览](#总览)）＋ 下面六组表里的 30 个。名称、默认值与说明都在各组表内——**本地 `.env` 与 CI Variables 用同一套名字**，只是存放位置不同（工作流里 `|| '…'` 的兜底值与表内默认一致）。
+
+> ⚠️ 1. **变量只有在工作流里被引用才会生效**。GitHub 上设了 Variable，如果 `.github/workflows/sync.yml` 没有声明它，程序读到的仍是空值——这是最容易踩的坑，会导致「设置了却没反应」。
+>
+> 2. **`SYNC_INCREMENTAL` 在 CI 中默认 `0`**。Actions runner 是临时环境，`.cache/sync-state.json` 不跨次保留，增量指纹在 CI 里没有意义。退回依赖 TMDB 侧幂等（读后比对），行为安全，只是多几次读请求。
+
+#### 类别白名单
 
 留空 = 该链路同步全部类别。**填了值但无可识别类别时该链路拒绝同步任何条目**（fail-closed）。多值用逗号分隔。
 
@@ -912,7 +1011,7 @@ flowchart TD
 
 > `SYNC_CATEGORIES` 的语义与上面四个略有不同：TMDB 只存在 movie / tv 两类，所以它**不是「留空=全部」**，而是默认就限定为这两类。
 
-### 服务地址与限流
+#### 服务地址与限流
 
 | 变量                     | 默认                           | 说明                                         |
 | ------------------------ | ------------------------------ | -------------------------------------------- |
@@ -926,7 +1025,7 @@ flowchart TD
 | `TMDB_INCLUDE_ADULT`     | `false`                        | 搜索是否包含成人内容                         |
 | `TMDB_ACCOUNT_ID`        | 自动获取                       | 填了可省一次请求                             |
 
-### 合并策略
+#### 合并策略
 
 只影响**评分与短评**；状态永远以来源为准。
 
@@ -935,7 +1034,7 @@ flowchart TD
 | `SYNC_DOUBAN_NEODB_MERGE`  | `neodb_prefer` | `neodb_prefer` 保留 NeoDB 已有非空值 / `overwrite` 用来源覆盖 |
 | `SYNC_BANGUMI_NEODB_MERGE` | `neodb_prefer` | 同上                                                          |
 
-### Bangumi 与豆瓣 RSS
+#### Bangumi 与豆瓣 RSS
 
 | 变量                          | 默认    | 说明                                  |
 | ----------------------------- | ------- | ------------------------------------- |
@@ -946,18 +1045,17 @@ flowchart TD
 | `SYNC_BANGUMI_NEODB_PROGRESS` | `0`     | 是否同步观看进度（集 / 章 / 曲）      |
 | `DOUBAN_RSS_USER_AGENT`       | 空      | 豆瓣 RSS 被拦截时替换 UA              |
 
-### 留档
+#### 留档
 
 | 变量                 | 默认                    | 说明                                                                                                                                |
 | -------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json` | **三条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍会打印计数与清单） |
 
-### 同步引擎（NeoDB → TMDB）
+#### NeoDB → TMDB（链路⑤）
 
 | 变量                  | 默认                         | CI 差异 | 说明                                                          |
 | --------------------- | ---------------------------- | ------- | ------------------------------------------------------------- |
 | `SYNC_SHELF_TYPES`    | `wishlist,progress,complete` | —       | 处理哪些书架。`dropped` 默认排除                              |
-| `SYNC_CATEGORIES`     | `movie,tv`                   | —       | 类别白名单（同[类别白名单](#类别白名单)一节）                 |
 | `SYNC_DRY_RUN`        | `0`                          | —       | `1` = 只计算并打印计划，不写数据                              |
 | `SYNC_MAX_ITEMS`      | `200`                        | —       | 单次运行处理上限（熔断保护）                                  |
 | `SYNC_RATING_PROFILE` | `tmdb_prefer`                | —       | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖 |
@@ -965,28 +1063,7 @@ flowchart TD
 | `SYNC_INCREMENTAL`    | `1`                          | **`0`** | 跳过内容指纹未变的条目                                        |
 | `SYNC_STATE_FILE`     | `.cache/sync-state.json`     | —       | 增量状态文件位置                                              |
 
-### GitHub Actions 部署
-
-配置位置：仓库 → **Settings → Secrets and variables → Actions**。
-
-**Secrets（共 12 个）**
-
-即[凭证](#凭证)一节列出的全部凭证变量。它们是密钥，**必须放 Secrets**（加密存储、日志自动打码），不要放 Variables。
-
-```
-NEODB_API_TOKEN          DOUBAN_USER_ID           BANGUMI_ACCESS_TOKEN
-TMDB_API_KEY             TMDB_ACCESS_TOKEN        TMDB_SESSION_ID
-NOTION_TOKEN             NOTION_MOVIE_DATABASE_ID NOTION_MUSIC_DATABASE_ID
-NOTION_BOOK_DATABASE_ID  NOTION_GAME_DATABASE_ID  NOTION_DRAMA_DATABASE_ID
-```
-
-**Variables（共 35 个，明文，只放非敏感开关）**
-
-不在此逐项复刻——每个变量的名称、默认值与说明已在本章各表中完整给出（工作流里 `|| '…'` 的兜底值与表内默认一致）。两点必须注意：
-
-> ⚠️ 1. **变量只有在工作流里被引用才会生效**。GitHub 上设了 Variable，如果 `.github/workflows/sync.yml` 没有声明它，程序读到的仍是空值——这是最容易踩的坑，会导致「设置了却没反应」。
->
-> 2. **`SYNC_INCREMENTAL` 在 CI 中默认 `0`**。Actions runner 是临时环境，`.cache/sync-state.json` 不跨次保留，增量指纹在 CI 里没有意义。退回依赖 TMDB 侧幂等（读后比对），行为安全，只是多几次读请求。
+> 这一组就是链路⑤的行为旋钮（`SYNC_CATEGORIES` 见上方[类别白名单](#类别白名单)）。`SYNC_INCREMENTAL` 在 CI 里默认 `0` 的原因见上文警告 2。
 
 工作流本身还带三道保险：`permissions: contents: read`（最小权限）、`concurrency`（不让两次同步重叠，`cancel-in-progress: false`——中断一次做到一半的同步比排队更糟）、`timeout-minutes: 60`；并且在 `npm run sync` **之前**先跑 `npm run verify:all`——规则若被改坏，会在写入任何数据之前就拦下这一轮。
 
