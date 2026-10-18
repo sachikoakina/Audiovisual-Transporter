@@ -199,7 +199,7 @@ export async function setNeodbProgress(
 // Shelf listing
 // 书架列表
 //
-// Verified endpoints (see README "接口依据" for sources):
+// Verified endpoints (sources in README "链路② · 接口依据"):
 //   GET /api/token                            → credential probe
 //   GET /api/me                               → current account
 //   GET /api/me/shelf/{type}?category=&page=  → PagedMarkSchema
@@ -210,7 +210,7 @@ export async function setNeodbProgress(
 // Unlike the per-item calls above, this half goes through `neodbShelfClient`,
 // which honours the configurable `NEODB_BASE_URL` (self-hosted instances).
 //
-// 已验证的端点（来源见 README「接口依据」）：
+// 已验证的端点（来源见 README「五条链路 · 链路② 豆瓣 RSS → NeoDB · 接口依据」）：
 //   GET /api/token                            → 凭据探测
 //   GET /api/me                               → 当前账号
 //   GET /api/me/shelf/{type}?category=&page=  → PagedMarkSchema
