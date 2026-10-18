@@ -21,22 +21,35 @@ concurrency:
 
 on:
   workflow_dispatch: # manual trigger / 手动触发
+    inputs:
+      # Full re-import: lift SYNC_MAX_ITEMS / NEODB_MAX_PAGES and ignore SYNC_INCREMENTAL for this
+      # run. Keeping the default `false` means a manual run for a quick check stays capped and cheap.
+      # 全量重导：本次运行取消 SYNC_MAX_ITEMS / NEODB_MAX_PAGES 上限，并忽略 SYNC_INCREMENTAL。
+      # 默认 `false` 让「手动跑一次做快速检查」仍然受封顶约束、开销可控。
+      full_sync:
+        description: 'NeoDB → TMDB full sync (no item/page caps, incremental off) — slow'
+        type: boolean
+        default: false
   schedule:
     # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events
-    # Every Monday at 08:00 UTC (the line below is the schedule; the old "every 6 hours" note was wrong)
-    # 每周一 08:00 UTC（调度以下面这行为准；原先"每 6 小时"的注释是错的）
-    - cron: '0 8 * * 1'
+    # Mon / Wed / Fri at 08:00 UTC. Three runs a week instead of one: the Douban RSS feed only
+    # carries about ten entries, so a weekly run can miss a burst of marks made early in the week.
+    # This narrows the loss window; it does not close it — entries still roll out after ten.
+    # 每周一、三、五 08:00 UTC。每周三次而非一次：豆瓣 RSS 只保留约十条，一周跑一次可能漏掉周初
+    # 集中标记的条目。这只是缩小丢失窗口，并不能消除它 —— 超过十条仍会滚出 feed。
+    - cron: '0 8 * * 1,3,5'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # A hung network call would otherwise burn the default 360-minute budget. The run itself is
-    # paced by NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS and capped by SYNC_MAX_ITEMS /
-    # NEODB_MAX_PAGES, so an hour is generous.
-    # 否则一次卡住的网络调用会烧掉默认的 360 分钟额度。运行本身已受
+    # A hung network call would otherwise burn the default 360-minute budget. A capped cron run is
+    # paced by NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS and bounded by SYNC_MAX_ITEMS /
+    # NEODB_MAX_PAGES, so an hour is generous. A full import has no such bounds and runs at roughly
+    # 0.6–1.0 s per item, so the manual full_sync run gets its own budget.
+    # 否则一次卡住的网络调用会烧掉默认的 360 分钟额度。常规运行已受
     # NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS 节流，并由 SYNC_MAX_ITEMS / NEODB_MAX_PAGES
-    # 封顶，因此一小时足够宽裕。
-    timeout-minutes: 60
+    # 封顶，一小时足够宽裕。全量导入没有这些上限，速度约 0.6–1.0 秒/条，因此手动全量单独给预算。
+    timeout-minutes: ${{ inputs.full_sync && 180 || 60 }}
 
     strategy:
       matrix:
@@ -80,6 +93,9 @@ jobs:
       # 0, so index.ts never enters the TMDB branch and exits 0 having done
       # nothing — a green run that writes no data.
       SYNC_NEODB_TMDB: ${{ vars.SYNC_NEODB_TMDB || '0' }}
+      # The manual `full_sync` input wins; otherwise fall back to the Variables value (default 0).
+      # 手动 `full_sync` 输入优先；否则取 Variables 的值（默认 0）。
+      NEODB_TMDB_FULL_SYNC: ${{ inputs.full_sync && '1' || vars.NEODB_TMDB_FULL_SYNC || '0' }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       # Writes need a v3 session id or a user-scoped v4 token. A v4 *read*
       # token (scopes: api_read) authenticates reads but fails every write.
