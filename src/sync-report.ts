@@ -6,13 +6,13 @@ import { pathHasFailed, type PathReport } from './types';
  * Display layer for sync results.
  *
  * Kept out of the sync logic so presentation can change without touching
- * behaviour, and so every entry point (`index.ts`, `neodb-to-tmdb-cli.ts`,
+ * behaviour, and so every entry point (`index.ts`, `neodb-to-tmdb-full-cli.ts`,
  * `bangumi-to-neodb-full-cli.ts`) renders results the same way.
  *
  * 同步结果的展示层。
  *
  * 刻意与同步逻辑分离：这样改展示不会碰到行为；同时让所有入口
- * （`index.ts`、`neodb-to-tmdb-cli.ts`、`bangumi-to-neodb-full-cli.ts`）以同一种方式呈现结果。
+ * （`index.ts`、`neodb-to-tmdb-full-cli.ts`、`bangumi-to-neodb-full-cli.ts`）以同一种方式呈现结果。
  */
 
 /**
