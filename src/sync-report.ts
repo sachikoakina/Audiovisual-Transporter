@@ -270,12 +270,19 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
   for (const r of reports.filter((item) => item.unresolved > 0)) {
     lines.push('', `### ${r.label} — ${r.unresolved} unresolved`, '');
 
+    // Ordered list on purpose: the summary is read against the count in the heading, so a
+    // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
+    // made "how far down the list am I" unanswerable.
+    // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
+    // 无序列表给不了这个参照，看的人无法回答「我看到第几条了」。
     const listed = r.unresolvedTitles.slice(0, MAX_SUMMARY_TITLES);
-    for (const title of listed) {
-      lines.push(`- ${title}`);
-    }
+    listed.forEach((title, index) => {
+      lines.push(`${index + 1}. ${title}`);
+    });
     const rest = r.unresolved - listed.length;
     if (rest > 0) {
+      // Not numbered: the tail is a remainder, not an entry.
+      // 不编号：这一段是「剩余条数」，不是清单里的一条。
       lines.push(`- … and ${rest} more`);
     }
 
