@@ -4,21 +4,30 @@
  *
  * Path order and failure policy, as actually implemented:
  *   1. Douban RSS is fetched ONCE and shared by the three Douban paths.
- *   2. A failure anywhere in those three is caught here and logged, then the run CONTINUES —
- *      so a Douban outage still lets Bangumi→NeoDB and NeoDB→TMDB do their work.
- *   3. Bangumi→NeoDB runs next, then NeoDB→TMDB.
- *   4. `printOverallSummary` runs before the exit code is set, so the summary always survives.
- *   5. No path calls `process.exit()` any more, and all 5 paths return a `PathReport`. A path that
+ *   2. A failure anywhere in those three is caught here, logged, and recorded as an `aborted`
+ *      report named `Douban RSS` — the run CONTINUES, so a Douban outage still lets
+ *      Bangumi→NeoDB and NeoDB→TMDB do their work. Recording it as a report (not a side flag)
+ *      is what keeps the closing summary honest: it used to print "none failed" while the
+ *      process exited 1.
+ *   3. `SYNC_DOUBAN_REQUIRED=0` marks that report `tolerated`: still printed, still listed in the
+ *      job summary as `TOLERATED`, but excluded from the exit code.
+ *   4. Bangumi→NeoDB runs next, then NeoDB→TMDB.
+ *   5. `printOverallSummary` runs before the exit code is set, so the summary always survives.
+ *   6. No path calls `process.exit()` any more, and all 5 paths return a `PathReport`. A path that
  *      is enabled but cannot run (missing credentials, unresolvable identity) reports `aborted`,
  *      which fails the run on purpose — an enabled path with no credentials is a misconfiguration.
  *
  * 链路的执行顺序与失败策略（按实际实现）：
  *   1. 豆瓣 RSS 只抓取一次，由三条豆瓣链路共用。
- *   2. 这三条链路中的任何失败都在此处捕获并记录，然后**继续执行** —— 因此豆瓣侧故障时
- *      Bangumi→NeoDB 与 NeoDB→TMDB 仍能完成工作。
- *   3. 之后执行 Bangumi→NeoDB，最后执行 NeoDB→TMDB。
- *   4. `printOverallSummary` 在确定退出码之前调用，因此汇总总能打印出来。
- *   5. 已无任何链路调用 `process.exit()`，且 5 条链路都返回 `PathReport`。已启用但无法运行的
+ *   2. 这三条链路中的任何失败都在此处捕获、记录，并作为一条名为 `Douban RSS` 的 `aborted`
+ *      报告计入结果 —— 然后**继续执行**，因此豆瓣侧故障时 Bangumi→NeoDB 与 NeoDB→TMDB 仍能
+ *      完成工作。把它记成一份报告（而不是一个旁路布尔量）正是收尾汇总不再说谎的原因：
+ *      原先会出现「汇总打印 none failed、进程却以 1 退出」。
+ *   3. `SYNC_DOUBAN_REQUIRED=0` 会把该报告标为 `tolerated`：仍然打印、仍然出现在作业摘要里
+ *      （标记 `TOLERATED`），但不参与退出码。
+ *   4. 之后执行 Bangumi→NeoDB，最后执行 NeoDB→TMDB。
+ *   5. `printOverallSummary` 在确定退出码之前调用，因此汇总总能打印出来。
+ *   6. 已无任何链路调用 `process.exit()`，且 5 条链路都返回 `PathReport`。已启用但无法运行的
  *      链路会上报 `aborted`，并**刻意**让整轮失败 —— 启用了链路却没有凭据属于配置错误。
  */
 import { consola } from 'consola';
@@ -51,7 +60,6 @@ async function main(): Promise<void> {
    * 会带 `aborted` 返回，因此它依然出现 —— 作为失败出现，这正是目的。
    */
   const reports: PathReport[] = [];
-  let doubanFailed = false;
 
   if (needsDoubanRss()) {
     try {
@@ -80,11 +88,22 @@ async function main(): Promise<void> {
         }
       }
     } catch (error) {
-      doubanFailed = true;
       consola.error(
         'Douban RSS sync failed; continuing with Bangumi→NeoDB if enabled. Error: ',
         error,
       );
+      // Record the failure as a report instead of a side flag, so the closing summary, the job
+      // summary and the exit code are all derived from the same source and cannot disagree.
+      // 把失败记成一份报告而不是旁路布尔量：这样收尾汇总、作业摘要与退出码同源，不会互相矛盾。
+      const doubanReport = newPathReport('Douban RSS');
+      doubanReport.aborted = true;
+      doubanReport.tolerated = !syncConfig.doubanRssRequired;
+      if (doubanReport.tolerated) {
+        consola.warn(
+          'SYNC_DOUBAN_REQUIRED=0 — this Douban RSS failure will not fail the run.',
+        );
+      }
+      reports.push(doubanReport);
     }
   } else {
     consola.info('All Douban→* paths disabled; skip Douban RSS.');
@@ -128,9 +147,6 @@ async function main(): Promise<void> {
   // Printed before the exit code is finalised so the summary always survives.
   printOverallSummary(reports);
 
-  if (doubanFailed) {
-    process.exitCode = 1;
-  }
   if (reports.some(pathHasFailed)) {
     process.exitCode = 1;
   }

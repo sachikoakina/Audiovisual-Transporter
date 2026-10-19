@@ -104,6 +104,12 @@ function stateLabel(report: PathReport): string {
   if (pathHasFailed(report)) {
     return 'FAILED';
   }
+  // A tolerated failure is deliberately not `FAILED` (it does not affect the exit code) but must
+  // not be mistaken for `ok` either.
+  // 被容忍的失败刻意不标 `FAILED`（它不影响退出码），但也不能被当成 `ok`。
+  if (report.tolerated && (report.aborted || report.failed > 0)) {
+    return 'TOLERATED';
+  }
   if (report.capped) {
     return report.unresolved > 0 ? `capped, ${report.unresolved} unresolved` : 'capped';
   }
@@ -209,10 +215,16 @@ export function printOverallSummary(reports: PathReport[]): void {
   });
 
   const failedCount = reports.filter(pathHasFailed).length;
+  // Counted separately so a tolerated failure is announced in the headline instead of vanishing.
+  // 单独统计，让「被容忍的失败」出现在标题里而不是凭空消失。
+  const toleratedCount = reports.filter(
+    (r) => r.tolerated && (r.aborted || r.failed > 0),
+  ).length;
+  const toleratedSuffix = toleratedCount > 0 ? `, ${toleratedCount} tolerated` : '';
   const headline =
     failedCount === 0
-      ? `${reports.length} path(s) ran, none failed`
-      : `${reports.length} path(s) ran, ${failedCount} FAILED`;
+      ? `${reports.length} path(s) ran, none failed${toleratedSuffix}`
+      : `${reports.length} path(s) ran, ${failedCount} FAILED${toleratedSuffix}`;
 
   printFrame(`Sync finished — ${headline}`, lines);
   appendJobSummary(summaryMarkdown(reports, headline));
@@ -239,6 +251,10 @@ const MAX_SUMMARY_TITLES = 200;
 function summaryMarkdown(reports: PathReport[], headline: string): string {
   const lines = [
     `## Sync finished — ${headline}`,
+    '',
+    'Scanned 源端读取并尝试处理的条目数；Written 成功写入（新建或更新）；Unchanged 目标端已有且内容一致、未写入；Skipped 被同步规则主动跳过（不计为失败）；Unresolved 无法确定目标端对应实体；Failed 处理时实际出错。',
+    '',
+    '**计数关系**：Scanned 是分母，其余五项是对它的划分，彼此互不重合 —— `written + unchanged + skipped + unresolved + failed = scanned`，每条链路的 `self-check` 行会校验这一点。唯一例外是 `NeoDB → TMDB`：它的 Written 与 Failed 按**字段**计（评分、watchlist 各一次），同一作品最多贡献 2，因此该链路在两项都写时等式可能不成立。State 列的 `TOLERATED` 表示该链路失败但被 `SYNC_DOUBAN_REQUIRED=0` 免除了退出码。',
     '',
     '| Path | Scanned | Written | Unchanged | Skipped | Unresolved | Failed | State |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',

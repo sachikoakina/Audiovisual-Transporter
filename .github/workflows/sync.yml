@@ -79,6 +79,10 @@ jobs:
       SYNC_DOUBAN_NOTION: ${{ vars.SYNC_DOUBAN_NOTION || '0' }}
       SYNC_DOUBAN_NEODB: ${{ vars.SYNC_DOUBAN_NEODB || '1' }}
       SYNC_DOUBAN_BANGUMI: ${{ vars.SYNC_DOUBAN_BANGUMI || '1' }}
+      # 1 (default) = a 403 / unreachable Douban feed fails the run.
+      # 0 = keep it visible as TOLERATED in the summary but let the other paths decide the exit
+      # code — useful on runners whose address range Douban blocks. See README's six-counter note.
+      SYNC_DOUBAN_REQUIRED: ${{ vars.SYNC_DOUBAN_REQUIRED || '1' }}
       SYNC_BANGUMI_NEODB: ${{ vars.SYNC_BANGUMI_NEODB || '1' }}
       SYNC_DOUBAN_NOTION_CATEGORIES: ${{ vars.SYNC_DOUBAN_NOTION_CATEGORIES || '' }}
       SYNC_DOUBAN_NEODB_CATEGORIES: ${{ vars.SYNC_DOUBAN_NEODB_CATEGORIES || '' }}

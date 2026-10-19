@@ -8,6 +8,12 @@
  * 条目解析顺序（见 `resolveBangumiSubjectId`）：NeoDB 条目上已有的 Bangumi 外链 → 精确标题搜索
  * → feed 标题 → 再搜一次。更新收藏前会先比较三个相关字段，因此未变化的条目不会产生写入。
  *
+ * One field is NOT a plain overwrite: a rating that already exists on Bangumi is preserved. Douban
+ * only fills an empty (`0`) rating, and "Douban has no rating" (which converts to `0`) can no
+ * longer wipe one. See `resolveBangumiCollectionWrite`.
+ * 有一个字段不是直接覆盖：Bangumi 侧已有的评分会被保留。豆瓣只填补空（`0`）评分，而
+ * 「豆瓣没评分」（会被换算成 `0`）不再能把它清零。见 `resolveBangumiCollectionWrite`。
+ *
  * Already-set statuses that Douban RSS cannot express (搁置/抛弃) are preserved rather than
  * overwritten. Calls are paced with `bangumiThrottle()`.
  * 目标端已设为豆瓣 RSS 无法表达的状态（搁置/抛弃）时会予以保留，不被覆盖。调用之间用
@@ -26,6 +32,7 @@ import {
   BANGUMI_STATUSES_ABSENT_FROM_DOUBAN,
   CATEGORY_TO_BANGUMI_TYPES,
   NEODB_TO_BANGUMI_COLLECTION,
+  resolveBangumiCollectionWrite,
 } from '../rules/bangumi-neodb';
 import {
   extractBangumiIdFromNeodb,
@@ -160,14 +167,26 @@ async function syncFeedItemToBangumi(
     return 'skipped';
   }
 
-  if (
-    existing &&
-    existing.type === desiredType &&
-    (existing.rate || 0) === desiredRate &&
-    (existing.comment || '') === desiredComment
-  ) {
+  const plan = resolveBangumiCollectionWrite({
+    desiredType,
+    desiredRate,
+    desiredComment,
+    existing,
+  });
+
+  if (plan.unchanged) {
     consola.info('Bangumi collection unchanged, skip: ', `subject/${subjectId}`);
     return 'unchanged';
+  }
+
+  if (plan.keepExistingRate) {
+    // Keep this line: without it, "why did my Douban re-rating do nothing" is unanswerable from
+    // the log alone.
+    // 这一行要保留：否则「我在豆瓣改了分，为什么没生效」在日志里根本查不出来。
+    consola.info(
+      'Bangumi keeps existing rate: ',
+      `${plan.rate} (Douban ${desiredRate}), subject/${subjectId}`,
+    );
   }
 
   consola.info(
@@ -176,9 +195,9 @@ async function syncFeedItemToBangumi(
   );
 
   const ok = await upsertBangumiCollection(subjectId, {
-    type: desiredType,
-    rate: desiredRate,
-    comment: desiredComment,
+    type: plan.type,
+    rate: plan.rate,
+    comment: plan.comment,
     private: bangumiPrivate,
   });
   return ok ? 'written' : 'failed';

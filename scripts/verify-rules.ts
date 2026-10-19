@@ -37,7 +37,9 @@ import {
   CATEGORY_TO_BANGUMI_TYPES,
   NEODB_TO_BANGUMI_COLLECTION,
   bangumiCollectionToNeodbProgress,
+  bangumiSubjectTypesForCategories,
   neodbItemSupportsProgress,
+  resolveBangumiCollectionWrite,
 } from '../src/rules/bangumi-neodb';
 import { mergeNeodbMark } from '../src/rules/neodb-mark-merge';
 import { normalizeTitleKey, pickExactTmdbMatch } from '../src/rules/tmdb-matching';
@@ -261,6 +263,38 @@ check(
 );
 
 // ───────────────────────────────────────────────────────────────────────────
+// Category allowlist → subject_type
+// 分类白名单 → subject_type
+// ───────────────────────────────────────────────────────────────────────────
+
+section('bangumiSubjectTypesForCategories / 分类白名单 → subject_type');
+
+check(
+  'an empty category set needs no subject_type',
+  bangumiSubjectTypesForCategories([]).length === 0,
+);
+check(
+  'game maps to subject_type 4 (games are a first-class category)',
+  JSON.stringify(bangumiSubjectTypesForCategories(['game'])) === '[4]',
+);
+check(
+  'anime + real map to 2 and 6, sorted',
+  JSON.stringify(bangumiSubjectTypesForCategories(['real', 'anime'])) === '[2,6]',
+);
+check(
+  'manga maps to the book subject_type 1',
+  JSON.stringify(bangumiSubjectTypesForCategories(['manga'])) === '[1]',
+);
+check(
+  'book + music map to 1 and 3',
+  JSON.stringify(bangumiSubjectTypesForCategories(['music', 'book'])) === '[1,3]',
+);
+check(
+  'book + manga collapse to a single 1',
+  JSON.stringify(bangumiSubjectTypesForCategories(['book', 'manga'])) === '[1]',
+);
+
+// ───────────────────────────────────────────────────────────────────────────
 // Progress mapping
 // 进度映射
 // ───────────────────────────────────────────────────────────────────────────
@@ -354,6 +388,76 @@ check(
 check(
   'category matching is case-insensitive',
   neodbItemSupportsProgress({ category: 'TV' }, { type: 'episode', value: '1' }),
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// Douban → Bangumi write plan (rating retention)
+// 豆瓣 → Bangumi 写入计划（评分保留）
+// ───────────────────────────────────────────────────────────────────────────
+
+section('resolveBangumiCollectionWrite / 豆瓣 → Bangumi 写入计划');
+
+const keptRate = resolveBangumiCollectionWrite({
+  desiredType: 2,
+  desiredRate: 6,
+  desiredComment: '好看',
+  existing: { type: 2, rate: 8, comment: '好看' },
+});
+check(
+  'an existing rate of 8 wins over the incoming 6',
+  keptRate.rate === 8 && keptRate.keepExistingRate,
+);
+check(
+  'same type/comment plus the kept rate → unchanged (so it does not rewrite every run)',
+  keptRate.unchanged,
+);
+
+const keptRateStatusChange = resolveBangumiCollectionWrite({
+  desiredType: 3,
+  desiredRate: 6,
+  desiredComment: '好看',
+  existing: { type: 2, rate: 8, comment: '好看' },
+});
+check(
+  'a status change still writes, and still keeps the rate',
+  keptRateStatusChange.unchanged === false && keptRateStatusChange.rate === 8,
+);
+
+const zeroExistingRate = resolveBangumiCollectionWrite({
+  desiredType: 2,
+  desiredRate: 6,
+  desiredComment: '',
+  existing: { type: 2, rate: 0, comment: '' },
+});
+check(
+  'an empty (0) existing rate is filled from Douban',
+  zeroExistingRate.rate === 6 && zeroExistingRate.keepExistingRate === false,
+);
+check(
+  'rate 0 differs from the incoming 6 → it must write',
+  zeroExistingRate.unchanged === false,
+);
+
+const freshCollection = resolveBangumiCollectionWrite({
+  desiredType: 1,
+  desiredRate: 4,
+  desiredComment: '',
+  existing: null,
+});
+check(
+  'no existing collection → create with the Douban rate',
+  freshCollection.rate === 4 && freshCollection.unchanged === false,
+);
+
+const unratedDouban = resolveBangumiCollectionWrite({
+  desiredType: 2,
+  desiredRate: 0,
+  desiredComment: '',
+  existing: { type: 2, rate: 8, comment: '' },
+});
+check(
+  'Douban without a rating cannot clear the Bangumi one',
+  unratedDouban.rate === 8 && unratedDouban.unchanged,
 );
 
 // ───────────────────────────────────────────────────────────────────────────

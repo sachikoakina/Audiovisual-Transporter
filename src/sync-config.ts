@@ -20,6 +20,10 @@ import {
   type RatingProfile,
   type ShelfType,
 } from './types';
+import {
+  bangumiSubjectTypesForCategories,
+  type BangumiNeodbCategory,
+} from './rules/bangumi-neodb';
 
 dotenv.config();
 
@@ -54,11 +58,13 @@ const DOUBAN_CATEGORY_ALIASES: Record<string, ItemCategory> = {
 
 /**
  * Bangumi → NeoDB category tokens.
- * `manga` is books with platform "漫画"; `book` covers all books.
- * Bangumi → NeoDB 的分类标识。`manga` 指 platform 为「漫画」的书籍；`book` 覆盖全部书籍。
+ * The type and the token → `subject_type` mapping live in `rules/bangumi-neodb` so that they are
+ * pure and directly assertable offline; only the alias table (an env-shaped concern) stays here.
+ *
+ * Bangumi → NeoDB 的分类标识。类型本身与「标识 → `subject_type`」映射放在 `rules/bangumi-neodb`，
+ * 以便保持纯函数、可离线断言；只有别名表（属于环境变量形态的问题）留在这里。
  */
-export type BangumiNeodbCategory =
-  'anime' | 'manga' | 'book' | 'music' | 'game' | 'real';
+export type { BangumiNeodbCategory };
 
 const BANGUMI_CATEGORY_ALIASES: Record<string, BangumiNeodbCategory> = {
   anime: 'anime',
@@ -190,6 +196,22 @@ export const syncConfig = {
   /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
   bangumiNeodbProgress: envEnabled('SYNC_BANGUMI_NEODB_PROGRESS', false),
 
+  /**
+   * Whether a Douban RSS failure must fail the whole run.
+   *
+   * Default `true` keeps the original contract: an enabled Douban→* path that cannot run is a real
+   * failure. Set `0` when the feed is known to be unreachable from the current network (Douban
+   * blocks CI address ranges) and you still want the other paths to report success — the failure
+   * is then still printed and still shows up in the job summary, marked `TOLERATED`.
+   *
+   * 豆瓣 RSS 抓取失败是否必须让整轮失败。
+   *
+   * 默认 `true`，保持原有契约：已启用的豆瓣→* 链路跑不起来就是真实失败。若已知当前网络拉不到
+   * feed（豆瓣会拦 CI 网段）但仍希望其余链路能被判为成功，可设 `0`：失败仍会打印、仍会出现在作业
+   * 摘要里，只是标记为 `TOLERATED` 且不参与退出码。
+   */
+  doubanRssRequired: envEnabled('SYNC_DOUBAN_REQUIRED', true),
+
   doubanNotionCategories: parseCategoryAllowlist(
     'SYNC_DOUBAN_NOTION_CATEGORIES',
     DOUBAN_CATEGORY_ALIASES,
@@ -264,29 +286,7 @@ export function bangumiSubjectTypesForAllowlist(
   if (allowlist.mode === 'none') {
     return [];
   }
-
-  const types = new Set<BangumiSubjectType>();
-  for (const cat of allowlist.values) {
-    switch (cat) {
-      case 'book':
-      case 'manga':
-        types.add(1);
-        break;
-      case 'anime':
-        types.add(2);
-        break;
-      case 'music':
-        types.add(3);
-        break;
-      case 'game':
-        types.add(4);
-        break;
-      case 'real':
-        types.add(6);
-        break;
-    }
-  }
-  return [...types].sort((a, b) => a - b);
+  return bangumiSubjectTypesForCategories(allowlist.values);
 }
 
 /**

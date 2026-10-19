@@ -400,6 +400,19 @@ export type PathReport = {
   capped: boolean;
   /** The path could not run at all (missing credentials, network failure). */
   aborted: boolean;
+  /**
+   * Report the failure but do not fail the run.
+   *
+   * Used by the Douban RSS feed when `SYNC_DOUBAN_REQUIRED=0`: the failure stays visible (it is
+   * printed, and the summary marks the row `TOLERATED`), but it must not decide the exit code —
+   * otherwise the summary would have to claim "none failed" while the process exits 1.
+   *
+   * 报告失败，但不让整轮失败。
+   *
+   * 仅在 `SYNC_DOUBAN_REQUIRED=0` 时用于豆瓣 RSS：失败仍然可见（会打印，汇总里该行标为
+   * `TOLERATED`），但不参与退出码 —— 否则就会出现「汇总说全部成功、退出码却是 1」。
+   */
+  tolerated: boolean;
   /** Titles needing a human look, in encounter order. */
   unresolvedTitles: string[];
   /** Set only when entries were actually appended to it. */
@@ -417,13 +430,22 @@ export function newPathReport(label: string): PathReport {
     failed: 0,
     capped: false,
     aborted: false,
+    tolerated: false,
     unresolvedTitles: [],
     reviewLog: '',
   };
 }
 
-/** Whether this report should make the run exit non-zero. */
+/**
+ * Whether this report should make the run exit non-zero.
+ * A `tolerated` report is excluded on purpose — see the field's own note.
+ *
+ * 这份报告是否应让整轮以非零码退出。`tolerated` 的报告被刻意排除，原因见字段自身的说明。
+ */
 export function pathHasFailed(report: PathReport): boolean {
+  if (report.tolerated) {
+    return false;
+  }
   return report.aborted || report.failed > 0;
 }
 

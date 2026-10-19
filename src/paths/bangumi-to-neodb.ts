@@ -364,6 +364,15 @@ async function syncProgressToNeodb(
 ): Promise<boolean> {
   const progress = bangumiCollectionToNeodbProgress(collection);
   if (!progress) {
+    // Games have no progress mapping at all: the rule returns null for subject_type 4, and
+    // Bangumi's `ep_status` can only update book progress anyway. Say so once per item —
+    // otherwise "this game has no progress" is indistinguishable from "no progress was set".
+    // 游戏完全没有进度映射：规则对 subject_type 4 返回 null，而且 Bangumi 的 `ep_status` 本来就
+    // 只能更新书籍进度。每个条目说明一次 —— 否则「这个游戏没有进度」与「本来就没填进度」在日志里
+    // 无法区分。
+    if (collection.subject_type === 4) {
+      consola.info('NeoDB progress not applicable to game: ', title);
+    }
     return false;
   }
 
