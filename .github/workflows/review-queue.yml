@@ -1,0 +1,132 @@
+# Collect what the sync could not process, and keep one de-duplicated list across runs.
+# 收集同步无法处理的条目，并跨轮维护一份去重名单。
+#
+# Why a separate workflow instead of a step in `sync.yml`: the constraint is "do not change
+# the existing sync logic". This file adds a reader, not a writer — `src/` and `sync.yml`
+# stay byte-identical, so a bug here can never change what gets written to NeoDB / Bangumi /
+# TMDB. The cost is that it can only see what the sync already printed.
+# 为什么单独一个工作流而不是塞进 `sync.yml`：约束是「不改动现有同步逻辑」。这个文件只增加
+# 一个读取方，不增加写入方 —— `src/` 与 `sync.yml` 保持逐字节不变，因此这里出 bug 也不可能
+# 改变写入 NeoDB / Bangumi / TMDB 的内容。代价是它只能看到同步已经打印出来的东西。
+#
+# `workflow_run` only fires for workflow files that exist on the default branch, so this
+# must be merged to `main` before it takes effect.
+# `workflow_run` 只对默认分支上存在的工作流文件生效，因此本文件必须先合到 `main` 才会启动。
+name: review-queue
+
+on:
+  workflow_run:
+    workflows: [sync]
+    types: [completed]
+
+# `actions: read` is the only extra grant: it lets this job download the finished run's log
+# archive and the previous snapshot artifact. Nothing here writes to the repository, so
+# `contents` stays read-only and no `issues` / `pull-requests` scope is requested.
+# `actions: read` 是唯一的额外授权：用来下载刚结束那一轮的日志包与上一份快照 artifact。
+# 本工作流不写仓库，因此 `contents` 仍为只读，也不申请 `issues` / `pull-requests` 权限。
+permissions:
+  contents: read
+  actions: read
+
+# Two completions arriving close together would race for the same artifact name.
+# 两次完成事件挨得太近会争用同一个 artifact 名。
+concurrency:
+  group: review-queue
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The script is read from the default branch, never from the triggering run's
+          # commit: a half-merged branch must not be able to reshape the list.
+          # 脚本一律取默认分支的版本，而不是触发那轮的提交：没合完的分支不该有权改变名单形状。
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # ── 1. Carry the previous list over ─────────────────────────────────
+      # Artifacts are immutable and names are unique per run, so the snapshot cannot be
+      # appended to; each run re-uploads a complete one under the same name and picks the
+      # newest un-expired copy at the start. Ninety-day retention means the chain survives
+      # as long as the schedule keeps running (Mon/Wed/Fri at worst a 3-day gap).
+      # artifact 不可变、同名每轮唯一，所以快照无法追加；每轮以同名重新上传一份完整快照，
+      # 并在开头挑最新的未过期副本。90 天保留意味着只要定时任务还在跑（周一三五，最长间隔
+      # 3 天），这条链就不会断。
+      - name: Restore the previous snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p previous
+          LIST=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?name=review-state&per_page=100")
+          ID=$(printf '%s' "$LIST" | jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+          if [ -z "$ID" ]; then
+            echo "No previous snapshot (first run, or the chain expired); starting from an empty list."
+            exit 0
+          fi
+          echo "Restoring snapshot artifact $ID"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" -o previous.zip
+          unzip -q -o previous.zip -d previous
+          ls -la previous
+
+      # ── 2. Read the run that just finished ──────────────────────────────
+      # Logs are only downloadable once a run has completed, which is exactly why this is
+      # a `workflow_run` consumer rather than a step inside the sync job.
+      # 日志只有在运行结束后才能下载，这正是把它做成 `workflow_run` 消费者、而不是塞进同步
+      # 作业里的原因。
+      - name: Download the finished run's logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/logs" -o logs.zip
+          unzip -q -o logs.zip -d logs
+          find logs -type f | head -20
+
+      # ── 3. Merge, sweep, render ─────────────────────────────────────────
+      - name: Merge into the carried-over list
+        env:
+          # Always passed, never conditionally: the script treats a missing file as an
+          # empty list, so a first run and a broken restore take the same path.
+          # 恒定传值，不做条件判断：脚本把「文件不存在」当作空名单，因此首次运行与恢复失败
+          # 走的是同一条路径。
+          STATE_FILE: previous/state.json
+          RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          OUT_DIR: review-state
+          LOGS_DIR: logs
+        run: node scripts/review-queue.mjs
+
+      # ── 4. Publish ──────────────────────────────────────────────────────
+      # The summary is the part a human actually reads: zero permissions, zero storage,
+      # and it survives in the run's page. The artifact underneath it is the state carrier.
+      # 摘要是人真正会读的部分：零权限、零存储、且留在这轮的页面上。下面的 artifact 才是
+      # 状态载体。
+      # 90 days is the maximum a public repository allows. On a private repository the
+      # per-upload value may only shorten the repository setting, never extend it — keep
+      # Settings → Actions → "Artifact and log retention" at 90 or higher.
+      # 90 天是公开仓库允许的上限。私有仓库里这个值只能缩短、不能延长仓库设置 —— 请把
+      # Settings → Actions →「Artifact and log retention」保持在 90 天或以上。
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-state
+          path: review-state/
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true

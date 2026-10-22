@@ -763,13 +763,13 @@ Audiovisual-Transporter/
 │       ├── bangumi-to-neodb.ts           ④ 收藏分页、孪生对齐、合并写入
 │       └── neodb-to-tmdb.ts              ⑤ 书架遍历、三级匹配、读后 diff 写入
 │
-├── scripts/                      辅助脚本：probe-neodb-shelf.ts · verify-tmdb-mapping.ts · verify-rules.ts<br/>                                 verify-douban-parsers.ts · image-downloader.d.ts · download-douban-note-images.ts（未接通）
+├── scripts/                      辅助脚本：probe-neodb-shelf.ts · verify-tmdb-mapping.ts · verify-rules.ts<br/>                                 verify-douban-parsers.ts · image-downloader.d.ts · download-douban-note-images.ts（未接通）<br/>                                 review-queue.mjs（读日志 → 跨轮维护待核对名单）
 ├── tests/fixtures/               解析器断言用的 HTML fixture（5 个，手工构造）
-├── docs/                         README 配图 + 参考手册
+├── docs/                         README 配图 + 参考手册 + 待核对名单机制（`review-queue.md`）
 ├── archive/                      已废弃：旧爬虫与历史回填脚本，仅供追溯
 ├── userscript/                   浏览器用户脚本，手动导出用
 ├── cols.json                     Notion 数据库列定义
-├── .github/workflows/            定时同步工作流
+├── .github/workflows/            定时同步（`sync.yml`）+ 待核对名单（`review-queue.yml`，`sync` 结束后触发）
 ├── .env.example                  配置模板
 └── README.md
 ```
