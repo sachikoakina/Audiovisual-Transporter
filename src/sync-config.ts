@@ -260,6 +260,14 @@ export function filterDoubanFeedsByCategory(
   feeds: FeedItem[],
   allowlist: CategoryAllowlist<ItemCategory>,
   pathLabel: string,
+  /**
+   * Called once per item the allowlist drops, so the caller can name it in its `skipped` detail.
+   * Optional on purpose: the count (`feeds.length - kept.length`) is computed whether or not
+   * anyone listens, and a reporting improvement must never become a prerequisite for filtering.
+   * 白名单每剔除一条就回调一次，调用方据此在 `skipped` 明细里点名。刻意做成可选：计数
+   * （`feeds.length - kept.length`）无论有没有人监听都成立，而「改进报告」不该变成「过滤的前提」。
+   */
+  onSkipped?: (item: FeedItem) => void,
 ): FeedItem[] {
   if (allowlist.mode === 'all') {
     return feeds;
@@ -272,6 +280,7 @@ export function filterDoubanFeedsByCategory(
       `${pathLabel}: skip category ${item.category}: `,
       `${item.title || item.id}[${item.link}]`,
     );
+    onSkipped?.(item);
     return false;
   });
 }

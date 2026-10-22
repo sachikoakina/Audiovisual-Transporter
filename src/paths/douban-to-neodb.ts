@@ -56,6 +56,12 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
     feeds,
     syncConfig.doubanNeodbCategories,
     LABEL,
+    (item) => {
+      report.skippedItems.push({
+        label: feedLabel(item),
+        reason: 'category-not-allowed',
+      });
+    },
   );
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
@@ -64,12 +70,52 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
   for (const item of filtered) {
     const outcome = await syncFeedItemToNeodb(item);
     report[outcome] += 1;
+    recordOutcome(item, outcome, report);
     await neodbThrottle();
   }
   consola.success('NeoDB synced ✨');
 
   printPathSummary(report);
   return report;
+}
+
+/** `标题[链接]` — the same shape the other paths use, and enough to find the item by search. */
+function feedLabel(item: FeedItem): string {
+  return `${item.title || item.id}[${item.link}]`;
+}
+
+/**
+ * Explain what the item's outcome was, without changing it.
+ *
+ * `unresolved` was the one gap that mattered most here: this path counted it and said nothing
+ * else — no title in the summary, no record in the review log — so a run could report
+ * "3 unresolved … and 3 more" followed by nothing at all. The outcome itself is untouched; this
+ * only makes the existing count legible.
+ *
+ * 解释条目为何得到这个结果，但不改变结果。
+ *
+ * `unresolved` 是这里最要紧的那个缺口：这条链路只加一，别的什么都不留 —— 汇总里没有标题、
+ * 留档里没有记录 —— 于是一轮运行会打出「3 unresolved … and 3 more」后面空空如也。
+ * 结果本身没有被改动，这里只是让既有的计数变得可读。
+ */
+function recordOutcome(
+  item: FeedItem,
+  outcome: ItemSyncOutcome,
+  report: PathReport,
+): void {
+  const label = feedLabel(item);
+  if (outcome === 'unresolved') {
+    report.unresolvedTitles.push(item.title || item.id);
+  } else if (outcome === 'failed') {
+    // Create and update are reported by the same slug: the console already distinguishes them
+    // ("Item is not marked" vs "Item mark changed"), and splitting the slug would only make the
+    // summary say one thing twice.
+    // 新建与更新共用同一个 slug：控制台已经用「Item is not marked」与「Item mark changed」
+    // 区分过，再拆 slug 只会让汇总把同一件事说两遍。
+    report.failedItems.push({ label, reason: 'neodb-mark-rejected' });
+  } else if (outcome === 'skipped') {
+    report.skippedItems.push({ label, reason: 'guard-target-status' });
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────

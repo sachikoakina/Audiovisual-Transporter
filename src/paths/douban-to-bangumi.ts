@@ -93,6 +93,12 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
     feeds,
     syncConfig.doubanBangumiCategories,
     LABEL,
+    (item) => {
+      report.skippedItems.push({
+        label: `${item.title || item.id}[${item.link}]`,
+        reason: 'category-not-allowed',
+      });
+    },
   );
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
@@ -103,6 +109,20 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
     report[outcome] += 1;
     if (outcome === 'unresolved') {
       recordUnresolved(item, report);
+    } else if (outcome === 'skipped') {
+      // The only skip this path can produce: Bangumi already holds a status Douban cannot express
+      // (搁置/抛弃), so overwriting it would destroy a fact the source has no way to restore.
+      // 本链路唯一可能的跳过：Bangumi 上已是豆瓣表达不了的状态（搁置/抛弃），覆盖它会毁掉源端
+      // 无法再表达的事实。
+      report.skippedItems.push({
+        label: `${item.title || item.id}[${item.link}]`,
+        reason: 'guard-bangumi-status',
+      });
+    } else if (outcome === 'failed') {
+      report.failedItems.push({
+        label: `${item.title || item.id}[${item.link}]`,
+        reason: 'bangumi-write-rejected',
+      });
     }
     await bangumiThrottle();
   }
@@ -124,15 +144,22 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
  */
 function recordUnresolved(item: FeedItem, report: PathReport): void {
   report.unresolvedTitles.push(item.title || item.id);
-  report.reviewLog = unmatchedLogFile;
 
-  upsertReviewEntry(unmatchedLogFile, {
+  const written = upsertReviewEntry(unmatchedLogFile, {
     source: 'douban→bangumi',
     reason: 'no-bangumi-match',
     title: item.title || item.id,
     externalId: item.id,
     externalUrl: item.link,
   });
+  // Only claim the log when it was really written: `upsertReviewEntry` swallows filesystem
+  // errors, and "3 unmatched item(s) written to X" after a failed write is a lie the reader
+  // would then act on.
+  // 只有真的写成功才声明。`upsertReviewEntry` 会吞掉文件系统错误，而写入失败之后再来一句
+  // 「3 条已写入 X」，是读者会照着去行动的谎话。
+  if (written) {
+    report.reviewLog = unmatchedLogFile;
+  }
 }
 
 /**

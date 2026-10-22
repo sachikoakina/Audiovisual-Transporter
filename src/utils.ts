@@ -233,14 +233,20 @@ function readReviewLog(file: string): ReviewLogEntry[] {
  * 文件会无界增长却提供不了新信息；而且由于记录不带时间戳，它表面上保留的「历史」连
  * 先后都无法判断：两次运行会产出两条完全相同的记录，无从分辨哪条更新。重新记录只刷新
  * `lastSeenAt`、保留 `firstSeenAt`，这正是区分「长期缺口」与「新出现问题」的依据。
+ *
+ * @returns `true` when the file was actually written. Callers use this to decide whether they
+ *   may tell the reader "written to <path>" — a warning about a failed write must not be
+ *   followed by a summary line claiming success.
+ *   文件确实被写入时为 `true`。调用方据此决定能否对读者说「已写入 <路径>」——
+ *   「写入失败」的警告后面不该跟着一句声称成功的汇总。
  */
 export function upsertReviewEntry(
   file: string,
   entry: Record<string, unknown> & { source: string; reason: string },
   now: string = new Date().toISOString(),
-): void {
+): boolean {
   if (!file) {
-    return;
+    return false;
   }
   try {
     const key = reviewKey(entry);
@@ -264,7 +270,9 @@ export function upsertReviewEntry(
     }
 
     writeJsonAtomic(file, existing);
+    return true;
   } catch (error: any) {
     consola.warn(`Could not update review log ${file}: ${error?.message ?? error}`);
+    return false;
   }
 }

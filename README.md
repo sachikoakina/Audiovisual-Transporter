@@ -78,8 +78,8 @@ flowchart LR
 | 项                    | 值         | 说明                                                        |
 | --------------------- | ---------- | ----------------------------------------------------------- |
 | 同步链路              | **5 条**   | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立           |
-| `src/` 文件           | **27 个**  | `clients/` 9 · `rules/` 6 · `paths/` 5 · 顶层 7             |
-| 离线断言              | **245 条** | `npm run verify:all`，不需网络与凭据                        |
+| `src/` 文件           | **28 个**  | `clients/` 9 · `rules/` 7 · `paths/` 5 · 顶层 7             |
+| 离线断言              | **256 条** | `npm run verify:all`，不需网络与凭据                        |
 | 环境变量              | **49 个**  | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名 |
 | `process.exit()`      | **0 处**   | 无实际调用；失败一律走 `PathReport` → 退出码                |
 | 硬编码 `neodb.social` | **1 处**   | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`   |
@@ -142,7 +142,7 @@ cp .env.example .env      # Windows: copy .env.example .env
 ### 4. 本地验证
 
 ```bash
-npm run verify:all           # 离线自测：245 条断言，不联网
+npm run verify:all           # 离线自测：256 条断言，不联网
 SYNC_DRY_RUN=1 npm run sync  # 空跑：只打印计划，不写任何数据
 npm run sync                 # 正式同步全部链路
 ```
@@ -539,31 +539,32 @@ flowchart TD
 
 ### 统一不变量
 
-| #   | 不变量               | 说明                                                              |
-| --- | -------------------- | ----------------------------------------------------------------- |
-| 1   | 没有删除路径         | 源端撤销不传播到目标端                                            |
-| 2   | 写前必读，无差异不写 | ① 链接集合；②④ 四字段；③ 三字段；⑤ 实时状态                       |
-| 3   | `written` ≠ 数据变了 | ②④ 至少一项变化；③ 载荷总带 `private`；⑤ 按字段计数，一条目最多 2 |
-| 4   | 失败不掩盖           | `skipped / unresolved / failed` 严格区分，计数自检闭合            |
-| 5   | 同步永不发帖         | `post_to_fediverse: false` 硬编码（`clients/neodb-shelf.ts:109`） |
+| #   | 不变量               | 说明                                                                   |
+| --- | -------------------- | ---------------------------------------------------------------------- |
+| 1   | 没有删除路径         | 源端撤销不传播到目标端                                                 |
+| 2   | 写前必读，无差异不写 | ① 链接集合；②④ 四字段；③ 三字段；⑤ 实时状态                            |
+| 3   | `written` ≠ 数据变了 | ②④ 至少一项变化；③ 载荷总带 `private`；⑤ 按字段计数，一条目最多 2      |
+| 4   | 失败不掩盖           | `skipped / unresolved / failed` 严格区分，计数自检闭合，且三档各带明细 |
+| 5   | 同步永不发帖         | `post_to_fediverse: false` 硬编码（`clients/neodb-shelf.ts:109`）      |
 
 ### 已知边界
 
-按影响排序。前六条是**你可能会遇到**的，后四条是**设计上的取舍**。
+按影响排序。前六条是**你可能会遇到**的，后六条是**设计上的取舍**。
 
-| #   | 边界                                | 影响                                   | 链路 |
-| --- | ----------------------------------- | -------------------------------------- | ---- |
-| 1   | 查询用 id 子串、判等用完整 URL      | 链接形式变化（尾斜杠）会重复建页       | ①    |
-| 2   | 合并档位保护不了状态                | 手工改的状态被源覆盖（`dropped` 除外） | ②④   |
-| 3   | `private` 不参与比对                | 改 `BANGUMI_PRIVATE` 无法单独生效      | ③    |
-| 4   | 可见性隐式单向覆盖                  | 改 `NEODB_VISIBILITY` 会引发全量改写   | ②④   |
-| 5   | 永不删除 TMDB 评分                  | NeoDB 撤销评分不传播                   | ⑤    |
-| 6   | `dropped` 不清理 watchlist          | 弃看条目会留在待看列表                 | ⑤    |
-| 7   | 增量指纹不含 visibility 且不读 TMDB | 增量模式无法纠正 TMDB 手工改动         | ⑤    |
-| 8   | 读失败被当成「无记录」              | 网络抖动退化为创建式覆盖               | ②③   |
-| 9   | ② 更新仍发送 `created_time`         | 标记日期被推向 RSS 时间                | ②    |
-| 10  | ④ 找不到孪生条目时落到自身          | 同一作品可能两条书架标记               | ④    |
-| 11  | ③ 的评分单向棘轮                    | Bangumi 一旦有分，豆瓣改分不再生效     | ③    |
+| #   | 边界                                | 影响                                                                                      | 链路 |
+| --- | ----------------------------------- | ----------------------------------------------------------------------------------------- | ---- |
+| 1   | 查询用 id 子串、判等用完整 URL      | 链接形式变化（尾斜杠）会重复建页                                                          | ①    |
+| 2   | 合并档位保护不了状态                | 手工改的状态被源覆盖（`dropped` 除外）                                                    | ②④   |
+| 3   | `private` 不参与比对                | 改 `BANGUMI_PRIVATE` 无法单独生效                                                         | ③    |
+| 4   | 可见性隐式单向覆盖                  | 改 `NEODB_VISIBILITY` 会引发全量改写                                                      | ②④   |
+| 5   | 永不删除 TMDB 评分                  | NeoDB 撤销评分不传播                                                                      | ⑤    |
+| 6   | `dropped` 不清理 watchlist          | 弃看条目会留在待看列表                                                                    | ⑤    |
+| 7   | 增量指纹不含 visibility 且不读 TMDB | 增量模式无法纠正 TMDB 手工改动                                                            | ⑤    |
+| 8   | 读失败被当成「无记录」              | 网络抖动退化为创建式覆盖                                                                  | ②③   |
+| 9   | ② 更新仍发送 `created_time`         | 标记日期被推向 RSS 时间                                                                   | ②    |
+| 10  | ④ 找不到孪生条目时落到自身          | 同一作品可能两条书架标记                                                                  | ④    |
+| 11  | ③ 的评分单向棘轮                    | Bangumi 一旦有分，豆瓣改分不再生效                                                        | ③    |
+| 12  | 明细清单有上限                      | `failed`/`skipped` 按原因折叠、`unresolved` 最多列 20 条（摘要 200 条），要看全部得翻留档 | 全部 |
 
 > 第 8 条值得展开：`getNeodbMark` / `getBangumiCollection` 请求失败时返回 `null`，上游把它当成「目标端还没有记录」→ 走新建分支 → 用来源值覆盖。这是**唯一**会让「读失败」变成「写覆盖」的路径，也是网络不稳时重复运行要谨慎的原因。
 
@@ -692,6 +693,8 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 | -------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json` | **三条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍打印计数与清单） |
 
+> 这是**相对路径**，按进程的工作目录解析：`npm run sync` 下就是仓库根，落到 `<仓库>/.cache/unmatched.json`；在 CI 里则是 runner 上的 `$GITHUB_WORKSPACE/.cache/`，作业一结束随虚拟机销毁。日志与作业摘要打印的是**解析后的绝对路径**（摘要还带条目数与体积，文件不在时明写 `not present`），所以「找不到文件」时的第一步是核对那条路径属于哪台机器。`.cache` 在 `.gitignore` 里，`git status` 与 GitHub Desktop 都看不到它。只有 ③④⑤ 会写，①② 从不写。
+
 ### NeoDB → TMDB
 
 | 变量                   | 默认                         | CI 差异               | 说明                                                               |
@@ -717,7 +720,7 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 npm run sync                  # 全部启用链路
 npm run sync:bangumi-full     # 只跑链路④，且全量
 npm run sync:neodb-tmdb-full  # 只跑链路⑤，且全量
-npm run verify:all            # 离线断言（245 条）
+npm run verify:all            # 离线断言（256 条）
 npm run typecheck             # tsc --noEmit
 npm run lint / lint:fix       # ESLint
 npm run format / format:check # Prettier
@@ -728,14 +731,14 @@ npm run probe:neodb           # 探测 NeoDB 书架响应结构，原始 JSON �
 
 ```
 Audiovisual-Transporter/
-├── src/                          核心源码（27 个文件）
+├── src/                          核心源码（28 个文件）
 │   ├── index.ts                  总入口：按开关调度所有链路，豆瓣 RSS 只抓一次
 │   ├── neodb-to-tmdb-full-cli.ts 链路⑤全量入口（无参数；开关关闭则退出码 1）
 │   ├── bangumi-to-neodb-full-cli.ts 链路④全量入口（无参数）
 │   ├── sync-config.ts            配置中枢：集中解析环境变量并打印成一行便于审计
 │   ├── types.ts                  共享词汇表 + cols.json 的唯一入口；PathReport 是结果契约
 │   ├── utils.ts                  通用工具 + 增量状态 + 留档日志（原子写、按 source::id upsert）
-│   ├── sync-report.ts            结果展示层：汇总、自检、未匹配清单、CI 注解与作业摘要
+│   ├── sync-report.ts            结果展示层：汇总、自检、三档明细清单、CI 注解与作业摘要
 │   │
 │   ├── clients/                  外部平台：传输 + 各平台线格式（9）
 │   │   ├── douban-rss.ts                 RSS 拉取与归一化（状态解码、星级/短评提取）
@@ -748,11 +751,12 @@ Audiovisual-Transporter/
 │   │   ├── tmdb.ts                       凭据解析 v4→v3/Bearer、读现状、评分/watchlist 写
 │   │   └── notion.ts                     SDK data_source 模式 + 列类型表 + 属性载荷构造
 │   │
-│   ├── rules/                    纯逻辑：零 I/O、零环境读取（6）
+│   ├── rules/                    纯逻辑：零 I/O、零环境读取（7）
 │   │   ├── douban.ts                     豆瓣词汇 + 星级换算（全仓唯一一处）
 │   │   ├── bangumi-neodb.ts              Bangumi ↔ NeoDB 映射、守卫、评分保留
 │   │   ├── neodb-mark-merge.ts           标记合并：评分/短评按 profile，状态恒跟来源
 │   │   ├── tmdb-mapping.ts               状态映射定义 ★ 改行为改这里
+│   │   ├── review-detail.ts              三档明细的分组与截断：按原因折叠、条数必须对得上
 │   │   ├── tmdb-matching.ts              标题匹配；normalizeTitleKey 与之共用
 │   │   └── tmdb-write-plan.ts            写入计划计算（幂等核心）
 │   │

@@ -19,6 +19,7 @@ import {
   type DB_PROPERTIES_KEYS,
   type FailedItem,
   type PathReport,
+  type ReviewDetail,
 } from '../types';
 import {
   filterDoubanFeedsByCategory,
@@ -65,6 +66,12 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
     feeds,
     syncConfig.doubanNotionCategories,
     'Douban → Notion',
+    (item) => {
+      report.skippedItems.push({
+        label: `${item.title || item.id}[${item.link}]`,
+        reason: 'category-not-allowed',
+      });
+    },
   );
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
@@ -79,8 +86,6 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
     },
     {} as Partial<Record<ItemCategory, FeedItem[]>>,
   );
-
-  const failedItems: FailedItem[] = [];
 
   for (const category in feedsByCategory) {
     const categorizedFeeds = feedsByCategory[category as ItemCategory] as FeedItem[];
@@ -97,7 +102,17 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
       report.unchanged += outcome.unchanged;
       report.skipped += outcome.skipped;
       report.failed += outcome.failed;
-      failedItems.push(...outcome.failedItems);
+      report.skippedItems.push(...outcome.skippedItems);
+      // `标题[链接]`, not `标题: 链接`: the label has to survive the same line format every other
+      // path uses, and the bracketed form is what the log-side parser already knows how to split.
+      // 用 `标题[链接]` 而不是 `标题: 链接`：标签要能进入其余链路共用的行格式，而带方括号的形式
+      // 正是日志侧解析器已经会拆的那种。
+      for (const item of outcome.failedItems) {
+        report.failedItems.push({
+          label: `${item.title || item.link}[${item.link}]`,
+          reason: item.reason ?? 'notion-insert-failed',
+        });
+      }
     } catch (error) {
       // Count the whole category as failed and keep going: one bad category must not cost the
       // other four, nor the paths after this one. (`scanned` already covers these items.)
@@ -105,19 +120,21 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
       // 之后的链路。（这些条目已包含在 `scanned` 里。）
       consola.error(`Failed to handle ${category} feeds. `, error);
       report.failed += categorizedFeeds.length;
+      const detail = error instanceof Error ? error.message : String(error);
       for (const feed of categorizedFeeds) {
-        failedItems.push({ link: feed.link, title: feed.title ?? '' });
+        report.failedItems.push({
+          label: `${feed.title ?? ''}[${feed.link}]`,
+          reason: `notion-category-failed: ${detail}`,
+        });
       }
     }
   }
 
-  if (failedItems.length) {
-    consola.warn('Failed to handle the following feeds to insert into Notion:');
-    for (const item of failedItems) {
-      consola.warn(`${item.title}: ${item.link}`);
-    }
-  }
-
+  // The per-feed failure list used to be printed here, in its own `标题: 链接` block. It now goes
+  // through `printPathSummary` with the other paths' failed details, so one failure is reported
+  // once, in one format, and its count can be checked against `report.failed`.
+  // 逐条失败清单原本在这里以 `标题: 链接` 的形式单打一节。现在它随其余链路的 failed 明细一起
+  // 交给 `printPathSummary`：同一次失败只报一次、只用一种格式，且条数可以与 `report.failed` 对账。
   printPathSummary(report);
   return report;
 }
@@ -196,6 +213,8 @@ type CategoryOutcome = {
   skipped: number;
   failed: number;
   failedItems: FailedItem[];
+  /** One per `skipped`, so the path-level total stays explainable. / 与 `skipped` 一一对应。 */
+  skippedItems: ReviewDetail[];
 };
 
 /**
@@ -224,6 +243,7 @@ async function syncCategoryToNotion(
     skipped: 0,
     failed: 0,
     failedItems: [],
+    skippedItems: [],
   };
 
   if (categorizedFeeds.length === 0) {
@@ -236,10 +256,17 @@ async function syncCategoryToNotion(
     // No target configured → the items are skipped, not failed.
     // 没有配置目标端 → 这些条目属于「跳过」，不是「失败」。
     consola.warn(`No notion data source id for ${category}`);
+    // One detail per item, though one config line would fix them all: the count is per item, and
+    // the listing must be able to account for every one of them.
+    // 每个条目一条明细，尽管改一行配置就能全修好：计数是按条目的，清单必须能交代每一条。
     return {
       ...emptyOutcome,
       scanned: categorizedFeeds.length,
       skipped: categorizedFeeds.length,
+      skippedItems: categorizedFeeds.map((item) => ({
+        label: `${item.title || item.id}[${item.link}]`,
+        reason: `no-notion-database: ${category}`,
+      })),
     };
   }
 
@@ -297,6 +324,7 @@ async function syncCategoryToNotion(
     skipped: 0,
     failed: 0,
     failedItems: [],
+    skippedItems: [],
   };
 
   for (const newFeedItem of feedsToInsert) {
@@ -321,6 +349,10 @@ async function syncCategoryToNotion(
         outcome.failedItems.push({
           link: newFeedItem.link,
           title: String(itemData[DB_PROPERTIES.NAME] ?? newFeedItem.title ?? ''),
+          // Notion accepted the request but did not create the page, so the columns or the token
+          // are the suspect — not the scrape.
+          // Notion 收到了请求却没建页，因此可疑的是列或令牌，而不是抓取。
+          reason: 'notion-insert-failed',
         });
       }
       await sleep(1000);
@@ -333,6 +365,11 @@ async function syncCategoryToNotion(
       outcome.failedItems.push({
         link: newFeedItem.link,
         title: String(newFeedItem.title ?? ''),
+        // Distinct from `notion-insert-failed` because the fix is different: this one means the
+        // Douban page could not be read, so nothing was ever sent to Notion.
+        // 与 `notion-insert-failed` 分开，因为要修的东西不同：这里意味着豆瓣页面读不到，
+        // 压根没往 Notion 发过请求。
+        reason: 'douban-scrape-failed',
       });
     }
   }

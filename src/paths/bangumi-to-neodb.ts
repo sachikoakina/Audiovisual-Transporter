@@ -190,6 +190,15 @@ export default async function syncBangumiToNeodb(
               break;
             case 'skipped-platform':
               counters.skippedPlatform += 1;
+              // Only reachable when the allowlist asked for manga: the subject sits in Bangumi's
+              // book type but its platform is not 「漫画」, so importing it would put a
+              // non-manga book into the manga shelf.
+              // 只有白名单要求漫画时才会走到：该条在 Bangumi 属书籍类型，但平台不是「漫画」，
+              // 导入它会把一本非漫画书塞进漫画书架。
+              report.skippedItems.push({
+                label: collectionTitle(collection),
+                reason: 'platform-mismatch',
+              });
               break;
             case 'unresolved':
               counters.unresolved += 1;
@@ -198,6 +207,15 @@ export default async function syncBangumiToNeodb(
           }
         } catch (error) {
           counters.failed += 1;
+          // The message goes into the detail on purpose: "item-threw" alone would send the reader
+          // back to the log for the one piece of information that was already in hand.
+          // 错误信息进明细是刻意的：只写「item-threw」会让读者为了一个当时就在手上的信息
+          // 回头翻日志。
+          const detail = error instanceof Error ? error.message : String(error);
+          report.failedItems.push({
+            label: collectionTitle(collection),
+            reason: `item-threw: ${detail}`,
+          });
           consola.error(
             `Item failed, continuing: ${collectionTitle(collection)} —`,
             error instanceof Error ? error.message : error,
@@ -239,9 +257,8 @@ function recordUnresolved(collection: BangumiCollection, report: PathReport): vo
   const title = collectionTitle(collection);
 
   report.unresolvedTitles.push(title);
-  report.reviewLog = unmatchedLogFile;
 
-  upsertReviewEntry(unmatchedLogFile, {
+  const written = upsertReviewEntry(unmatchedLogFile, {
     source: 'bangumi→neodb',
     reason: 'neodb-unresolved',
     title,
@@ -250,6 +267,11 @@ function recordUnresolved(collection: BangumiCollection, report: PathReport): vo
     subjectType: collection.subject_type,
     collectionType: collection.type,
   });
+  // See `douban-to-bangumi.ts#recordUnresolved`: claim the log only when it was written.
+  // 见 `douban-to-bangumi.ts#recordUnresolved`：只有真的写成功才声明留档。
+  if (written) {
+    report.reviewLog = unmatchedLogFile;
+  }
 }
 
 function collectionTitle(collection: BangumiCollection): string {

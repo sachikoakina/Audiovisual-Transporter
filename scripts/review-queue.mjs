@@ -159,10 +159,6 @@ export function parseLogs(logsDir) {
     }
     const lines = text.replace(ANSI, '').split(/\r?\n/);
 
-    // Path ① prints a header then one `title: url` line per failed feed.
-    // 链路① 先打一行标题，再逐条打 `标题: 链接`。
-    let inFailedBlock = false;
-
     for (const raw of lines) {
       const line = raw.trim();
       if (!line) {
@@ -257,20 +253,27 @@ export function parseLogs(logsDir) {
         });
         continue;
       }
-      if (line.includes('Failed to handle the following feeds to insert into Notion')) {
-        inFailedBlock = true;
+      // ①'s failures arrive through the shared detail section:
+      //   · 标题[https://…] — notion-insert-failed
+      // The reason suffix is kept in the key's reason so the causes stay distinguishable.
+      // Not anchored at `^`: consola prefixes every line with a level badge of its own choosing
+      // (`[warn]` in Actions, a padded `WARN` on a TTY), so the bullet never sits at column 0.
+      // ① 的失败走共用的明细小节；原因后缀原样保留，不同成因因此仍可区分。
+      // 刻意不锚定 `^`：consola 会给每行加上自己决定的级别标记（Actions 里是 `[warn]`，终端里
+      // 是补白后的 `WARN`），项目符号永远不在第 0 列。
+      const detailLine =
+        /·\s*(.+?)\s+—\s+(notion-insert-failed|douban-scrape-failed|notion-category-failed)(?::.*)?$/.exec(
+          line,
+        );
+      if (detailLine) {
+        const label = detailLine[1].trim();
+        add(
+          'failed',
+          'douban→notion',
+          detailLine[2],
+          splitLabel(label) || { title: label },
+        );
         continue;
-      }
-      if (inFailedBlock) {
-        const pair = /^(.*):\s*(https?:\/\/\S+)$/.exec(line);
-        if (pair) {
-          add('failed', 'douban→notion', 'notion-insert-failed', {
-            title: pair[1].trim(),
-            url: pair[2].trim(),
-          });
-          continue;
-        }
-        inFailedBlock = false;
       }
 
       // ── Cross-path summary lines ──────────────────────────────────────

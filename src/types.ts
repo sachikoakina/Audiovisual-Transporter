@@ -156,6 +156,12 @@ export type NotionColPropTypes =
 export type FailedItem = {
   link: string;
   title: string;
+  /**
+   * Why it failed, as a slug. Optional so an existing caller that has nothing to add does not
+   * have to invent one — the listing then prints the bare title.
+   * 失败原因的 slug。可选：没有额外信息的调用方不必硬编一个，清单就只打印标题。
+   */
+  reason?: string;
 };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -377,6 +383,33 @@ export function newSyncCounters(): SyncCounters {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
+ * One entry that a counter counts, kept so the closing listing can name it.
+ *
+ * Exists because `skipped` and `failed` used to be bare numbers: the summary could say "12
+ * skipped" and nothing else, which leaves the reader with no way to tell a designed-in skip
+ * (`unchanged since last run`) from one worth fixing (`no Notion data source configured`).
+ * The counts are the truth; these lists only explain them, and every list must stay the same
+ * length as its count — `printPathSummary` says so out loud when it is not.
+ *
+ * 被某个计数器计入、同时被记下来以便收尾时点名的一条记录。
+ *
+ * 之所以需要它：`skipped` 与 `failed` 过去只有数字，汇总只能说「跳过了 12 条」而别无下文，
+ * 读者无法区分「设计内的跳过」（自上次运行后无变化）与「值得修的那种」（某个分类没配 Notion
+ * 数据源）。**计数才是事实**，这些清单只负责解释；每份清单都必须与其计数等长 ——
+ * 不等长时 `printPathSummary` 会明说。
+ */
+export type ReviewDetail = {
+  /** Human-readable identity, e.g. `沙丘 2` or `某书[https://…]`. / 可读的身份标识。 */
+  label: string;
+  /**
+   * Why it was counted, using the same slugs as the on-disk review log so a log line and a
+   * JSON record can be matched with one grep.
+   * 为什么被计入，用与磁盘留档日志同一套 slug，使日志行与 JSON 记录可以用同一次 grep 对上。
+   */
+  reason: string;
+};
+
+/**
  * Outcome of one sync path, consumed by the closing summary.
  *
  * Two counts are deliberately treated differently by the exit code:
@@ -415,6 +448,18 @@ export type PathReport = {
   tolerated: boolean;
   /** Titles needing a human look, in encounter order. */
   unresolvedTitles: string[];
+  /**
+   * One entry per `failed`, in encounter order. Same length as `failed` — if a path cannot name
+   * what it counted, it must not invent a name, and the listing will report the shortfall.
+   * 与 `failed` 一一对应、按出现顺序排列。长度等于 `failed`；若某条链路无法点名，就不许编造
+   * 名字，由清单如实报出缺口。
+   */
+  failedItems: ReviewDetail[];
+  /**
+   * One entry per `skipped`, in encounter order. Same length as `skipped`.
+   * 与 `skipped` 一一对应、按出现顺序排列，长度等于 `skipped`。
+   */
+  skippedItems: ReviewDetail[];
   /** Set only when entries were actually appended to it. */
   reviewLog: string;
 };
@@ -432,6 +477,8 @@ export function newPathReport(label: string): PathReport {
     aborted: false,
     tolerated: false,
     unresolvedTitles: [],
+    failedItems: [],
+    skippedItems: [],
     reviewLog: '',
   };
 }

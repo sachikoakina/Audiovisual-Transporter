@@ -66,8 +66,10 @@ import {
   type NotionNumberPropType,
   type NotionRichTextPropType,
   type NotionUrlPropType,
+  type ReviewDetail,
   type TmdbSearchResult,
 } from '../src/types';
+import { groupByReason, renderDetailLines } from '../src/rules/review-detail';
 
 let passed = 0;
 let failed = 0;
@@ -846,6 +848,81 @@ check(
   'an unknown property type yields undefined, so the caller skips that column',
   buildPropertyValue('x', 'not-a-type' as NotionPropTypesEnum, 'k') === undefined,
 );
+
+// ───────────────────────────────────────────────────────────────────────────
+// Review detail listing — the arithmetic that has to agree with the counters
+// 待核对明细清单 —— 必须与计数器对得上的那部分算术
+//
+// These assertions exist because the failure mode is silent: a truncated list that claims
+// "… and 3 more" while hiding 40 entries reads exactly like a complete one. The invariant under
+// test is `listed + omitted === items.length` for every shape of input.
+// 这些断言针对的是一种**无声**的失效：一份截断后声称「… and 3 more」却藏了 40 条的清单，
+// 读起来与完整的一模一样。被测的不变式是：对任意输入形状，`listed + omitted === items.length`。
+// ───────────────────────────────────────────────────────────────────────────
+
+const detailMixed: ReviewDetail[] = [
+  { label: 'a', reason: 'r1' },
+  { label: 'b', reason: 'r2' },
+  { label: 'c', reason: 'r1' },
+];
+
+check(
+  'groupByReason keeps first-appearance order, not sorted-by-count order',
+  groupByReason(detailMixed)
+    .map((group) => group.reason)
+    .join(',') === 'r1,r2',
+);
+check(
+  'groupByReason merges entries sharing a reason',
+  groupByReason(detailMixed)[0]?.items.length === 2,
+);
+check(
+  'a small reason group expands to one line per entry',
+  renderDetailLines(detailMixed).lines.length === 3,
+);
+check(
+  'the expanded lines carry `label — reason`',
+  renderDetailLines(detailMixed).lines[0] === 'a — r1',
+);
+check(
+  'an entry with no label is named (unnamed) rather than printed as an empty bullet',
+  renderDetailLines([{ label: '  ', reason: 'r' }]).lines[0] === '(unnamed) — r',
+);
+
+const manySame: ReviewDetail[] = Array.from({ length: 9 }, (_, index) => ({
+  label: `item ${index + 1}`,
+  reason: 'bulk',
+}));
+const collapsed = renderDetailLines(manySame);
+check(
+  'a reason group above the inline limit collapses into a single line',
+  collapsed.lines.length === 1,
+);
+check(
+  'the collapsed line carries the count and the first three examples',
+  collapsed.lines[0] === 'bulk × 9（例：item 1、item 2、item 3 …）',
+);
+check(
+  'a collapsed group still counts as fully listed',
+  collapsed.listed === 9 && collapsed.omitted === 0,
+);
+
+const forty: ReviewDetail[] = ['r1', 'r2', 'r3', 'r4', 'r5'].flatMap((reason) =>
+  Array.from({ length: 8 }, (_, index) => ({
+    label: `${reason}-${index + 1}`,
+    reason,
+  })),
+);
+const capped = renderDetailLines(forty);
+check(
+  'the line budget stops before a reason group would be shown partially',
+  capped.lines.length === 16,
+);
+check(
+  'omitted counts every entry the budget cut, so listed + omitted === items.length',
+  capped.listed + capped.omitted === forty.length && capped.omitted === 24,
+);
+check('an empty detail list renders nothing', renderDetailLines([]).lines.length === 0);
 
 // ───────────────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { consola } from 'consola';
-import { pathHasFailed, type PathReport } from './types';
+import { renderDetailLines } from './rules/review-detail';
+import { pathHasFailed, type PathReport, type ReviewDetail } from './types';
 
 /**
  * Display layer for sync results.
@@ -117,6 +119,57 @@ function stateLabel(report: PathReport): string {
 }
 
 /**
+ * What each detail line means, in one sentence. Kept next to the counters they explain because
+ * the distinction is the whole point: `failed` means something broke, `skipped` means the code
+ * decided not to write — and only some of those decisions are worth a human's time.
+ *
+ * 每类明细的含义，一句话。刻意放在它所解释的计数器旁边，因为这个区分本身就是重点：
+ * `failed` 是「出错了」，`skipped` 是「代码决定不写」—— 而这些决定里只有一部分值得人工过目。
+ */
+const DETAIL_HEADINGS: Record<'failed' | 'skipped', (total: number) => string> = {
+  failed: (total) => `${total} failed item(s) — the write was attempted and rejected:`,
+  skipped: (total) => `${total} skipped item(s) — deliberately not written:`,
+};
+
+/**
+ * Print one detail section for `failed` or `skipped`.
+ *
+ * The heading carries the counter; the lines explain it. When the two disagree the section says
+ * so instead of rounding to whichever is prettier — that mismatch has meant "a new counter was
+ * added without a matching detail" every time it has happened.
+ *
+ * 打印 `failed` 或 `skipped` 的一节明细。标题给计数，行给解释；两者不一致时明说不一致，
+ * 而不是向好看的一边取整 —— 每次出现这种不一致，都意味着「新增了计数却没配套明细」。
+ */
+function printDetailSection(report: PathReport, kind: 'failed' | 'skipped'): void {
+  const total = kind === 'failed' ? report.failed : report.skipped;
+  const items = kind === 'failed' ? report.failedItems : report.skippedItems;
+
+  ciGroup(`${report.label}: ${total} ${kind}`);
+  consola.warn(DETAIL_HEADINGS[kind](total));
+
+  const { lines, omitted } = renderDetailLines(items);
+  for (const line of lines) {
+    consola.warn(`  · ${line}`);
+  }
+  if (omitted > 0) {
+    consola.warn(`  … and ${omitted} more`);
+  }
+  if (items.length !== total) {
+    // Both directions are wrong, and both are worth saying out loud: fewer details than counted
+    // means the path never named what it counted (so the listing hides something), more details
+    // than counted means one of the two was counted twice. Either way the counter wins, because
+    // it is the thing the self-check line already verified against `scanned`.
+    // 两个方向都不对，都值得说明：明细少于计数 = 链路没能点名（清单藏了东西）；明细多于计数 =
+    // 其中一处被数了两遍。无论哪种，都以计数为准 —— 它才是 self-check 行已经与 `scanned` 对过账的那个。
+    consola.warn(
+      `  (detail has ${items.length} entr(ies), count is ${total} — the count is authoritative)`,
+    );
+  }
+  ciEndGroup();
+}
+
+/**
  * One path's result: counts, a self-check, then whatever needs a human look.
  * Printed as soon as that path finishes, so the streaming log stays readable.
  */
@@ -145,10 +198,49 @@ export function printPathSummary(report: PathReport): void {
     );
   }
 
-  if (report.unresolved === 0) {
-    return;
+  if (report.unresolved > 0) {
+    printUnresolved(report);
   }
+  if (report.failed > 0) {
+    printDetailSection(report, 'failed');
+  }
+  if (report.skipped > 0) {
+    printDetailSection(report, 'skipped');
+  }
+}
 
+/**
+ * Resolve the review log's path and say whether it is really there.
+ *
+ * The log line used to print the *configured* string (`.cache/unmatched.json` — relative), which
+ * says nothing about where the file went and cannot be opened by clicking it. Worse, in Actions
+ * it names a path on an ephemeral runner, so the reader who goes looking on their own disk finds
+ * nothing no matter how hard they look. Printing the resolved absolute path plus the entry count
+ * makes "it exists but you are looking in the wrong place" and "it was never written"
+ * distinguishable at a glance.
+ *
+ * 解析留档日志的真实路径，并说明它到底在不在。
+ *
+ * 过去这里打印的是**配置里的那个字符串**（`.cache/unmatched.json`，相对路径），既说明不了文件
+ * 落在哪、也点不开。更糟的是在 Actions 里它指向的是一台用完即弃的 runner，读者回自己磁盘上找
+ * 永远找不到。打印解析后的绝对路径与条目数，才能一眼区分「文件存在、只是你在错的地方找」与
+ * 「它压根没被写过」。
+ */
+function describeReviewLog(configured: string): string {
+  const absolute = path.resolve(configured);
+  try {
+    const size = fs.statSync(absolute).size;
+    const parsed: unknown = JSON.parse(fs.readFileSync(absolute, 'utf8'));
+    const count = Array.isArray(parsed) ? parsed.length : 0;
+    // One decimal: a 3.4 KiB file and a 340 KiB file deserve different first reactions.
+    // 保留一位小数：3.4 KiB 与 340 KiB 值得不同的第一反应。
+    return `Full entries: \`${absolute}\` (${count} entries, ${(size / 1024).toFixed(1)} KiB)`;
+  } catch {
+    return `Full entries: \`${absolute}\` — **not present** (nothing was recorded this run, or it ran on a CI runner whose disk is discarded)`;
+  }
+}
+
+function printUnresolved(report: PathReport): void {
   ciGroup(`${report.label}: ${report.unresolved} unresolved`);
 
   const listed = report.unresolvedTitles.slice(0, MAX_LISTED_TITLES);
@@ -164,9 +256,12 @@ export function printPathSummary(report: PathReport): void {
   }
   if (report.reviewLog) {
     // Same wording both directions use, so a single grep finds every run that
-    // left something for review.
+    // left something for review. The path is resolved on purpose: see
+    // `describeReviewLog`.
+    // 两个方向用同一句话，因此一次 grep 就能找到所有留下待核对的运行。路径刻意解析成绝对路径，
+    // 原因见 `describeReviewLog`。
     consola.warn(
-      `${report.unresolved} unmatched item(s) written to ${report.reviewLog}.`,
+      `${report.unresolved} unmatched item(s) written to ${path.resolve(report.reviewLog)}.`,
     );
   }
 
@@ -256,6 +351,8 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
     '',
     '**计数关系**：Scanned 是分母，其余五项是对它的划分，彼此互不重合 —— `written + unchanged + skipped + unresolved + failed = scanned`，每条链路的 `self-check` 行会校验这一点。唯一例外是 `NeoDB → TMDB`：它的 Written 与 Failed 按**字段**计（评分、watchlist 各一次），同一作品最多贡献 2，因此该链路在两项都写时等式可能不成立。State 列的 `TOLERATED` 表示该链路失败但被 `SYNC_DOUBAN_REQUIRED=0` 免除了退出码。',
     '',
+    '**明细小节**：`unresolved` 逐条列出（最多 200 条，编号即位置）；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 8 条时折叠成一行，带上条数与示例，因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正需要处理的几条埋掉。折叠行的数字与节标题的计数同源，不会对不上。',
+    '',
     '| Path | Scanned | Written | Unchanged | Skipped | Unresolved | Failed | State |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
   ];
@@ -267,31 +364,86 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
     );
   }
 
-  for (const r of reports.filter((item) => item.unresolved > 0)) {
-    lines.push('', `### ${r.label} — ${r.unresolved} unresolved`, '');
+  for (const r of reports) {
+    if (r.unresolved > 0) {
+      lines.push('', `### ${r.label} — ${r.unresolved} unresolved`, '');
 
-    // Ordered list on purpose: the summary is read against the count in the heading, so a
-    // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
-    // made "how far down the list am I" unanswerable.
-    // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
-    // 无序列表给不了这个参照，看的人无法回答「我看到第几条了」。
-    const listed = r.unresolvedTitles.slice(0, MAX_SUMMARY_TITLES);
-    listed.forEach((title, index) => {
-      lines.push(`${index + 1}. ${title}`);
-    });
-    const rest = r.unresolved - listed.length;
-    if (rest > 0) {
-      // Not numbered: the tail is a remainder, not an entry.
-      // 不编号：这一段是「剩余条数」，不是清单里的一条。
-      lines.push(`- … and ${rest} more`);
+      // Ordered list on purpose: the summary is read against the count in the heading, so a
+      // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
+      // made "how far down the list am I" unanswerable.
+      // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
+      // 无序列表给不了这个参照，看的人无法回答「我看到第几条了」。
+      const listed = r.unresolvedTitles.slice(0, MAX_SUMMARY_TITLES);
+      listed.forEach((title, index) => {
+        lines.push(`${index + 1}. ${title}`);
+      });
+      const rest = r.unresolved - listed.length;
+      if (rest > 0) {
+        // Not numbered: the tail is a remainder, not an entry.
+        // 不编号：这一段是「剩余条数」，不是清单里的一条。
+        lines.push(`- … and ${rest} more`);
+      }
+
+      if (r.reviewLog) {
+        lines.push('', describeReviewLog(r.reviewLog));
+      }
     }
 
-    if (r.reviewLog) {
-      lines.push('', `Full entries: \`${r.reviewLog}\``);
-    }
+    // Bullets, not numbers: a collapsed reason line stands for many entries at once, so
+    // "entry #37" would no longer mean anything. See `rules/review-detail.ts`.
+    // 用项目符号而不是编号：折叠行一次代表很多条，「第 37 条」不再有意义。见 `rules/review-detail.ts`。
+    appendDetailSummary(lines, r.label, 'failed', r.failed, r.failedItems);
+    appendDetailSummary(lines, r.label, 'skipped', r.skipped, r.skippedItems);
   }
 
   return lines.join('\n');
+}
+
+/**
+ * The summary page has room for far more than a terminal, so its budgets are looser than
+ * `DETAIL_LIMITS` — but still bounded, because the page is rendered for a human, not slurped.
+ * 摘要页比终端宽裕得多，因此预算比 `DETAIL_LIMITS` 宽松 —— 但仍然有限，因为那是给人看的页面。
+ */
+const SUMMARY_DETAIL_LIMITS = { inlineGroup: 20, maxLines: 60, examples: 5 };
+
+/**
+ * One line per kind in the summary, saying what the kind *means* — the heading already repeats
+ * the English heading's count, so repeating its sentence too would spend the reader's attention
+ * on nothing.
+ * 摘要里每类一句，说的是这一类**意味着什么** —— 标题已经复述了英文标题里的计数，再复述它的
+ * 那句话只是白白花掉读者的注意力。
+ */
+const SUMMARY_DETAIL_INTRO: Record<'failed' | 'skipped', string> = {
+  failed: '写入被目标端拒绝，或处理时抛出异常。**这些会让退出码非零。**',
+  skipped:
+    '按同步规则主动跳过，不计为失败 —— 其中既有一轮就几百条的机械跳过（如增量命中、本轮重复），也有真该看一眼的配置缺口（如某分类没配 Notion 数据源）。',
+};
+
+function appendDetailSummary(
+  lines: string[],
+  label: string,
+  kind: 'failed' | 'skipped',
+  total: number,
+  items: readonly ReviewDetail[],
+): void {
+  if (total === 0) {
+    return;
+  }
+  lines.push('', `### ${label} — ${total} ${kind}`, '', SUMMARY_DETAIL_INTRO[kind], '');
+
+  const { lines: rendered, omitted } = renderDetailLines(items, SUMMARY_DETAIL_LIMITS);
+  for (const line of rendered) {
+    lines.push(`- ${line}`);
+  }
+  if (omitted > 0) {
+    lines.push(`- … and ${omitted} more`);
+  }
+  if (items.length !== total) {
+    lines.push(
+      '',
+      `_Detail covers ${items.length} of ${total}; the table above is authoritative._`,
+    );
+  }
 }
 
 /**

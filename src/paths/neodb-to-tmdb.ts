@@ -76,6 +76,7 @@ import {
   pathHasFailed,
   type NeodbShelfMark,
   type PathReport,
+  type ReviewDetail,
   type ShelfType,
   type SyncCounters,
   type TmdbMediaType,
@@ -103,6 +104,25 @@ type SyncContext = {
   capped: boolean;
   /** Labels of unmatched items, in encounter order, for the closing listing. */
   unmatchedTitles: string[];
+  /**
+   * Detail behind `counters.failed` / `counters.skipped`, in encounter order.
+   *
+   * Carried on the context rather than the report because the counting happens deep inside
+   * `syncMark` / `applyPatch`, which take the context and know nothing about reporting; keeping
+   * the detail next to the counter is what makes them impossible to update separately.
+   *
+   * `counters.failed` / `counters.skipped` 的明细，按出现顺序。之所以挂在上下文而不是报告上：
+   * 计数发生在 `syncMark` / `applyPatch` 深处，它们只拿到上下文、对报告一无所知；让明细紧贴
+   * 计数，才不可能出现「改了一处忘了另一处」。
+   */
+  failedItems: ReviewDetail[];
+  skippedItems: ReviewDetail[];
+  /**
+   * At least one unmatched entry was really written to the review log. Distinguishes "the path
+   * recorded them" from "the path merely intended to" — see `fillReport`.
+   * 至少有一条未匹配条目真的写进了留档日志。用来区分「真的记下了」与「只是打算记」——见 `fillReport`。
+   */
+  reviewLogWritten: boolean;
 };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -185,6 +205,9 @@ export default async function runNeodbToTmdb(
     stateDirty: false,
     capped: false,
     unmatchedTitles: [],
+    failedItems: [],
+    skippedItems: [],
+    reviewLogWritten: false,
   };
 
   for (const shelfType of neodbTmdbConfig.shelfTypes) {
@@ -220,7 +243,12 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   report.failed = c.failed;
   report.capped = ctx.capped;
   report.unresolvedTitles = [...ctx.unmatchedTitles];
-  report.reviewLog = c.unmatched > 0 ? neodbTmdbConfig.unmatchedLog : '';
+  report.failedItems = [...ctx.failedItems];
+  report.skippedItems = [...ctx.skippedItems];
+  // `unmatched > 0` alone would claim the log even when every write failed; the flag is set by
+  // the writer itself.
+  // 只看 `unmatched > 0` 会在每次写入都失败时仍然声明留档；这个标志由写入方自己置位。
+  report.reviewLog = ctx.reviewLogWritten ? neodbTmdbConfig.unmatchedLog : '';
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -261,6 +289,15 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<void> 
         await syncMark(mark, shelfType, ctx);
       } catch (error) {
         ctx.counters.failed += 1;
+        const thrown = error instanceof Error ? error.message : String(error);
+        ctx.failedItems.push({
+          label:
+            mark.item?.display_title ||
+            mark.item?.title ||
+            mark.item?.uuid ||
+            '(unknown)',
+          reason: `item-threw: ${thrown}`,
+        });
         consola.error(
           `Item failed, continuing: ${mark.item?.title ?? mark.item?.uuid} —`,
           error instanceof Error ? error.message : error,
@@ -283,6 +320,10 @@ async function syncMark(
 
   if (!item?.uuid) {
     ctx.counters.failed += 1;
+    // The one `failed` this path can raise without a label: there is no catalogue item to name,
+    // so the label falls back to whatever the mark still carries.
+    // 本链路唯一一个「没有名字」的失败：根本没有目录条目可点，标签只能退回到标记本身剩下的字段。
+    ctx.failedItems.push({ label, reason: 'no-catalog-item' });
     consola.warn('Mark without a catalog item; skipping.');
     return;
   }
@@ -294,6 +335,11 @@ async function syncMark(
 
   if (plan.skip) {
     ctx.counters.skippedShelf += 1;
+    // The shelf itself has no TMDB meaning (e.g. `dropped`), so nothing is read or written. This
+    // is the skip most likely to be mistaken for a bug, hence the detail.
+    // 该状态在 TMDB 没有对应含义（例如 `dropped`），因此既不读也不写。这是最容易被误当成
+    // bug 的一种跳过，所以要点名。
+    ctx.skippedItems.push({ label, reason: 'shelf-not-mapped' });
     consola.debug(`${label}: ${plan.reason}`);
     return;
   }
@@ -302,6 +348,7 @@ async function syncMark(
   const category = String(item.category ?? '');
   if (NEODB_CATEGORIES_WITHOUT_TMDB.has(category)) {
     ctx.counters.skippedCategory += 1;
+    ctx.skippedItems.push({ label, reason: `no-tmdb-category: ${category}` });
     consola.debug(`Category "${category}" has no TMDB counterpart; skip ${label}.`);
     return;
   }
@@ -309,6 +356,10 @@ async function syncMark(
     NEODB_TO_TMDB_MEDIA_TYPE[category as keyof typeof NEODB_TO_TMDB_MEDIA_TYPE];
   if (!mediaType) {
     ctx.counters.skippedCategory += 1;
+    ctx.skippedItems.push({
+      label,
+      reason: `unmapped-category: ${category || '(empty)'}`,
+    });
     consola.debug(`Unknown category "${category}"; skip ${label}.`);
     return;
   }
@@ -318,6 +369,12 @@ async function syncMark(
   const fingerprint = fingerprintMark(mark);
   if (ctx.mode.incremental && ctx.state.synced[cacheKey]?.fp === fingerprint) {
     ctx.counters.skippedCached += 1;
+    // The bulk of a normal incremental run lands here — hundreds of entries per pass. Recorded
+    // so the count stays explainable, but the listing collapses it into one line for exactly
+    // that reason (see `rules/review-detail.ts`).
+    // 正常增量运行的绝大多数条目落在这里 —— 每轮数百条。记下来是为了让计数可解释，而清单一
+    // 行折叠也正是为此（见 `rules/review-detail.ts`）。
+    ctx.skippedItems.push({ label, reason: 'unchanged-since-last-run' });
     consola.debug(`Unchanged since last run; skip ${label}.`);
     return;
   }
@@ -334,7 +391,7 @@ async function syncMark(
     ctx.counters.unmatched += 1;
     ctx.unmatchedTitles.push(label);
     consola.warn(`No TMDB match; skip ${label}.`);
-    upsertReviewEntry(neodbTmdbConfig.unmatchedLog, {
+    const logged = upsertReviewEntry(neodbTmdbConfig.unmatchedLog, {
       source: 'neodb→tmdb',
       reason: 'no-tmdb-match',
       uuid: item.uuid,
@@ -344,6 +401,7 @@ async function syncMark(
       titles: collectTitles(item),
       externalResources: item.external_resources,
     });
+    ctx.reviewLogWritten = ctx.reviewLogWritten || logged;
     return;
   }
 
@@ -351,6 +409,11 @@ async function syncMark(
   const identity = targetKey(target);
   if (ctx.seen.has(identity)) {
     ctx.counters.skippedDuplicate += 1;
+    // Same TMDB item reached twice (it sits on two shelves). Harmless by construction, named so
+    // the `skipped` total never contains an unexplained item.
+    // 同一个 TMDB 条目被走到两次（它同时在两个书架上）。按构造是无害的，点名是为了让
+    // `skipped` 总数里不出现无法解释的条目。
+    ctx.skippedItems.push({ label, reason: `duplicate-in-run: ${identity}` });
     return;
   }
   ctx.seen.add(identity);
@@ -412,6 +475,12 @@ async function applyPatch(
     } else {
       ok = false;
       ctx.counters.failed += 1;
+      // One detail per *field*, not per item: this path counts rating and watchlist separately,
+      // so a single item that fails both really does add 2 to `failed` — and 2 details, keeping
+      // the listing's arithmetic honest.
+      // 每个**字段**一条明细，而不是每个条目：本链路把评分与 watchlist 分开计数，因此两项都
+      // 写失败的同一个条目确实会给 `failed` 加 2，也就产生 2 条明细，清单的算术才站得住。
+      ctx.failedItems.push({ label, reason: 'tmdb-rating-write-failed' });
     }
   }
 
@@ -422,6 +491,7 @@ async function applyPatch(
     } else {
       ok = false;
       ctx.counters.failed += 1;
+      ctx.failedItems.push({ label, reason: 'tmdb-watchlist-write-failed' });
     }
   }
 

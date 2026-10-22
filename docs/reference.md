@@ -287,14 +287,21 @@
 ### 单条链路
 
 ```
-[info] Bangumi → NeoDB: scanned 50, written 38, unchanged 6, skipped 0, unresolved 6, failed 0
-[info] Bangumi → NeoDB self-check: 38+6+0+6+0 = 50 ✔
+[info] Bangumi → NeoDB: scanned 50, written 38, unchanged 6, skipped 2, unresolved 6, failed 1
+[info] Bangumi → NeoDB self-check: 38+6+2+6+1 = 53 ✘ expected 50      ← 故意造错时的样子
 [warn] 6 unresolved item(s) — no counterpart at the destination:
 [warn]   · 学园奶爸
 [warn]   · 剧场版宝可梦: 时拉比 穿梭时空的相遇
 [warn]   …（最多列 20 条，超出显示 "… and N more"）
-[warn] 6 unmatched item(s) written to .cache/unmatched.json.
+[warn] 6 unmatched item(s) written to D://项目路径//.cache//unmatched.json.
+[warn] 1 failed item(s) — the write was attempted and rejected:
+[warn]   · 某条目 — item-threw: socket hang up
+[warn] 2 skipped item(s) — deliberately not written:
+[warn]   · 某漫画 — platform-mismatch
+[warn]   · bulk × 400（例：第 1 部作品、第 2 部作品、第 3 部作品 …）
 ```
+
+三档的顺序固定为 **unresolved → failed → skipped**：越靠前越需要人动手。`unresolved` 逐条列出；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 8 条就折叠成一行（带条数与最多 3 个示例），因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正该看的几条埋掉。折叠行的数字与节标题同源，且清单行数加「… and N more」永远等于计数；万一对不上，会额外打一行 `(detail has M entr(ies), count is N — the count is authoritative)`：M 少于 N 说明链路没能点名，M 多于 N 说明有一处被数了两遍，无论哪种都以计数为准。
 
 ### 运行结束时的总表
 
@@ -351,7 +358,8 @@
 1. 一行极简的六字段中文说明（含义）；
 2. 一段计数关系说明（谁是谁的划分、哪个链路例外）；
 3. 汇总表（`Path / Scanned / Written / Unchanged / Skipped / Unresolved / Failed / State`）；
-4. 每条链路的未匹配清单，**按 `1、2、3……` 编号**（编号即「全部 N 条里的第几条」；超过 200 条时末尾补一行不编号的 `… and N more`）。
+4. 每条链路的未匹配清单，**按 `1、2、3……` 编号**（编号即「全部 N 条里的第几条」；超过 200 条时末尾补一行不编号的 `… and N more`）；
+5. 每条链路的 `failed` / `skipped` 小节，按原因分组（超过 20 条的原因折叠成一行）。这两节用**项目符号**而不是编号：折叠行一次代表很多条，「第 37 条」在那里没有意义。
 
 | Path            | Scanned | Written | Unchanged | Skipped | Unresolved | Failed | State                |
 | --------------- | ------: | ------: | --------: | ------: | ---------: | -----: | -------------------- |
@@ -360,9 +368,38 @@
 
 > **为什么用作业摘要而不是 `actions/upload-artifact`**：GitHub 计费文档明确**日志与作业摘要不计入存储配额**（而 GitHub Free 的工件存储仅 500 MB，且与 GitHub Packages 共享同一配额池）；面板无需下载即可阅读；并且**不需要改动 `sync.yml`**——该变量由 GitHub 注入到运行 `npm run sync` 的那个步骤环境里。唯一代价是不可下载、不可脚本消费；将来真需要脚本消费再补 artifact。
 
-### 未匹配条目的留档格式
+### 留档文件：路径、写入方与格式
 
-各链路写入**同一个文件**（`SYNC_UNMATCHED_LOG`），用 `source` 区分来源：
+**路径**：`SYNC_UNMATCHED_LOG`，默认 `.cache/unmatched.json`。这是**相对路径**，按**进程的工作目录**解析 —— `npm run sync` 的工作目录是仓库根，所以本地默认落在 `<仓库>/.cache/unmatched.json`；用 `npm --prefix`、IDE 任务、或从别的目录直接调 `tsx src/index.ts` 时，它落在**那个目录**下的 `.cache/`。
+
+**只有三条链路会写它**：③ Douban → Bangumi（`no-bangumi-match`）、④ Bangumi → NeoDB（`neodb-unresolved`）、⑤ NeoDB → TMDB（`no-tmdb-match`）。①② 不写，因此「汇总里没有 `Full entries` 那一行」不代表出错。
+
+**日志里现在打印的是解析后的绝对路径**，形如：
+
+```
+[warn] 6 unmatched item(s) written to D://项目路径//.cache//unmatched.json.
+```
+
+作业摘要里的对应行还会带上真实条目数与体积（`Full entries: \`绝对路径\` (6 entries, 3.4 KiB)`）；文件不在时明写 `**not present**`，而不是照样指向一个不存在的路径。
+
+**在 CI 里它必然"找不到"**：路径相对 `$GITHUB_WORKSPACE` 解析，即 runner 上的 `/home/runner/work/<repo>/<repo>/.cache/unmatched.json`。runner 是一次性虚拟机，作业结束即销毁，`sync.yml` 也没有上传它。所以看到 Actions 日志/摘要里的这个路径后到本机磁盘上找，是找不到的 —— 这是设计行为，不是文件的 bug。需要跨轮留存时走 `docs/review-queue.md` 里的 artifact 方案。
+
+**确认实际位置的办法**（都在**运行同一个目录**下执行）：
+
+```bash
+# 1) 先看进程会把相对路径解析成什么
+node -e "console.log(process.cwd(), require('path').resolve('.cache/unmatched.json'))"
+
+# 2) 跑完之后直接看
+ls -la .cache/ && node -e "console.log(require('./.cache/unmatched.json').length, 'entries')"
+
+# 3) 不确定落在哪个目录时，按名字搜
+find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
+```
+
+注意 `.gitignore` 里有 `.cache`，所以它**不会**出现在 `git status`、GitHub Desktop 的改动列表或 GitHub 网页上 —— 这是它「明明写了却看不见」的另一个常见原因。
+
+各链路写入**同一个文件**，用 `source` 区分来源：
 
 ```json
 [
@@ -406,6 +443,39 @@
 > 之所以不是纯追加：同几条冷门条目每轮都会失败，追加只会让文件变大而不增加信息；而且早先的条目**完全没有时间戳**，两条一模一样的记录无法判断哪条更新——那种「历史」是不可用的。
 >
 > 该文件在 CI 中每轮都是全新的（runner 临时），所以去重只对**本地连续运行**有意义。`.cache` 已被 `.gitignore` 排除，**不会**进仓库。
+
+### failed / skipped 明细的 reason 取值
+
+控制台与作业摘要里每条明细都带一个 `reason` slug；同一 slug 在留档日志里也是同一个词，可以用一次 grep 对齐。带 `:` 的 slug 会把具体值接在后面（例如 `no-tmdb-category: game`），**分组按完整取值**，因此 `game` 与 `music` 会各占一组。
+
+| 链路               | 档位    | reason                           | 含义                                                                |
+| ------------------ | ------- | -------------------------------- | ------------------------------------------------------------------- |
+| ① Douban → Notion  | skipped | `category-not-allowed`           | 分类不在 `DOUBAN_NOTION_CATEGORIES` 里（白名单模式）                |
+|                    | skipped | `no-notion-database: <分类>`     | 该分类没配 data source id，整类条目都不会写（要补的是**一行配置**） |
+|                    | failed  | `notion-insert-failed`           | Notion 收到请求但没建页（列不匹配 / 令牌权限）                      |
+|                    | failed  | `douban-scrape-failed`           | 豆瓣条目页抓取或 PoW 求解失败，请求没发出过                         |
+|                    | failed  | `notion-category-failed: <错误>` | 该分类的去重查询或 schema 读取抛错，整类计入失败                    |
+| ② Douban → NeoDB   | skipped | `category-not-allowed`           | 同上，白名单排除                                                    |
+|                    | skipped | `guard-target-status`            | 目标端状态是豆瓣表达不了的（如 `dropped`），留着不动                |
+|                    | failed  | `neodb-mark-rejected`            | 标记写入（新建或更新）被拒                                          |
+| ③ Douban → Bangumi | skipped | `category-not-allowed`           | 同上                                                                |
+|                    | skipped | `guard-bangumi-status`           | Bangumi 上是搁置/抛弃，覆盖会毁掉源端没有的事实                     |
+|                    | failed  | `bangumi-write-rejected`         | `upsertBangumiCollection` 返回失败                                  |
+| ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                       |
+|                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析），不影响其余条目                           |
+| ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 该书架状态在 TMDB 没有对应（例如 `dropped`）                        |
+|                    | skipped | `no-tmdb-category: <分类>`       | 分类 TMDB 装不了（游戏等），零请求                                  |
+|                    | skipped | `unmapped-category: <分类>`      | 分类不在映射表里（新出现的分类）                                    |
+|                    | skipped | `unchanged-since-last-run`       | 增量指纹命中；正常增量运行的主体，通常数百条                        |
+|                    | skipped | `duplicate-in-run: <目标>`       | 同一 TMDB 条目本轮已被处理过（同一作品在两个书架）                  |
+|                    | failed  | `no-catalog-item`                | 标记没有目录条目，连标题都没有                                      |
+|                    | failed  | `tmdb-rating-write-failed`       | 评分写失败                                                          |
+|                    | failed  | `tmdb-watchlist-write-failed`    | watchlist 写失败                                                    |
+|                    | failed  | `item-threw: <错误>`             | 单条处理抛错                                                        |
+
+> **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。
+>
+> `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ③④⑤ 写进上面那个 JSON 留档。
 
 ---
 
