@@ -351,7 +351,7 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
     '',
     '**计数关系**：Scanned 是分母，其余五项是对它的划分，彼此互不重合 —— `written + unchanged + skipped + unresolved + failed = scanned`，每条链路的 `self-check` 行会校验这一点。唯一例外是 `NeoDB → TMDB`：它的 Written 与 Failed 按**字段**计（评分、watchlist 各一次），同一作品最多贡献 2，因此该链路在两项都写时等式可能不成立。State 列的 `TOLERATED` 表示该链路失败但被 `SYNC_DOUBAN_REQUIRED=0` 免除了退出码。',
     '',
-    '**明细小节**：`unresolved` 逐条列出（最多 200 条，编号即位置）；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 8 条时折叠成一行，带上条数与示例，因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正需要处理的几条埋掉。折叠行的数字与节标题的计数同源，不会对不上。',
+    '**明细小节**：`unresolved` 逐条列出（最多 200 条，编号即位置）；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 20 条时折叠成一行，带上条数与示例，因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正需要处理的几条埋掉。折叠行的数字与节标题的计数同源，不会对不上。三节都用 Markdown 有序列表、**各自从 1 起**：`unresolved` 的编号即位置，`failed` / `skipped` 的编号只表示「本节第几条可见记录」—— 折叠行一次代表多条，编号不与条数一一对应。',
     '',
     '| Path | Scanned | Written | Unchanged | Skipped | Unresolved | Failed | State |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
@@ -389,9 +389,15 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
       }
     }
 
-    // Bullets, not numbers: a collapsed reason line stands for many entries at once, so
-    // "entry #37" would no longer mean anything. See `rules/review-detail.ts`.
-    // 用项目符号而不是编号：折叠行一次代表很多条，「第 37 条」不再有意义。见 `rules/review-detail.ts`。
+    // Numbered like `unresolved`, so all three sections of one path read the same way, and a
+    // reader scanning top-down can say "I am at line 7". But the number counts *rendered
+    // lines*, not entries: a collapsed reason line stands for many at once, and `maxLines`
+    // can cut the section short, so "line #7" is not "entry #7". The count in the section
+    // heading stays authoritative. See `rules/review-detail.ts`.
+    // 与 `unresolved` 一样编号，于是同一条链路的三节读法一致，自上而下扫视时能说「我看到第 7
+    // 行了」。但这个编号数的是**渲染出来的行**，不是条目：折叠行一次代表很多条，`maxLines`
+    // 还会截断本节，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准。
+    // 见 `rules/review-detail.ts`。
     appendDetailSummary(lines, r.label, 'failed', r.failed, r.failedItems);
     appendDetailSummary(lines, r.label, 'skipped', r.skipped, r.skippedItems);
   }
@@ -432,10 +438,13 @@ function appendDetailSummary(
   lines.push('', `### ${label} — ${total} ${kind}`, '', SUMMARY_DETAIL_INTRO[kind], '');
 
   const { lines: rendered, omitted } = renderDetailLines(items, SUMMARY_DETAIL_LIMITS);
-  for (const line of rendered) {
-    lines.push(`- ${line}`);
-  }
+  rendered.forEach((line, index) => {
+    lines.push(`${index + 1}. ${line}`);
+  });
   if (omitted > 0) {
+    // Bullet, not a number: this is "how many are left", not one more row in the list above —
+    // the same rule the `unresolved` tail follows.
+    // 项目符号而非编号：这是「还剩多少」，不是上面清单里的又一行 —— 与 `unresolved` 的尾行同规则。
     lines.push(`- … and ${omitted} more`);
   }
   if (items.length !== total) {

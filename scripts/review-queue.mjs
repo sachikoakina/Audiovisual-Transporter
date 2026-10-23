@@ -43,6 +43,45 @@ const MISSES_BEFORE_REMOVAL = 2;
 
 const KIND_ORDER = ['unresolved', 'failed', 'skipped'];
 
+/**
+ * Path slug → display name. The keys are exactly the five literals passed to `add()`
+ * (arrow U+2192, no spaces); the values are byte-identical to the `LABEL` constants in
+ * `src/paths/*.ts`. That matters: one path is then spelled the same way in the console
+ * log, in sync's own job summary and in this list, so a single grep lines them up.
+ *
+ * Insertion order is ①→⑤, which is also the render order — not alphabetical, not by
+ * count. `Map` rather than an object literal: `state.json` is hand-editable and an object
+ * lookup on `constructor` / `toString` would return a prototype function.
+ *
+ * 链路 slug → 显示名。key 恰是 `add()` 收到的五个字面量（箭头 U+2192，无空格），value 与
+ * `src/paths/*.ts` 的 `LABEL` 逐字相同。这一点很重要：同一条链路在控制台日志、sync 自己的
+ * 作业摘要、这份名单里写法一致，一次 grep 就能对齐。
+ *
+ * 插入顺序 = ①→⑤，也就是渲染顺序 —— 不按字母、不按条数。用 `Map` 而不是对象字面量：
+ * `state.json` 可手工编辑，而对象字面量在 `constructor` / `toString` 这类键上会取到原型链函数。
+ */
+const SOURCE_LABELS = new Map([
+  ['douban→notion', 'Douban → Notion'],
+  ['douban→neodb', 'Douban → NeoDB'],
+  ['douban→bangumi', 'Douban → Bangumi'],
+  ['bangumi→neodb', 'Bangumi → NeoDB'],
+  ['neodb→tmdb', 'NeoDB → TMDB'],
+]);
+
+const SOURCE_ORDER = [...SOURCE_LABELS.keys()];
+
+/**
+ * GFM task marker. Rendered as a checkbox by GitHub even inside an ordered list, which is
+ * what lets an entry carry both "which one is this" (the number) and "have I dealt with it"
+ * (the box). If some renderer disagrees, setting this to `''` degrades to a plain numbered
+ * list — the numbering and the two-level structure stay intact.
+ *
+ * GFM 任务标记。GitHub 即使把它放在有序列表里也会渲染成勾选框，条目因此同时带「这是哪一条」
+ * （编号）与「我处理了没」（方框）。若某个渲染器不认，把它改成 `''` 就退化成纯编号列表 ——
+ * 编号与两级结构都不受影响。
+ */
+const TASK_BOX = '[ ] ';
+
 // ───────────────────────────────────────────────────────────────────────────
 // Log parsing
 // 日志解析
@@ -383,6 +422,47 @@ function daysSince(iso, now) {
   return Number.isFinite(diff) ? Math.max(0, Math.floor(diff / 86_400_000)) : 0;
 }
 
+/**
+ * Display name for one path slug.
+ *
+ * An unknown slug is printed verbatim rather than mapped to something plausible: a missing
+ * entry in `SOURCE_LABELS` has to be visible at a glance, not disguised as a normal heading.
+ *
+ * 链路 slug 的显示名。未知 slug **原样输出**，而不是套一个「看起来合理」的名字：映射表漏了
+ * 一项，必须在第一眼就暴露，不能伪装成一个正常标题。
+ */
+function sourceLabel(source) {
+  if (!source) {
+    return '（未标注来源）';
+  }
+  return SOURCE_LABELS.get(source) ?? source;
+}
+
+/** Position in the ①→⑤ order. Unknown slugs rank after every known one. / ①→⑤ 的位次；未知 slug 排在最后。 */
+function sourceRank(source) {
+  const rank = SOURCE_ORDER.indexOf(source);
+  return rank === -1 ? SOURCE_ORDER.length : rank;
+}
+
+/** Deterministic tie-break: never `localeCompare`, whose order depends on the runner's ICU. / 确定性兜底比较，不用受 ICU 影响的 `localeCompare`。 */
+function byText(a, b) {
+  if (a === b) {
+    return 0;
+  }
+  return a < b ? -1 : 1;
+}
+
+const compareSource = (a, b) =>
+  sourceRank(a) - sourceRank(b) || byText(String(a), String(b));
+
+const compareKind = (a, b) => {
+  const rank = (kind) => {
+    const index = KIND_ORDER.indexOf(kind);
+    return index === -1 ? KIND_ORDER.length : index;
+  };
+  return rank(a) - rank(b) || byText(String(a), String(b));
+};
+
 export function render({
   items,
   added,
@@ -427,7 +507,9 @@ export function render({
     out.push('## 本轮新增');
     out.push('');
     for (const item of added) {
-      out.push(`- \`${item.kind}\` ${item.title} — ${item.reason}（${item.source}）`);
+      out.push(
+        `- \`${item.kind}\` ${item.title} — ${item.reason}（${sourceLabel(item.source)}）`,
+      );
     }
     out.push('');
   }
@@ -435,33 +517,67 @@ export function render({
     out.push('## 本轮移除（已连续两轮未出现）');
     out.push('');
     for (const item of removed) {
-      out.push(`- ~~${item.title}~~ — ${item.reason}（${item.source}）`);
+      out.push(`- ~~${item.title}~~ — ${item.reason}（${sourceLabel(item.source)}）`);
     }
     out.push('');
   }
 
-  for (const kind of KIND_ORDER) {
-    const bucket = live.filter((item) => item.kind === kind);
-    if (!bucket.length) {
-      continue;
+  // Two passes: bucket by path first (buckets keep `live`'s order, i.e. `state.json`'s
+  // order, so entries never jump between runs), then walk the paths in ①→⑤ order.
+  // 两趟：先按链路分桶（桶内保持 `live` 的顺序，也就是 `state.json` 的顺序，条目因此不会在
+  // 两轮之间跳位），再按 ①→⑤ 的顺序输出。
+  const bySource = new Map();
+  for (const item of live) {
+    const bucket = bySource.get(item.source);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      bySource.set(item.source, [item]);
     }
-    out.push(`## ${kind}（${bucket.length}）`);
+  }
+
+  for (const source of [...bySource.keys()].sort(compareSource)) {
+    const group = bySource.get(source);
+    out.push(`## ${sourceLabel(source)}`);
     out.push('');
-    for (const item of bucket) {
-      const age = daysSince(item.firstSeenAt, now);
-      const link = item.url ? ` — ${item.url}` : '';
-      out.push(
-        `- [ ] ${item.title}${link} · ${item.reason} · 已存在 ${age} 天 · 见过 ${item.seenCount} 次`,
-      );
+
+    // Kinds are derived from the group rather than taken from `KIND_ORDER`: a kind that is
+    // not in that list would otherwise be dropped silently, and `# 待核对名单（N 条）`
+    // would stop matching the sum of the subsections.
+    // 档位从分组里派生，而不是遍历 `KIND_ORDER`：否则不在列表里的档位会被静默丢掉，
+    // 「# 待核对名单（N 条）」就不再等于各小节之和。
+    const kinds = [...new Set(group.map((item) => item.kind))].sort(compareKind);
+    for (const kind of kinds) {
+      const bucket = group.filter((item) => item.kind === kind);
+      if (!bucket.length) {
+        continue;
+      }
+      out.push(`### ${kind}（${bucket.length}）`);
+      out.push('');
+      bucket.forEach((item, index) => {
+        const age = daysSince(item.firstSeenAt, now);
+        // Path ④ has no title in its log line, so `add()` falls back to the URL as the title;
+        // printing it twice (`https://… — https://…`) would only add noise.
+        // ④ 的日志行里没有标题，`add()` 会退化成用 URL 当标题；再拼一次链接只多出噪声。
+        const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
+        out.push(
+          `${index + 1}. ${TASK_BOX}${item.title}${link} · ${item.reason} · 已存在 ${age} 天 · 见过 ${item.seenCount} 次`,
+        );
+      });
+      out.push('');
     }
-    out.push('');
   }
 
   if (observing.length) {
     out.push(`## 观察中（${observing.length}，下一轮仍出现才入名单）`);
     out.push('');
     for (const item of observing) {
-      out.push(`- \`${item.kind}\` ${item.title} — ${item.reason}`);
+      // The path is spelled out here too: without it the reader cannot tell which H2 this
+      // entry will land under once it clears its observation window.
+      // 这里也标注链路：否则读者无法判断它在过了观察期后会落到哪个 H2 下。
+      out.push(
+        `- \`${item.kind}\` ${item.title} — ${item.reason}（${sourceLabel(item.source)}）`,
+      );
     }
     out.push('');
   }
