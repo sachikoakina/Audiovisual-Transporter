@@ -693,7 +693,7 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 | -------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json` | **三条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍打印计数与清单） |
 
-> 这是**相对路径**，按进程的工作目录解析：`npm run sync` 下就是仓库根，落到 `<仓库>/.cache/unmatched.json`；在 CI 里则是 runner 上的 `$GITHUB_WORKSPACE/.cache/`，作业一结束随虚拟机销毁。日志与作业摘要打印的是**解析后的绝对路径**（摘要还带条目数与体积，文件不在时明写 `not present`），所以「找不到文件」时的第一步是核对那条路径属于哪台机器。`.cache` 在 `.gitignore` 里，`git status` 与 GitHub Desktop 都看不到它。只有 ③④⑤ 会写，①② 从不写。
+> 这是**相对路径**，按进程的工作目录解析：`npm run sync` 下就是仓库根，落到 `<仓库>/.cache/unmatched.json`；在 CI 里则是 runner 上的 `$GITHUB_WORKSPACE/.cache/`，作业一结束随虚拟机销毁。日志里打印的是**解析后的绝对路径**；作业摘要只在**本地**打印绝对路径，CI 里只给条目数与体积并说明文件随 runner 销毁（那边给绝对路径等于指向一台已经不存在的机器）。两种情况下文件不在都明写 `not present`。所以「找不到文件」时的第一步是核对那条路径属于哪台机器。`.cache` 在 `.gitignore` 里，`git status` 与 GitHub Desktop 都看不到它。只有 ③④⑤ 会写，①② 从不写。
 
 ### NeoDB → TMDB
 

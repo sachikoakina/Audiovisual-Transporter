@@ -358,9 +358,12 @@
 1. 一行极简的六字段中文说明（含义）；
 2. 一段计数关系说明（谁是谁的划分、哪个链路例外）；
 3. 汇总表（`Path / Scanned / Written / Unchanged / Skipped / Unresolved / Failed / State`）；
-4. 每条链路的未匹配清单，用 Markdown 有序列表（`1.`、`2.`、`3.`……，**每条链路各自从 1 起**），编号即「该链路全部 N 条里的第几条」；超过 200 条时末尾补一行不编号的 `… and N more`；
-5. 每条链路的 `failed` / `skipped` 小节，按原因分组（超过 20 条的原因折叠成一行），**同样用有序列表、每节从 1 起**；但编号数的是**渲染出来的行**而非条目 —— 折叠行一次代表多条，每节最多渲染 60 行，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准；末尾的 `… and N more` 与第 4 条一样不编号；
-6. 以上是 `sync.yml` 自己写的那份摘要。`review-queue.yml` 另写一份「待核对名单」，按「链路 → 档位」两级分组，见 `docs/review-queue.md` 的「名单结构」一节。
+4. 每条链路的明细块：先一个 `### 来源 → 目标`（H3，**只有该链路三档里至少一档非零才出现**），其下按档位分 `#### unresolved（N）` / `#### failed（N）` / `#### skipped（N）`（H4）。档位顺序固定为 `unresolved` → `failed` → `skipped`，空档位不产生标题；
+5. `unresolved` 逐条列出，用 Markdown 有序列表（`1.`、`2.`、`3.`……，**每条链路各自从 1 起**），编号即「该链路全部 N 条里的第几条」；超过 200 条时末尾补一行不编号的 `… and N more`；
+6. `failed` / `skipped` 按原因分组（超过 20 条的原因折叠成一行），**同样用有序列表、每节从 1 起**；但编号数的是**渲染出来的行**而非条目 —— 折叠行一次代表多条，每节最多渲染 60 行，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准；末尾的 `… and N more` 与第 5 条一样不编号；
+7. 以上是 `sync.yml` 自己写的那份摘要。`review-queue.yml` 另写一份「待核对名单」，也按「链路 → 档位」两级分组（只是层级整体上移一级：H1 总数、H2 链路、H3 档位），见 `docs/review-queue.md` 的「名单结构」一节。
+
+> 两份摘要的链路名逐字相同（都取自 `src/paths/*.ts` 的 `LABEL`），所以同一个词在控制台日志、作业摘要、待核对名单里能直接 grep 对齐。
 
 | Path            | Scanned | Written | Unchanged | Skipped | Unresolved | Failed | State                |
 | --------------- | ------: | ------: | --------: | ------: | ---------: | -----: | -------------------- |
@@ -381,9 +384,21 @@
 [warn] 6 unmatched item(s) written to D://项目路径//.cache//unmatched.json.
 ```
 
-作业摘要里的对应行还会带上真实条目数与体积（`Full entries: \`绝对路径\` (6 entries, 3.4 KiB)`）；文件不在时明写 `**not present**`，而不是照样指向一个不存在的路径。
+作业摘要里的对应行还会带上真实条目数与体积，但**绝对路径只在本地给出**：
 
-**在 CI 里它必然"找不到"**：路径相对 `$GITHUB_WORKSPACE` 解析，即 runner 上的 `/home/runner/work/<repo>/<repo>/.cache/unmatched.json`。runner 是一次性虚拟机，作业结束即销毁，`sync.yml` 也没有上传它。所以看到 Actions 日志/摘要里的这个路径后到本机磁盘上找，是找不到的 —— 这是设计行为，不是文件的 bug。需要跨轮留存时走 `docs/review-queue.md` 里的 artifact 方案。
+```text
+# 本地：路径可点开
+Full entries: `D:\项目路径\.cache\unmatched.json` (6 entries, 3.4 KiB)
+
+# CI：路径指向一台作业结束即销毁的 runner，所以不给绝对路径
+Full entries: 6 entries, 3.4 KiB recorded at `.cache/unmatched.json` on the runner — its disk is
+discarded with the VM, so this is not downloadable. The list that survives is the 待核对名单
+artifact (`docs/review-queue.md`).
+```
+
+文件不在时两种环境都明写 `**not present**`（本地额外补一句「本应在此」的绝对路径），而不是照样指向一个不存在的路径。
+
+**在 CI 里它必然"找不到"**：路径相对 `$GITHUB_WORKSPACE` 解析，即 runner 上的 `/home/runner/work/<repo>/<repo>/.cache/unmatched.json`。runner 是一次性虚拟机，作业结束即销毁，`sync.yml` 也没有上传它。所以看到 Actions 日志里的这个路径后到本机磁盘上找，是找不到的 —— 这是设计行为，不是文件的 bug。正因如此，作业摘要现在**在 CI 里不打印绝对路径**（只给条目数、体积与相对位置），本地才打印。需要跨轮留存时走 `docs/review-queue.md` 里的 artifact 方案。
 
 **确认实际位置的办法**（都在**运行同一个目录**下执行）：
 

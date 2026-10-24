@@ -210,21 +210,31 @@ export function printPathSummary(report: PathReport): void {
 }
 
 /**
- * Resolve the review log's path and say whether it is really there.
+ * Say what the review log holds — the entry count and size, and (only where the path is usable)
+ * where it is.
  *
  * The log line used to print the *configured* string (`.cache/unmatched.json` — relative), which
- * says nothing about where the file went and cannot be opened by clicking it. Worse, in Actions
- * it names a path on an ephemeral runner, so the reader who goes looking on their own disk finds
- * nothing no matter how hard they look. Printing the resolved absolute path plus the entry count
- * makes "it exists but you are looking in the wrong place" and "it was never written"
- * distinguishable at a glance.
+ * says nothing about where the file went and cannot be opened by clicking it. Printing the
+ * resolved absolute path fixes that locally.
  *
- * 解析留档日志的真实路径，并说明它到底在不在。
+ * It does **not** fix it in Actions: the path there resolves under `$GITHUB_WORKSPACE` on a
+ * runner whose disk is discarded when the job ends, so the absolute path is a dead pointer —
+ * precise, verifiable-looking, and impossible to follow. Printing it would spend the reader's
+ * trust on nothing. In CI the useful facts are the ones that survive the VM: *how many* entries
+ * were recorded and *how large* the file was. So the path is printed only outside Actions, and
+ * the CI form names the relative location plus the place the list does survive (the review
+ * queue artifact).
+ *
+ * 说明留档里有什么 —— 条目数与体积，以及（仅在路径真的可用时）它在哪。
  *
  * 过去这里打印的是**配置里的那个字符串**（`.cache/unmatched.json`，相对路径），既说明不了文件
- * 落在哪、也点不开。更糟的是在 Actions 里它指向的是一台用完即弃的 runner，读者回自己磁盘上找
- * 永远找不到。打印解析后的绝对路径与条目数，才能一眼区分「文件存在、只是你在错的地方找」与
- * 「它压根没被写过」。
+ * 落在哪、也点不开。本地打印解析后的绝对路径正好解决这一点。
+ *
+ * 但在 Actions 里它解决不了：那里的路径解析到 `$GITHUB_WORKSPACE` 下，而 runner 的磁盘在作业
+ * 结束时随虚拟机丢弃，绝对路径因此是个死指针 —— 精确、看起来可核对、却无从打开。打印它等于白
+ * 花读者的信任。CI 里真正经得起虚拟机销毁的事实是：**记录了多少条**、文件**多大**。因此绝对
+ * 路径只在非 Actions 环境打印，CI 形态只给相对位置，并指向真正能留存下来的地方（待核对名单
+ * artifact）。
  */
 function describeReviewLog(configured: string): string {
   const absolute = path.resolve(configured);
@@ -234,9 +244,23 @@ function describeReviewLog(configured: string): string {
     const count = Array.isArray(parsed) ? parsed.length : 0;
     // One decimal: a 3.4 KiB file and a 340 KiB file deserve different first reactions.
     // 保留一位小数：3.4 KiB 与 340 KiB 值得不同的第一反应。
-    return `Full entries: \`${absolute}\` (${count} entries, ${(size / 1024).toFixed(1)} KiB)`;
+    const scale = `${count} entries, ${(size / 1024).toFixed(1)} KiB`;
+    // Relative to the workspace, so an absolute `SYNC_UNMATCHED_LOG` cannot smuggle a
+    // `/home/runner/...` path back into the summary. Normally this reproduces the default
+    // `.cache/unmatched.json` verbatim.
+    // 相对工作目录，免得有人把 `SYNC_UNMATCHED_LOG` 配成绝对路径时又把 `/home/runner/...` 带回
+    // 摘要里。默认配置下这个值就是 `.cache/unmatched.json` 本身。
+    const shown = path.relative(process.cwd(), absolute) || configured;
+    return inActions
+      ? `Full entries: ${scale} recorded at \`${shown}\` on the runner — its disk is ` +
+          'discarded with the VM, so this is not downloadable. The list that survives is the ' +
+          '待核对名单 artifact (`docs/review-queue.md`).'
+      : `Full entries: \`${absolute}\` (${scale})`;
   } catch {
-    return `Full entries: \`${absolute}\` — **not present** (nothing was recorded this run, or it ran on a CI runner whose disk is discarded)`;
+    // No guessing about which environment this is: `inActions` already knows.
+    // 不必再猜这是哪个环境：`inActions` 已经知道了。
+    const missing = 'Full entries: **not present** (nothing was recorded this run)';
+    return inActions ? missing : `${missing} — expected at \`${absolute}\``;
   }
 }
 
@@ -255,11 +279,15 @@ function printUnresolved(report: PathReport): void {
     consola.warn(`  … and ${rest} more`);
   }
   if (report.reviewLog) {
-    // Same wording both directions use, so a single grep finds every run that
-    // left something for review. The path is resolved on purpose: see
-    // `describeReviewLog`.
-    // 两个方向用同一句话，因此一次 grep 就能找到所有留下待核对的运行。路径刻意解析成绝对路径，
-    // 原因见 `describeReviewLog`。
+    // Same wording in every path that leaves something for review, so a single grep finds all of
+    // them. The absolute path stays here even in CI: this line *is* the log, it is quoted in the
+    // job's own transcript, and "the file was written during this run" is exactly what the path
+    // proves. The job summary drops it in CI for the opposite reason — there the path is offered
+    // as something to open. See `describeReviewLog`.
+    // 凡是留下待核对条目的链路都用同一句话，一次 grep 就能全找出来。即使在 CI 里这里也保留绝对
+    // 路径：这一行本来就写在日志里、会被作业自己的转录引住，而「这轮确实写过这个文件」正是路径
+    // 能证明的事。作业摘要恰恰相反 —— 在那边路径是「给人去打开」的东西，所以 CI 里不打印。
+    // 见 `describeReviewLog`。
     consola.warn(
       `${report.unresolved} unmatched item(s) written to ${path.resolve(report.reviewLog)}.`,
     );
@@ -351,7 +379,7 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
     '',
     '**计数关系**：Scanned 是分母，其余五项是对它的划分，彼此互不重合 —— `written + unchanged + skipped + unresolved + failed = scanned`，每条链路的 `self-check` 行会校验这一点。唯一例外是 `NeoDB → TMDB`：它的 Written 与 Failed 按**字段**计（评分、watchlist 各一次），同一作品最多贡献 2，因此该链路在两项都写时等式可能不成立。State 列的 `TOLERATED` 表示该链路失败但被 `SYNC_DOUBAN_REQUIRED=0` 免除了退出码。',
     '',
-    '**明细小节**：`unresolved` 逐条列出（最多 200 条，编号即位置）；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 20 条时折叠成一行，带上条数与示例，因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正需要处理的几条埋掉。折叠行的数字与节标题的计数同源，不会对不上。三节都用 Markdown 有序列表、**各自从 1 起**：`unresolved` 的编号即位置，`failed` / `skipped` 的编号只表示「本节第几条可见记录」—— 折叠行一次代表多条，编号不与条数一一对应。',
+    '**明细小节**：按链路分组，每条链路一个 `### 来源 → 目标` 标题，其下再按档位分 `#### unresolved（N）`、`#### failed（N）`、`#### skipped（N）`。顺序固定为 `unresolved` → `failed` → `skipped`，空档位不产生标题，三档全零的链路连 `###` 标题都不出现 —— 与待核对名单的分组规则一致。`unresolved` 逐条列出（最多 200 条，编号即位置）；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 20 条时折叠成一行，带上条数与示例，因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正需要处理的几条埋掉。折叠行的数字与节标题的计数同源，不会对不上。三档都用 Markdown 有序列表、**各自从 1 起**：`unresolved` 的编号即位置，`failed` / `skipped` 的编号只表示「本节第几条可见记录」—— 折叠行一次代表多条，编号不与条数一一对应。',
     '',
     '| Path | Scanned | Written | Unchanged | Skipped | Unresolved | Failed | State |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
@@ -365,44 +393,59 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
   }
 
   for (const r of reports) {
-    if (r.unresolved > 0) {
-      lines.push('', `### ${r.label} — ${r.unresolved} unresolved`, '');
-
-      // Ordered list on purpose: the summary is read against the count in the heading, so a
-      // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
-      // made "how far down the list am I" unanswerable.
-      // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
-      // 无序列表给不了这个参照，看的人无法回答「我看到第几条了」。
-      const listed = r.unresolvedTitles.slice(0, MAX_SUMMARY_TITLES);
-      listed.forEach((title, index) => {
-        lines.push(`${index + 1}. ${title}`);
-      });
-      const rest = r.unresolved - listed.length;
-      if (rest > 0) {
-        // Not numbered: the tail is a remainder, not an entry.
-        // 不编号：这一段是「剩余条数」，不是清单里的一条。
-        lines.push(`- … and ${rest} more`);
-      }
-
-      if (r.reviewLog) {
-        lines.push('', describeReviewLog(r.reviewLog));
-      }
-    }
-
-    // Numbered like `unresolved`, so all three sections of one path read the same way, and a
-    // reader scanning top-down can say "I am at line 7". But the number counts *rendered
-    // lines*, not entries: a collapsed reason line stands for many at once, and `maxLines`
-    // can cut the section short, so "line #7" is not "entry #7". The count in the section
-    // heading stays authoritative. See `rules/review-detail.ts`.
-    // 与 `unresolved` 一样编号，于是同一条链路的三节读法一致，自上而下扫视时能说「我看到第 7
-    // 行了」。但这个编号数的是**渲染出来的行**，不是条目：折叠行一次代表很多条，`maxLines`
-    // 还会截断本节，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准。
-    // 见 `rules/review-detail.ts`。
-    appendDetailSummary(lines, r.label, 'failed', r.failed, r.failedItems);
-    appendDetailSummary(lines, r.label, 'skipped', r.skipped, r.skippedItems);
+    appendPathDetails(lines, r);
   }
 
   return lines.join('\n');
+}
+
+/**
+ * One path's detail block: a single `### 来源 → 目标` heading, then one `#### 档位（N）` per
+ * non-empty kind. Grouping by path rather than repeating the path inside three sibling headings
+ * means the reader sees "everything that happened to Bangumi → NeoDB" as one unit, and the
+ * heading they scan for is the same string the console log and the review list use.
+ *
+ * 单条链路的明细块：一个 `### 来源 → 目标` 标题，其下每个非空档位一个 `#### 档位（N）`。按链路分组
+ * 而不是把链路名重复进三个同级标题里，读者因此能把「Bangumi → NeoDB 这一轮发生了什么」看成
+ * 一整块，而且他扫视时找的那个词，与控制台日志、待核对名单里是同一个。
+ */
+function appendPathDetails(lines: string[], r: PathReport): void {
+  // Three empty sections under an empty `### Path` heading would only pad the page.
+  // 三档全零还挂一个空的 `### 链路` 标题，只会把页面撑长。
+  if (r.unresolved + r.failed + r.skipped === 0) {
+    return;
+  }
+  lines.push('', `### ${r.label}`);
+  appendUnresolvedSummary(lines, r);
+  appendDetailSummary(lines, 'failed', r.failed, r.failedItems);
+  appendDetailSummary(lines, 'skipped', r.skipped, r.skippedItems);
+}
+
+function appendUnresolvedSummary(lines: string[], r: PathReport): void {
+  if (r.unresolved === 0) {
+    return;
+  }
+  lines.push('', `#### unresolved（${r.unresolved}）`, '');
+
+  // Ordered list on purpose: the summary is read against the count in the heading, so a
+  // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
+  // made "how far down the list am I" unanswerable.
+  // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
+  // 无序列表给不了这个参照，看的人无法回答「我看到第几条了」。
+  const listed = r.unresolvedTitles.slice(0, MAX_SUMMARY_TITLES);
+  listed.forEach((title, index) => {
+    lines.push(`${index + 1}. ${title}`);
+  });
+  const rest = r.unresolved - listed.length;
+  if (rest > 0) {
+    // Not numbered: the tail is a remainder, not an entry.
+    // 不编号：这一段是「剩余条数」，不是清单里的一条。
+    lines.push(`- … and ${rest} more`);
+  }
+
+  if (r.reviewLog) {
+    lines.push('', describeReviewLog(r.reviewLog));
+  }
 }
 
 /**
@@ -427,7 +470,6 @@ const SUMMARY_DETAIL_INTRO: Record<'failed' | 'skipped', string> = {
 
 function appendDetailSummary(
   lines: string[],
-  label: string,
   kind: 'failed' | 'skipped',
   total: number,
   items: readonly ReviewDetail[],
@@ -435,7 +477,17 @@ function appendDetailSummary(
   if (total === 0) {
     return;
   }
-  lines.push('', `### ${label} — ${total} ${kind}`, '', SUMMARY_DETAIL_INTRO[kind], '');
+
+  // Numbered like `unresolved`, so all three sections of one path read the same way, and a
+  // reader scanning top-down can say "I am at line 7". But the number counts *rendered
+  // lines*, not entries: a collapsed reason line stands for many at once, and `maxLines`
+  // can cut the section short, so "line #7" is not "entry #7". The count in the section
+  // heading stays authoritative. See `rules/review-detail.ts`.
+  // 与 `unresolved` 一样编号，于是同一条链路的三档读法一致，自上而下扫视时能说「我看到第 7
+  // 行了」。但这个编号数的是**渲染出来的行**，不是条目：折叠行一次代表很多条，`maxLines`
+  // 还会截断本节，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准。
+  // 见 `rules/review-detail.ts`。
+  lines.push('', `#### ${kind}（${total}）`, '', SUMMARY_DETAIL_INTRO[kind], '');
 
   const { lines: rendered, omitted } = renderDetailLines(items, SUMMARY_DETAIL_LIMITS);
   rendered.forEach((line, index) => {

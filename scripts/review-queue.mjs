@@ -71,14 +71,20 @@ const SOURCE_LABELS = new Map([
 const SOURCE_ORDER = [...SOURCE_LABELS.keys()];
 
 /**
- * GFM task marker. Rendered as a checkbox by GitHub even inside an ordered list, which is
- * what lets an entry carry both "which one is this" (the number) and "have I dealt with it"
- * (the box). If some renderer disagrees, setting this to `''` degrades to a plain numbered
- * list — the numbering and the two-level structure stay intact.
+ * GFM task marker — the "have I dealt with it" box.
  *
- * GFM 任务标记。GitHub 即使把它放在有序列表里也会渲染成勾选框，条目因此同时带「这是哪一条」
- * （编号）与「我处理了没」（方框）。若某个渲染器不认，把它改成 `''` 就退化成纯编号列表 ——
- * 编号与两级结构都不受影响。
+ * The number is deliberately *not* the list marker. GitHub sets `list-style-type: none` on
+ * task-list items so the checkbox can occupy the marker slot, which silently eats an
+ * `1. [ ] title` list marker: the rendered panel then shows boxes with no visible numbering at
+ * all. The ordinal therefore goes into the item text (`**3.**`), where no stylesheet can take it
+ * away. Setting this constant to `''` drops the checkbox and leaves the numbering untouched.
+ *
+ * GFM 任务标记 —— 「我处理了没」那个方框。
+ *
+ * 编号**刻意不放在列表标记里**。GitHub 给任务列表项设了 `list-style-type: none`，好让复选框
+ * 占住标记位，于是 `1. [ ] 标题` 的列表标记会被悄悄吃掉：渲染出来的面板只有一排方框，看不到
+ * 任何编号。因此序号写进条目正文（`**3.**`），任何样式表都拿不走它。把这个常量改成 `''`
+ * 只会去掉方框，编号不受影响。
  */
 const TASK_BOX = '[ ] ';
 
@@ -560,8 +566,15 @@ export function render({
         // printing it twice (`https://… — https://…`) would only add noise.
         // ④ 的日志行里没有标题，`add()` 会退化成用 URL 当标题；再拼一次链接只多出噪声。
         const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
+        // Bullet + checkbox + the ordinal *in the text*. See `TASK_BOX` above for why the
+        // number cannot be the list marker. `seenCount` is printed nowhere: it only decides
+        // whether an entry has cleared its observation window (`MIN_ROUNDS`), and showing it
+        // invited the reader to reverse-engineer a threshold they cannot act on.
+        // 项目符号 + 复选框 + 写在正文里的序号。编号为何不能当列表标记，见上面的 `TASK_BOX`。
+        // `seenCount` 不再出现在任何地方：它只用来判断条目是否过了观察期（`MIN_ROUNDS`），
+        // 摆出来只会让读者去反推一个自己动不了的阈值。
         out.push(
-          `${index + 1}. ${TASK_BOX}${item.title}${link} · ${item.reason} · 已存在 ${age} 天 · 见过 ${item.seenCount} 次`,
+          `- ${TASK_BOX}**${index + 1}.** ${item.title}${link} · ${item.reason} · 已存在 ${age} 天`,
         );
       });
       out.push('');
