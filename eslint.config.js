@@ -18,7 +18,12 @@ export default tseslint.config(
       },
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
+      // `catch (error: any)` is gone from `src/`; the single remaining `any`
+      // (`buildPropertyValue`'s scraped value) carries a disable comment and a reason. Raising
+      // this from `off` to `error` is what keeps it from growing back.
+      // `src/` 里已无 `catch (error: any)`；仅剩的一处 `any`（`buildPropertyValue` 的抓取值）
+      // 带着 disable 注释和理由。把它从 `off` 提升到 `error`，正是为了防止它长回来。
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },

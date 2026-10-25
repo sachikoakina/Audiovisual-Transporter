@@ -96,6 +96,13 @@ const NOTION_RICH_TEXT_MAX = 2000;
  *   (the caller then skips that column). 属性载荷；类型未知时返回 `undefined`，调用方会跳过该列。
  */
 export function buildPropertyValue(
+  // One deliberate `any`: the value comes from a scraper and is fed to a switch that narrows it
+  // per property type (`string` for text, `number` for NUMBER). Typing it `unknown` here would
+  // only move a dozen casts into the branches, where they are harder to review than this line.
+  // 唯一一处刻意的 `any`：这个值来自抓取器，交给一个按属性类型逐类窄化的 switch（文本用
+  // `string`，NUMBER 用 `number`）。在这里写 `unknown` 只会把十几个断言挪进各分支，
+  // 那些地方比这一行更难审。
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   value: any,
   type: NotionPropTypesEnum,
   key: string,

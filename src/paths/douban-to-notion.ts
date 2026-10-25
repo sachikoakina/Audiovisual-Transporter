@@ -15,6 +15,7 @@ import {
   DB_PROPERTIES,
   newPathReport,
   type FeedItem,
+  type NotionColPropTypes,
   type NotionUrlPropType,
   type DB_PROPERTIES_KEYS,
   type FailedItem,
@@ -422,7 +423,12 @@ async function addItemToNotion(
     itemData[DB_PROPERTIES.NAME],
   );
   try {
-    const properties: Record<string, any> = {};
+    // `NotionColPropTypes`, not `any`: the record holds property payloads and nothing else, and
+    // the one cast to the SDK's mapped type happens at the request boundary below, where it can be
+    // read next to the comment explaining why (the keys are dynamic, the SDK's are not).
+    // 这里是 `NotionColPropTypes` 而不是 `any`：这个记录只装属性载荷，唯一一次向 SDK 映射类型的
+    // 断言放在下面的请求边界上，紧挨着解释理由的注释。
+    const properties: Record<string, NotionColPropTypes> = {};
     // Iterate the TYPE map rather than `cols.json`. `NOTION_COLUMN_TYPES` is typed
     // `Record<DB_PROPERTIES_KEYS, …>` and `DB_PROPERTIES_KEYS` already excludes `NAME`, so no
     // `shift()` is needed — and the result no longer depends on the JSON key ORDER.
@@ -432,11 +438,18 @@ async function addItemToNotion(
     const keys = Object.keys(NOTION_COLUMN_TYPES) as DB_PROPERTIES_KEYS[];
     keys.forEach((key) => {
       if (itemData[DB_PROPERTIES[key]]) {
-        properties[DB_PROPERTIES[key]] = buildPropertyValue(
+        const payload = buildPropertyValue(
           itemData[DB_PROPERTIES[key]],
           NOTION_COLUMN_TYPES[key],
           DB_PROPERTIES[key],
         );
+        // `undefined` means "unknown property type" — the caller skips the column, which is what
+        // assigning `undefined` into the record would have done by accident.
+        // `undefined` 表示「属性类型未知」—— 调用方跳过该列，而这正是往记录里赋 `undefined`
+        // 本来会「顺手」做到的事。
+        if (payload !== undefined) {
+          properties[DB_PROPERTIES[key]] = payload;
+        }
       }
     });
 
@@ -464,18 +477,27 @@ async function addItemToNotion(
         type: 'emoji',
         emoji: PAGE_ICON_EMOJI[category] as EmojiRequest,
       },
-      // fill in properties by the format: https://developers.notion.com/reference/page#page-property-value
-      properties,
+      // Fill in properties by the format
+      // https://developers.notion.com/reference/page#page-property-value
+      //
+      // The cast is the boundary between "a record keyed by column name" and the SDK's mapped
+      // type whose keys are the literal property names. Our keys are dynamic (`cols.json`), so no
+      // static type can express them; everything inside the record is already `NotionColPropTypes`.
+      // 这一处断言是「按列名索引的记录」与 SDK 那个「键为字面量属性名」的映射类型之间的边界。
+      // 我们的键是动态的（`cols.json`），静态类型表达不了；而记录内部的值已经是
+      // `NotionColPropTypes`。
+      properties: properties as CreatePageParameters['properties'],
     };
 
-    if (properties[DB_PROPERTIES.POSTER] || properties[DB_PROPERTIES.COVER]) {
-      // use poster for the page cover
+    // Poster wins over cover; `'files' in` is the narrowing that lets the union be read at all.
+    // 优先用海报；`'files' in` 是让这个联合类型可被读取的窄化。
+    const poster = properties[DB_PROPERTIES.POSTER] ?? properties[DB_PROPERTIES.COVER];
+    if (poster && 'files' in poster) {
       createPageRequest.cover = {
         type: 'external',
-        external: {
-          url: (properties[DB_PROPERTIES.POSTER] || properties[DB_PROPERTIES.COVER])
-            ?.files[0]?.external?.url, // cannot be empty string or null
-        },
+        // Cannot be an empty string or null — Notion rejects both.
+        // 不能是空字符串或 null —— 两者都会被 Notion 拒绝。
+        external: { url: poster.files[0]?.external?.url },
       };
     }
 

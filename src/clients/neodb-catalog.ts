@@ -7,7 +7,7 @@
  * 范围：只做目录侧的读取工作。条目标记、进度与书架列表在 `neodb-shelf.ts`；凭据与传输助手在
  * `neodb-http.ts`。
  */
-import { neodbClient } from './neodb-http';
+import { neodbClient, neodbFailureCode } from './neodb-http';
 import { consola } from 'consola';
 import { sleep } from '../utils';
 import { normalizeTitleKey } from '../rules/tmdb-matching';
@@ -46,8 +46,8 @@ export async function fetchNeodbItemByUrl(
 
     await sleep(1500);
     return fetchNeodbItemByUrl(url, retries - 1);
-  } catch (error: any) {
-    consola.error('Fetch NeoDB item with error: ', error.code ?? error.message);
+  } catch (error) {
+    consola.error('Fetch NeoDB item with error: ', neodbFailureCode(error));
     return null;
   }
 }
@@ -170,8 +170,8 @@ export async function searchNeodbCatalog(
       headers: { accept: 'application/json' },
     }).json()) as { data?: NeodbItem[] };
     return result.data || [];
-  } catch (error: any) {
-    consola.error('NeoDB catalog search failed: ', error.code ?? error.message);
+  } catch (error) {
+    consola.error('NeoDB catalog search failed: ', neodbFailureCode(error));
     return [];
   }
 }

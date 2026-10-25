@@ -31,8 +31,17 @@ export enum ItemStatus {
   Dropped = 'dropped',
 }
 
+/**
+ * A raw `rss-parser` entry. The index signature is `unknown`, not `any`: everything this repo
+ * reads off it (`title` / `link` / `content` / `isoDate`) is declared by `Parser.Item`, so nothing
+ * needs the escape hatch — and `unknown` makes an undeclared field a compile error instead of a
+ * silent `undefined` that a later `!` hides.
+ * 原始的 `rss-parser` 条目。索引签名是 `unknown` 而不是 `any`：本仓库从它上面读的字段
+ * （`title` / `link` / `content` / `isoDate`）都由 `Parser.Item` 声明，没有哪个字段需要这个
+ * 逃生口 —— 而 `unknown` 会让未声明的字段变成编译错误，而不是一个被后面的 `!` 遮住的 `undefined`。
+ */
 export type RSSFeedItem = {
-  [key: string]: any;
+  [key: string]: unknown;
 } & Parser.Item;
 
 export type FeedItem = {

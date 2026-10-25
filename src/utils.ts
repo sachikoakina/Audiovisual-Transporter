@@ -85,6 +85,25 @@ export function emptyState(): SyncState {
   return { version: STATE_VERSION, updatedAt: new Date().toISOString(), synced: {} };
 }
 
+/**
+ * `code` / message off an unknown thrown value, without `catch (error: any)`.
+ * 从任意抛出物里取 `code` 与消息，不用 `catch (error: any)`。
+ *
+ * `ENOENT` is the one code the state file actually branches on; everything else is only ever
+ * printed, so a narrow read of the two known fields is enough.
+ * `ENOENT` 是状态文件真正会分支处理的唯一 code；其余只用于打印，因此只读这两个字段就够了。
+ */
+function fileErrorDetail(error: unknown): { code?: string; text: string } {
+  if (error && typeof error === 'object') {
+    const { code, message } = error as { code?: unknown; message?: unknown };
+    return {
+      code: typeof code === 'string' ? code : undefined,
+      text: typeof message === 'string' ? message : String(error),
+    };
+  }
+  return { text: String(error) };
+}
+
 export function readState(file: string): SyncState {
   if (!file) {
     return emptyState();
@@ -97,9 +116,10 @@ export function readState(file: string): SyncState {
       return emptyState();
     }
     return parsed;
-  } catch (error: any) {
-    if (error?.code !== 'ENOENT') {
-      consola.warn(`Could not read state file ${file}: ${error?.message ?? error}`);
+  } catch (error) {
+    const { code, text } = fileErrorDetail(error);
+    if (code !== 'ENOENT') {
+      consola.warn(`Could not read state file ${file}: ${text}`);
     }
     return emptyState();
   }
@@ -113,8 +133,8 @@ export function writeState(file: string, state: SyncState): void {
     const pruned = pruneState(state);
     pruned.updatedAt = new Date().toISOString();
     writeJsonAtomic(file, pruned);
-  } catch (error: any) {
-    consola.error(`Could not write state file ${file}: ${error?.message ?? error}`);
+  } catch (error) {
+    consola.error(`Could not write state file ${file}: ${fileErrorDetail(error).text}`);
   }
 }
 
@@ -271,8 +291,8 @@ export function upsertReviewEntry(
 
     writeJsonAtomic(file, existing);
     return true;
-  } catch (error: any) {
-    consola.warn(`Could not update review log ${file}: ${error?.message ?? error}`);
+  } catch (error) {
+    consola.warn(`Could not update review log ${file}: ${fileErrorDetail(error).text}`);
     return false;
   }
 }

@@ -9,7 +9,7 @@
  */
 import Parser from 'rss-parser';
 import dotenv from 'dotenv';
-import got from 'got';
+import got, { HTTPError } from 'got';
 import { JSDOM } from 'jsdom';
 import { consola } from 'consola';
 import {
@@ -95,12 +95,17 @@ export async function fetchRSSFeeds(): Promise<RSSFeedItem[]> {
 
     const feeds = await parser.parseString(xml);
     return feeds.items;
-  } catch (error: any) {
-    const status = error?.response?.statusCode;
+  } catch (error) {
+    const status = error instanceof HTTPError ? error.response.statusCode : undefined;
     if (status === 401 || status === 403) {
+      // A 401/403 is one of the three messages that deliberately speak the user's own language
+      // and name the exact fix (see `neodb-http.ts#logNeodbUnauthorized`). It used to be the only
+      // line in the repo that was half English and half Chinese in the same sentence.
+      // 401/403 属于刻意使用用户语言、并给出确切修复步骤的三条消息之一
+      // （见 `neodb-http.ts#logNeodbUnauthorized`）。它曾是全仓唯一在同一句里中英混排的一行。
       consola.error(
-        `Douban RSS returned ${status} (blocked or need browser session). ` +
-          'CI/机房 IP 常被拦；可设 DOUBAN_RSS_USER_AGENT，或暂时只开 SYNC_BANGUMI_NEODB。',
+        `豆瓣 RSS 返回 ${status}：被拦截，或需要浏览器会话。` +
+          'CI / 机房 IP 常被拦；可设 DOUBAN_RSS_USER_AGENT 换 UA，或暂时只开 SYNC_BANGUMI_NEODB。',
       );
     } else {
       consola.error('Failed to parse RSS url: ', error);
@@ -125,36 +130,52 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
   const normalizedFeeds: FeedItem[] = [];
 
   feeds.forEach((item) => {
-    const itemInfo = extractItemInfo(item.title!, item.link!);
+    // Narrow field by field instead of asserting the whole object. The old closing
+    // `as FeedItem` is what let a missing `link` / `isoDate` through: the type said `string`,
+    // the runtime value was `undefined`, and every `item.link!` downstream was papering over it.
+    // 逐字段窄化，而不是把整个对象一次断言。正是末尾那句 `as FeedItem` 让缺失的 `link` /
+    // `isoDate` 静默通过：类型说是 `string`，运行时却是 `undefined`，下游每个 `item.link!`
+    // 都在替它遮丑。
+    const link = item.link?.trim();
+    const time = item.isoDate;
+    const content = item.content;
+    if (!item.title || !link || !time || !content) {
+      return;
+    }
+
+    const itemInfo = extractItemInfo(item.title, link);
     if (!itemInfo) {
       return;
     }
     const { category, id, status } = itemInfo;
-    const dom = new JSDOM(item.content!.trim());
+    const dom = new JSDOM(content.trim());
     const contents = [...dom.window.document.querySelectorAll('td p')];
-    const ratingElements = contents.filter((el) => el.textContent!.startsWith('推荐'));
+    // `textContent` is `string | null` on the DOM side; `?? ''` is the honest narrowing, and it
+    // replaces four non-null assertions that only silenced the compiler.
+    // `textContent` 在 DOM 侧是 `string | null`；`?? ''` 才是诚实的窄化，它替掉了四个只是
+    // 让编译器闭嘴的非空断言。
+    const ratingElements = contents.filter((el) => (el.textContent ?? '').startsWith('推荐'));
     let stars = 0;
     if (ratingElements.length) {
-      const rating = ratingElements[0].textContent!.replace(/^推荐: /, '').trim();
+      const rating = (ratingElements[0].textContent ?? '').replace(/^推荐: /, '').trim();
       stars = RATING_TEXT_TO_STARS[rating as keyof typeof RATING_TEXT_TO_STARS];
     }
-    const commentElements = contents.filter((el) => el.textContent!.startsWith('备注'));
+    const commentElements = contents.filter((el) => (el.textContent ?? '').startsWith('备注'));
     let comment = '';
     if (commentElements.length) {
-      comment = commentElements[0].textContent!.replace(/^备注: /, '').trim();
+      comment = (commentElements[0].textContent ?? '').replace(/^备注: /, '').trim();
     }
-    const title = (item.title || '').replace(STRIP_STATUS_PREFIX, '').trim();
-    const feedItem = {
+    const title = item.title.replace(STRIP_STATUS_PREFIX, '').trim();
+    normalizedFeeds.push({
       id,
-      link: item.link,
+      link,
       title,
       rating: stars || null,
-      comment: typeof comment === 'string' ? comment : null, // 备注：XXX -> 短评
-      time: item.isoDate, // '2021-05-30T06:49:34.000Z'
+      comment, // 备注：XXX -> 短评
+      time, // '2021-05-30T06:49:34.000Z'
       status,
       category,
-    } as FeedItem;
-    normalizedFeeds.push(feedItem);
+    });
   });
 
   return normalizedFeeds;
