@@ -91,7 +91,8 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
     'Douban → Notion',
     (item) => {
       report.skippedItems.push({
-        label: `${item.title || item.id}[${item.link}]`,
+        title: item.title || item.id,
+        url: item.link,
         reason: 'category-not-allowed',
       });
     },
@@ -132,7 +133,8 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
       // 正是日志侧解析器已经会拆的那种。
       for (const item of outcome.failedItems) {
         report.failedItems.push({
-          label: `${item.title || item.link}[${item.link}]`,
+          title: item.title || item.link,
+          url: item.link,
           reason: item.reason ?? 'notion-insert-failed',
         });
       }
@@ -146,7 +148,8 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
       const detail = error instanceof Error ? error.message : String(error);
       for (const feed of categorizedFeeds) {
         report.failedItems.push({
-          label: `${feed.title ?? ''}[${feed.link}]`,
+          title: feed.title ?? '',
+          url: feed.link,
           reason: `notion-category-failed: ${detail}`,
         });
       }
@@ -287,7 +290,8 @@ async function syncCategoryToNotion(
       scanned: categorizedFeeds.length,
       skipped: categorizedFeeds.length,
       skippedItems: categorizedFeeds.map((item) => ({
-        label: `${item.title || item.id}[${item.link}]`,
+        title: item.title || item.id,
+        url: item.link,
         reason: `no-notion-database: ${category}`,
       })),
     };

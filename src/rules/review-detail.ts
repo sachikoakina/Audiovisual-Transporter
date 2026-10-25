@@ -73,9 +73,18 @@ export function groupByReason(items: readonly ReviewDetail[]): ReasonGroup[] {
   }));
 }
 
-function labelOf(item: ReviewDetail): string {
-  const label = (item.label || '').trim();
-  return label || '(unnamed)';
+/**
+ * `标题[链接]`, or just the title when there is no link — the same shape the console has always
+ * printed, now composed at render time instead of stored in the data.
+ * `标题[链接]`；没有链接时只有标题 —— 与控制台一直打印的形状一致，只是从「存下来」变成「渲染时组合」。
+ */
+export function labelOf(item: ReviewDetail): string {
+  const title = (item.title || '').trim();
+  const url = (item.url || '').trim();
+  if (!title) {
+    return url || '(unnamed)';
+  }
+  return url ? `${title}[${url}]` : title;
 }
 
 /**

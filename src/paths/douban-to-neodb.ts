@@ -79,7 +79,8 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
     LABEL,
     (item) => {
       report.skippedItems.push({
-        label: feedLabel(item),
+        title: item.title || item.id,
+        url: item.link,
         reason: 'category-not-allowed',
       });
     },
@@ -110,7 +111,8 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
       // 没有报告、没有计数，剩下的条目一条都没跑。
       report.failed += 1;
       report.failedItems.push({
-        label: feedLabel(item),
+        title: item.title || item.id,
+        url: item.link,
         reason: failureReason(error, 'neodb-read-failed', 'neodb-item-threw'),
       });
       // Deliberately not `Item failed, continuing:` — that sentence is how the review list
@@ -180,16 +182,23 @@ function recordOutcome(
     return;
   }
 
-  const label = feedLabel(item);
   if (outcome === 'failed') {
     // Create and update are reported by the same slug: the console already distinguishes them
     // ("Item is not marked" vs "Item mark changed"), and splitting the slug would only make the
     // summary say one thing twice.
     // 新建与更新共用同一个 slug：控制台已经用「Item is not marked」与「Item mark changed」
     // 区分过，再拆 slug 只会让汇总把同一件事说两遍。
-    report.failedItems.push({ label, reason: 'neodb-mark-rejected' });
+    report.failedItems.push({
+      title: item.title || item.id,
+      url: item.link,
+      reason: 'neodb-mark-rejected',
+    });
   } else if (outcome === 'skipped') {
-    report.skippedItems.push({ label, reason: 'guard-target-status' });
+    report.skippedItems.push({
+      title: item.title || item.id,
+      url: item.link,
+      reason: 'guard-target-status',
+    });
   }
 }
 

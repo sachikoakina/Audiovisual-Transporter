@@ -197,7 +197,8 @@ export default async function syncBangumiToNeodb(
               // 只有白名单要求漫画时才会走到：该条在 Bangumi 属书籍类型，但平台不是「漫画」，
               // 导入它会把一本非漫画书塞进漫画书架。
               report.skippedItems.push({
-                label: collectionTitle(collection),
+                title: collectionTitle(collection),
+                url: '',
                 reason: 'platform-mismatch',
               });
               break;
@@ -231,7 +232,8 @@ export default async function syncBangumiToNeodb(
           // 回头翻日志。
           const detail = error instanceof Error ? error.message : String(error);
           report.failedItems.push({
-            label: collectionTitle(collection),
+            title: collectionTitle(collection),
+            url: '',
             reason: `item-threw: ${detail}`,
           });
           consola.error(

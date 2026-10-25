@@ -870,9 +870,9 @@ check(
 // ───────────────────────────────────────────────────────────────────────────
 
 const detailMixed: ReviewDetail[] = [
-  { label: 'a', reason: 'r1' },
-  { label: 'b', reason: 'r2' },
-  { label: 'c', reason: 'r1' },
+  { title: 'a', url: '', reason: 'r1' },
+  { title: 'b', url: '', reason: 'r2' },
+  { title: 'c', url: '', reason: 'r1' },
 ];
 
 check(
@@ -894,12 +894,27 @@ check(
   renderDetailLines(detailMixed).lines[0] === 'a — r1',
 );
 check(
-  'an entry with no label is named (unnamed) rather than printed as an empty bullet',
-  renderDetailLines([{ label: '  ', reason: 'r' }]).lines[0] === '(unnamed) — r',
+  'a url is composed into `标题[链接]`, the shape the console has always printed',
+  renderDetailLines([{ title: '某书', url: 'https://book.douban.com/subject/1/', reason: 'r' }])
+    .lines[0] === '某书[https://book.douban.com/subject/1/] — r',
+);
+check(
+  'no url means no brackets, not an empty pair',
+  renderDetailLines([{ title: '某书', url: '', reason: 'r' }]).lines[0] === '某书 — r',
+);
+check(
+  'an entry with no title and no url is named (unnamed) rather than printed as an empty bullet',
+  renderDetailLines([{ title: '  ', url: ' ', reason: 'r' }]).lines[0] === '(unnamed) — r',
+);
+check(
+  'a url with no title still gets rendered, because it is the only handle there is',
+  renderDetailLines([{ title: '', url: 'https://bgm.tv/subject/1', reason: 'r' }]).lines[0] ===
+    'https://bgm.tv/subject/1 — r',
 );
 
 const manySame: ReviewDetail[] = Array.from({ length: 9 }, (_, index) => ({
-  label: `item ${index + 1}`,
+  title: `item ${index + 1}`,
+  url: '',
   reason: 'bulk',
 }));
 const collapsed = renderDetailLines(manySame);
@@ -918,7 +933,8 @@ check(
 
 const forty: ReviewDetail[] = ['r1', 'r2', 'r3', 'r4', 'r5'].flatMap((reason) =>
   Array.from({ length: 8 }, (_, index) => ({
-    label: `${reason}-${index + 1}`,
+    title: `${reason}-${index + 1}`,
+    url: '',
     reason,
   })),
 );

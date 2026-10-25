@@ -423,8 +423,22 @@ export function newSyncCounters(): SyncCounters {
  * 不等长时 `printPathSummary` 会明说。
  */
 export type ReviewDetail = {
-  /** Human-readable identity, e.g. `沙丘 2` or `某书[https://…]`. / 可读的身份标识。 */
-  label: string;
+  /**
+   * The title as the source named it, e.g. `沙丘 2`. Stored as data, not as a display string:
+   * it used to be `label: '某书[https://…]'`, i.e. a URL glued into a title, which is impossible
+   * to turn back into a link without parsing the thing you just built.
+   * 源端给出的标题。存成数据而不是展示串：过去是 `label: '某书[https://…]'`，把链接粘进标题，
+   * 想要回一个可点的链接就得解析自己刚拼出来的字符串。
+   */
+  title: string;
+  /**
+   * Where to look, when the source provided one; empty string when it did not.
+   * Kept apart from `title` because a title gets edited — that is exactly what the reader goes to
+   * fix — so the link is the only stable handle between runs.
+   * 能点开的地址；源端没给时为空串。与 `title` 分开，因为标题会被改（而这正是读者要去改的东西），
+   * 只有链接是跨轮稳定的句柄。
+   */
+  url: string;
   /**
    * Why it was counted, using the same slugs as the on-disk review log so a log line and a
    * JSON record can be matched with one grep.

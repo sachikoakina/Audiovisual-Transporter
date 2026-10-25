@@ -317,11 +317,12 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
         ctx.counters.failed += 1;
         const thrown = error instanceof Error ? error.message : String(error);
         ctx.failedItems.push({
-          label:
+          title:
             mark.item?.display_title ||
             mark.item?.title ||
             mark.item?.uuid ||
             '(unknown)',
+          url: '',
           // `tmdb-` prefix, not a bare `item-threw`: ④ prints exactly the same prefix and reason,
           // so a bare slug made every failure here get filed under Bangumi → NeoDB. The prefix is
           // what lets a single-line rule tell the two paths apart.
@@ -359,7 +360,7 @@ async function syncMark(
     // The one `failed` this path can raise without a label: there is no catalogue item to name,
     // so the label falls back to whatever the mark still carries.
     // 本链路唯一一个「没有名字」的失败：根本没有目录条目可点，标签只能退回到标记本身剩下的字段。
-    ctx.failedItems.push({ label, reason: 'no-catalog-item' });
+    ctx.failedItems.push({ title: label, url: '', reason: 'no-catalog-item' });
     consola.warn('Mark without a catalog item; skipping.');
     return;
   }
@@ -375,7 +376,7 @@ async function syncMark(
     // is the skip most likely to be mistaken for a bug, hence the detail.
     // 该状态在 TMDB 没有对应含义（例如 `dropped`），因此既不读也不写。这是最容易被误当成
     // bug 的一种跳过，所以要点名。
-    ctx.skippedItems.push({ label, reason: 'shelf-not-mapped' });
+    ctx.skippedItems.push({ title: label, url: '', reason: 'shelf-not-mapped' });
     consola.debug(`${label}: ${plan.reason}`);
     return;
   }
@@ -384,7 +385,7 @@ async function syncMark(
   const category = String(item.category ?? '');
   if (NEODB_CATEGORIES_WITHOUT_TMDB.has(category)) {
     ctx.counters.skippedCategory += 1;
-    ctx.skippedItems.push({ label, reason: `no-tmdb-category: ${category}` });
+    ctx.skippedItems.push({ title: label, url: '', reason: `no-tmdb-category: ${category}` });
     consola.debug(`Category "${category}" has no TMDB counterpart; skip ${label}.`);
     return;
   }
@@ -393,7 +394,8 @@ async function syncMark(
   if (!mediaType) {
     ctx.counters.skippedCategory += 1;
     ctx.skippedItems.push({
-      label,
+      title: label,
+      url: '',
       reason: `unmapped-category: ${category || '(empty)'}`,
     });
     consola.debug(`Unknown category "${category}"; skip ${label}.`);
@@ -410,7 +412,7 @@ async function syncMark(
     // that reason (see `rules/review-detail.ts`).
     // 正常增量运行的绝大多数条目落在这里 —— 每轮数百条。记下来是为了让计数可解释，而清单一
     // 行折叠也正是为此（见 `rules/review-detail.ts`）。
-    ctx.skippedItems.push({ label, reason: 'unchanged-since-last-run' });
+    ctx.skippedItems.push({ title: label, url: '', reason: 'unchanged-since-last-run' });
     consola.debug(`Unchanged since last run; skip ${label}.`);
     return;
   }
@@ -449,7 +451,7 @@ async function syncMark(
     // the `skipped` total never contains an unexplained item.
     // 同一个 TMDB 条目被走到两次（它同时在两个书架上）。按构造是无害的，点名是为了让
     // `skipped` 总数里不出现无法解释的条目。
-    ctx.skippedItems.push({ label, reason: `duplicate-in-run: ${identity}` });
+    ctx.skippedItems.push({ title: label, url: '', reason: `duplicate-in-run: ${identity}` });
     return;
   }
   ctx.seen.add(identity);
@@ -544,7 +546,8 @@ async function applyPatch(
     // 那个字段在重读时会显示为「already correct」。
     ctx.counters.failed += 1;
     ctx.failedItems.push({
-      label,
+      title: label,
+      url: '',
       reason: `tmdb-write-failed: ${failedFields.join('+')}`,
     });
     consola.error(

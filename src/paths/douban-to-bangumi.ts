@@ -96,7 +96,8 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
     LABEL,
     (item) => {
       report.skippedItems.push({
-        label: `${item.title || item.id}[${item.link}]`,
+        title: item.title || item.id,
+        url: item.link,
         reason: 'category-not-allowed',
       });
     },
@@ -117,12 +118,14 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
         // 本链路唯一可能的跳过：Bangumi 上已是豆瓣表达不了的状态（搁置/抛弃），覆盖它会毁掉源端
         // 无法再表达的事实。
         report.skippedItems.push({
-          label: `${item.title || item.id}[${item.link}]`,
+          title: item.title || item.id,
+          url: item.link,
           reason: 'guard-bangumi-status',
         });
       } else if (outcome === 'failed') {
         report.failedItems.push({
-          label: `${item.title || item.id}[${item.link}]`,
+          title: item.title || item.id,
+          url: item.link,
           reason: 'bangumi-write-rejected',
         });
       }
@@ -143,7 +146,8 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
       // 没有报告、没有计数，剩下的条目一条都没跑。
       report.failed += 1;
       report.failedItems.push({
-        label: `${item.title || item.id}[${item.link}]`,
+        title: item.title || item.id,
+        url: item.link,
         reason: failureReason(error, 'bangumi-read-failed', 'bangumi-item-threw'),
       });
       // Deliberately not `Item failed, continuing:` — that sentence is how the review list
