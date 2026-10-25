@@ -58,11 +58,7 @@ import {
   syncConfig,
   unmatchedLogFile,
 } from '../sync-config';
-import {
-  readFullSyncCursor,
-  upsertReviewEntry,
-  writeFullSyncCursor,
-} from '../utils';
+import { readFullSyncCursor, upsertReviewEntry, writeFullSyncCursor } from '../utils';
 import { printPathSummary } from '../sync-report';
 import { PathAbortedError, readOptionalOrThrow, readValueOrThrow } from './read';
 
@@ -196,6 +192,17 @@ export default async function syncBangumiToNeodb(
       }
 
       if (!page.data.length) {
+        // An empty page ends the pass — and if a cursor brought us here, that cursor now points
+        // past the end (the shelf shrank, or a kill landed mid-page). Dropping it is what keeps
+        // this from becoming a permanent no-op: without it, every future full walk would ask for
+        // the same offset, get nothing, and stop again.
+        // 空页即本趟结束 —— 而如果我们是带着游标过来的，那个游标此刻已指到末尾之外（书架变短了，
+        // 或中断正好落在页中）。丢掉它才不会让这里变成永久空转：没有这一步，之后每次全量都会问
+        // 同一个 offset、拿到空、再停下。
+        if (fullSync) {
+          delete cursor.offsets[passKey];
+          writeFullSyncCursor(cursorFile, cursor);
+        }
         break;
       }
 

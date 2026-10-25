@@ -222,12 +222,45 @@ describe('④ full-sync cursor / 全量游标', () => {
 
     await syncBangumiToNeodb(true);
 
-    expect(listBangumiCollections.mock.calls.map((call) => call[0].offset)).toEqual([0, 1, 2]);
+    expect(listBangumiCollections.mock.calls.map((call) => call[0].offset)).toEqual([
+      0, 1, 2,
+    ]);
     // One page was left over after each of the first two; the third reached the total and cleared
     // the key, so the next full run starts from the head again.
     // 前两页各留下一格进度；第三页走完即清键，下一次全量从头部重新开始。
     const saved = JSON.parse(fs.readFileSync(cursorPath.value, 'utf8'));
     expect(saved.offsets).toEqual({});
     expect(saved.version).toBe(1);
+  });
+});
+
+describe('④ cursor past the end / 游标指到末尾之外', () => {
+  let dir = '';
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bgm-cursor-'));
+    cursorPath.value = path.join(dir, 'cursor.json');
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    cursorPath.value = '';
+  });
+
+  it('drops a cursor that points past the last page, so the walk is not a permanent no-op', async () => {
+    fs.writeFileSync(
+      cursorPath.value,
+      JSON.stringify({ version: 1, updatedAt: '', offsets: { mixed: 100 } }),
+    );
+    // The shelf shrank (or the kill landed mid-page): one request, no data.
+    // 书架变短了（或中断正好落在页中）：一次请求，没有数据。
+    listBangumiCollections.mockResolvedValue({ total: 3, data: [] });
+
+    const report = await syncBangumiToNeodb(true);
+
+    expect(listBangumiCollections.mock.calls).toHaveLength(1);
+    expect(report.failed).toBe(0);
+    const saved = JSON.parse(fs.readFileSync(cursorPath.value, 'utf8'));
+    expect(saved.offsets).toEqual({});
   });
 });
