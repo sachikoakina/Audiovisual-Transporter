@@ -13,7 +13,8 @@
     "verify:rules": "tsx scripts/verify-rules.ts",
     "verify:parsers": "tsx scripts/verify-douban-parsers.ts",
     "verify:log-contract": "tsx scripts/verify-log-contract.ts",
-    "verify:all": "npm run verify:mapping && npm run verify:rules && npm run verify:parsers && npm run verify:log-contract",
+    "test": "vitest run",
+    "verify:all": "npm run test && npm run verify:mapping && npm run verify:rules && npm run verify:parsers && npm run verify:log-contract",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -46,7 +47,8 @@
     "prettier": "^3.9.8",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0"
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "@notionhq/client": "^5.26.0",

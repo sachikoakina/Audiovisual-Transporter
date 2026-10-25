@@ -715,7 +715,7 @@ export function render({
  * @returns {{paths: Array<{label: string, failed: number, skipped: number, unresolved: number, scanned: number}>} | null}
  * 在 `dir` 下找到运行报表，不管 artifact 被解压到哪一层。
  */
-function readRunReport(dir) {
+export function readRunReport(dir) {
   if (!dir || !fs.existsSync(dir)) {
     return null;
   }
@@ -756,7 +756,7 @@ function readRunReport(dir) {
  * @param {Array<{kind: string}>} observed
  * @returns {string[]}
  */
-function runReportLines(report, observed) {
+export function runReportLines(report, observed) {
   if (!report) {
     return [];
   }
