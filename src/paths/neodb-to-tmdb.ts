@@ -296,10 +296,18 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<void> 
             mark.item?.title ||
             mark.item?.uuid ||
             '(unknown)',
-          reason: `item-threw: ${thrown}`,
+          // `tmdb-` prefix, not a bare `item-threw`: ④ prints exactly the same prefix and reason,
+          // so a bare slug made every failure here get filed under Bangumi → NeoDB. The prefix is
+          // what lets a single-line rule tell the two paths apart.
+          // 前缀 `tmdb-` 而不是裸 `item-threw`：④ 打的是同一个前缀、同一个 reason，裸 slug 会让
+          // 这里的每一条失败都被记到 Bangumi → NeoDB 名下。前缀正是「一行规则区分两条链路」的依据。
+          reason: `tmdb-item-threw: ${thrown}`,
         });
+        // Deliberately not "Item failed, continuing": ④ uses that wording, and the review list
+        // routes by it.
+        // 刻意不用「Item failed, continuing」：④ 用的是那句，待核对名单正是按它路由的。
         consola.error(
-          `Item failed, continuing: ${mark.item?.title ?? mark.item?.uuid} —`,
+          `TMDB write threw, continuing: ${mark.item?.title ?? mark.item?.uuid} —`,
           error instanceof Error ? error.message : error,
         );
       }

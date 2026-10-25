@@ -137,3 +137,20 @@ jobs:
       # 应当**在**任何内容写入 Notion / NeoDB / TMDB 之前就把这一轮拦下来。
       - run: npm run verify:all || exit 1
       - run: npm run sync || exit 1
+      # Publish the report the sync just wrote, whatever the sync's own outcome was. The per-step
+      # `$GITHUB_STEP_SUMMARY` file is attached when its own step ends, so writing the summary from
+      # inside the step that exits non-zero made the report's visibility depend on the sync
+      # succeeding — and the failed run is exactly the one whose summary matters. `always()` is the
+      # decoupling point; the job still ends red because the step above failed.
+      # 发布同步刚写好的报告，与同步自身的成败无关。per-step 的 `$GITHUB_STEP_SUMMARY` 随所属
+      # step 结束才提交，因此把摘要写在「以非零码退出」的那个 step 里，等于让报表的可见性取决于
+      # 同步是否成功 —— 而失败的那一轮才最需要它。`always()` 就是解耦点；作业依然因为上一步
+      # 失败而变红。
+      - name: Publish the job summary
+        if: always()
+        run: |
+          if [ -s .cache/sync-summary.md ]; then
+            cat .cache/sync-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '> 这一轮没有产出摘要文件：进程在打印汇总之前就退出了，原因见上一节的日志。' >> "$GITHUB_STEP_SUMMARY"
+          fi

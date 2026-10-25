@@ -27,8 +27,13 @@ import { newPathReport } from '../types';
 import { fetchNeodbItemByUrl } from '../clients/neodb-catalog';
 import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
 import { getNeodbMark, markNeodbItem } from '../clients/neodb-shelf';
-import { filterDoubanFeedsByCategory, syncConfig } from '../sync-config';
+import {
+  filterDoubanFeedsByCategory,
+  syncConfig,
+  unmatchedLogFile,
+} from '../sync-config';
 import { printPathSummary } from '../sync-report';
+import { upsertReviewEntry } from '../utils';
 
 dotenv.config();
 
@@ -87,14 +92,14 @@ function feedLabel(item: FeedItem): string {
 /**
  * Explain what the item's outcome was, without changing it.
  *
- * `unresolved` was the one gap that mattered most here: this path counted it and said nothing
- * else — no title in the summary, no record in the review log — so a run could report
+ * `unresolved` used to be the one gap that mattered most here: this path counted it and said
+ * nothing else — no title in the summary, no record in the review log — so a run could report
  * "3 unresolved … and 3 more" followed by nothing at all. The outcome itself is untouched; this
  * only makes the existing count legible.
  *
  * 解释条目为何得到这个结果，但不改变结果。
  *
- * `unresolved` 是这里最要紧的那个缺口：这条链路只加一，别的什么都不留 —— 汇总里没有标题、
+ * `unresolved` 曾是这里最要紧的那个缺口：这条链路只加一，别的什么都不留 —— 汇总里没有标题、
  * 留档里没有记录 —— 于是一轮运行会打出「3 unresolved … and 3 more」后面空空如也。
  * 结果本身没有被改动，这里只是让既有的计数变得可读。
  */
@@ -103,10 +108,35 @@ function recordOutcome(
   outcome: ItemSyncOutcome,
   report: PathReport,
 ): void {
-  const label = feedLabel(item);
   if (outcome === 'unresolved') {
-    report.unresolvedTitles.push(item.title || item.id);
-  } else if (outcome === 'failed') {
+    const title = item.title || item.id;
+    report.unresolvedTitles.push(title);
+
+    // Written to the same review log the other three paths use. Without it this path's data gaps
+    // existed only in a summary that a CI run throws away — the review list reads logs, and
+    // nothing here named the item per-line until `syncFeedItemToNeodb` started printing
+    // `No NeoDB match, skip:`. Both halves are needed: the log line is what the list can parse,
+    // this entry is what a human can download.
+    // 写进另外三条链路共用的留档。缺了它，本链路的数据缺口只存在于一份 CI 用完即弃的摘要里
+    // —— 名单读的是日志，而在 `syncFeedItemToNeodb` 开始打印 `No NeoDB match, skip:` 之前，
+    // 这里没有任何一行点名。两者都需要：日志行供名单解析，这条记录供人下载。
+    const written = upsertReviewEntry(unmatchedLogFile, {
+      source: 'douban→neodb',
+      reason: 'no-neodb-match',
+      title,
+      externalId: item.id,
+      externalUrl: item.link,
+    });
+    // Only claim the log when it was really written. See `douban-to-bangumi.ts#recordUnresolved`.
+    // 只有真的写成功才声明。见 `douban-to-bangumi.ts#recordUnresolved`。
+    if (written) {
+      report.reviewLog = unmatchedLogFile;
+    }
+    return;
+  }
+
+  const label = feedLabel(item);
+  if (outcome === 'failed') {
     // Create and update are reported by the same slug: the console already distinguishes them
     // ("Item is not marked" vs "Item mark changed"), and splitting the slug would only make the
     // summary say one thing twice.
@@ -140,7 +170,13 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
   const neodbItem = await fetchNeodbItemByUrl(item.link);
   if (!neodbItem?.uuid) {
     // No catalog counterpart on NeoDB. A data gap, not an error — do not turn CI red.
+    // One line per item, in the same shape as ③'s `No Bangumi match, skip:` and ⑤'s
+    // `No TMDB match; skip`: the review list is built from these lines, so a path that only counts
+    // an unresolved item leaves it out of the list entirely.
     // NeoDB 目录里没有对应条目。这是数据缺口而非错误 —— 不应让 CI 变红。
+    // 每条打一行，形状与 ③ 的 `No Bangumi match, skip:`、⑤ 的 `No TMDB match; skip` 一致：
+    // 待核对名单正是从这些行里长出来的，只计数不点名的链路，条目会整个从名单里消失。
+    consola.warn('No NeoDB match, skip: ', feedLabel(item));
     return 'unresolved';
   }
 

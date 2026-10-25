@@ -137,15 +137,65 @@ function makeKey(source, { url, id, title }) {
 }
 
 /**
+ * `· 标签 — reason` lines from a detail section, and the path that printed them.
+ *
+ * The reason slug is the router. Every `failedItems` / `skippedItems` entry carries one, and
+ * `src/` spells it the same way in the console detail section as in the job summary, so the slug
+ * is the only thing a log reader needs. Before this table the rule knew three slugs, all belonging
+ * to ① — a `failed` from ③ printed `· 标题[链接] — bangumi-write-rejected`, matched nothing, and
+ * vanished from the list without a trace.
+ *
+ * A slug earns a place here only if exactly one path emits it. `category-not-allowed` (①②③) and
+ * `guard-target-status` (②…④) are shared, so they stay out: guessing a source would be worse than
+ * saying "could not attribute", which the summary already does in words.
+ *
+ * `· 标签 — reason` 明细行 → 打印它的链路。
+ *
+ * 靠 reason slug 路由。每个 `failedItems` / `skippedItems` 条目都带一个，`src/` 在控制台明细
+ * 与控制台摘要里写法一致，因此日志读者只需要认 slug。这张表出现之前规则只认三个 slug、全属 ①
+ * —— ③ 的 `failed` 打的是 `· 标题[链接] — bangumi-write-rejected`，一条规则都不匹配，于是
+ * 无声无息地从名单里消失。
+ *
+ * 只有唯一链路使用的 slug 才能进表。`category-not-allowed`（①②③）与 `guard-target-status`
+ * （②…④）是多条链路共用的，留在表外：猜一个来源比「无法归属」更坏，而后者摘要里已经用文字说了。
+ */
+const DETAIL_REASONS = new Map([
+  ['notion-insert-failed', ['failed', 'douban→notion']],
+  ['douban-scrape-failed', ['failed', 'douban→notion']],
+  ['notion-category-failed', ['failed', 'douban→notion']],
+  ['neodb-mark-rejected', ['failed', 'douban→neodb']],
+  ['bangumi-write-rejected', ['failed', 'douban→bangumi']],
+  ['item-threw', ['failed', 'bangumi→neodb']],
+  ['tmdb-item-threw', ['failed', 'neodb→tmdb']],
+  ['no-catalog-item', ['failed', 'neodb→tmdb']],
+  ['tmdb-rating-write-failed', ['failed', 'neodb→tmdb']],
+  ['tmdb-watchlist-write-failed', ['failed', 'neodb→tmdb']],
+]);
+
+/**
+ * Anchored on a known slug rather than on a loose ` — `: a title may contain a dash, and a reason
+ * may carry `: <error message>` after it. Not anchored at `^` because consola prefixes every line
+ * with a level badge of its own choosing (`[warn]` in Actions, a padded `WARN` on a TTY).
+ * 以「已知 slug」为准，而不是松散的 ` — `：标题里可能带破折号，reason 后面还可能跟着
+ * `: <错误信息>`。刻意不锚定 `^`，因为 consola 会给每行加级别标记（Actions 里是 `[warn]`，
+ * 终端里是补白后的 `WARN`）。
+ */
+const DETAIL_PATTERN = new RegExp(
+  `·\\s*(.+?)\\s+—\\s+(${[...DETAIL_REASONS.keys()].join('|')})(?::.*)?$`,
+);
+
+/**
  * Parse every log file under `logsDir`.
  * 解析 `logsDir` 下的每个日志文件。
  *
  * @returns {{ items: Array, unattributable: number, sawPathSummary: boolean }}
- *   `unattributable` counts lines that prove something was skipped but name nothing
- *   (path ⑤'s "Mark without a catalog item"), so the summary can say how much of the
- *   truth it is missing instead of silently dropping it.
- *   `unattributable` 统计「确实跳过了但没点名」的行（⑤ 的 "Mark without a catalog item"），
- *   让摘要能说明自己少看到了多少，而不是悄悄丢掉。
+ *   `unattributable` counts lines that prove something was skipped or failed but cannot be
+ *   pinned to an item or a path (⑤'s "Mark without a catalog item", a detail line whose reason
+ *   slug is shared or unregistered), so the summary can say how much of the truth it is missing
+ *   instead of silently dropping it.
+ *   `unattributable` 统计「确实跳过或失败了、却既点不了名也归不了属」的行（⑤ 的
+ *   "Mark without a catalog item"、reason slug 共用或未登记的明细行），让摘要能说明自己少看到
+ *   了多少，而不是悄悄丢掉。
  */
 export function parseLogs(logsDir) {
   /** @type {Map<string, any>} */
@@ -223,6 +273,18 @@ export function parseLogs(logsDir) {
         unattributable += 1; // No title in the message. / 这行没有标题。
         continue;
       }
+      // ⑤'s per-item failure. Its wording is deliberately not ④'s `Item failed, continuing:`:
+      // both paths used that string, so every failure here was filed under Bangumi → NeoDB.
+      // ⑤ 的条目级失败。措辞刻意不用 ④ 的 `Item failed, continuing:`：两条链路原先用同一句，
+      // 于是这里的每条失败都被记到 Bangumi → NeoDB 名下。
+      const tmdbFailed = line.indexOf('TMDB write threw, continuing: ');
+      if (tmdbFailed >= 0) {
+        const title = line
+          .slice(tmdbFailed + 'TMDB write threw, continuing: '.length)
+          .replace(/\s+—.*$/, '');
+        add('failed', 'neodb→tmdb', 'tmdb-item-threw', { title });
+        continue;
+      }
 
       // ── ③ Douban → Bangumi ────────────────────────────────────────────
       const noBangumi = line.indexOf('No Bangumi match, skip: ');
@@ -265,6 +327,19 @@ export function parseLogs(logsDir) {
       }
 
       // ── ② Douban → NeoDB ──────────────────────────────────────────────
+      // `No NeoDB match, skip: 标题[链接]` — one line per item, same shape as ③'s. This path used
+      // to count an unresolved item and print nothing, which is why its data gaps never reached
+      // the list even after the summary started naming them.
+      // `No NeoDB match, skip: 标题[链接]` —— 每条一行，形状与 ③ 相同。这条链路原先只计数、
+      // 什么都不打，因此即使摘要已经开始点名，它的数据缺口也从未进过名单。
+      const noNeodbMatch = line.indexOf('No NeoDB match, skip: ');
+      if (noNeodbMatch >= 0) {
+        const label = splitLabel(
+          line.slice(noNeodbMatch + 'No NeoDB match, skip: '.length),
+        );
+        add('unresolved', 'douban→neodb', 'no-neodb-match', label || { title: '' });
+        continue;
+      }
       const absentStatus = line.indexOf(
         'NeoDB has Douban-absent status, skip overwrite: ',
       );
@@ -298,26 +373,34 @@ export function parseLogs(logsDir) {
         });
         continue;
       }
-      // ①'s failures arrive through the shared detail section:
+      // ── Detail sections, all five paths ───────────────────────────────
       //   · 标题[https://…] — notion-insert-failed
-      // The reason suffix is kept in the key's reason so the causes stay distinguishable.
-      // Not anchored at `^`: consola prefixes every line with a level badge of its own choosing
-      // (`[warn]` in Actions, a padded `WARN` on a TTY), so the bullet never sits at column 0.
-      // ① 的失败走共用的明细小节；原因后缀原样保留，不同成因因此仍可区分。
-      // 刻意不锚定 `^`：consola 会给每行加上自己决定的级别标记（Actions 里是 `[warn]`，终端里
-      // 是补白后的 `WARN`），项目符号永远不在第 0 列。
-      const detailLine =
-        /·\s*(.+?)\s+—\s+(notion-insert-failed|douban-scrape-failed|notion-category-failed)(?::.*)?$/.exec(
-          line,
-        );
+      // Routed by the reason slug, see `DETAIL_REASONS`. The slug is kept as the entry's reason so
+      // the causes stay distinguishable.
+      // 五条链路的明细小节都走这里，按 reason slug 路由（见 `DETAIL_REASONS`）。slug 原样作为
+      // 条目的 reason，不同成因因此仍可区分。
+      const detailLine = DETAIL_PATTERN.exec(line);
       if (detailLine) {
         const label = detailLine[1].trim();
-        add(
-          'failed',
-          'douban→notion',
-          detailLine[2],
-          splitLabel(label) || { title: label },
-        );
+        const [kind, source] = DETAIL_REASONS.get(detailLine[2]);
+        // `(unknown)` is `src/` saying "there was nothing to name this with" (`labelOf`'s
+        // fallback). Ingesting it would add one entry called "(unknown)" that stands for every
+        // unnamed failure at once and can never be ticked off.
+        // `(unknown)` 是 `src/` 在说「没有东西可用来命名它」（`labelOf` 的兜底）。收下它会得到
+        // 一条叫 "(unknown)" 的条目，同时代表所有无名失败，而且永远勾不掉。
+        if (label === '(unknown)') {
+          unattributable += 1;
+          continue;
+        }
+        add(kind, source, detailLine[2], splitLabel(label) || { title: label });
+        continue;
+      }
+      // A `· … — slug` line whose slug is shared between paths or not registered yet. Counted,
+      // never dropped: silently losing these is exactly how ③'s `failed` stayed invisible.
+      // 项目符号行，但 slug 被多条链路共用、或新增后还没登记。计数，绝不丢弃 —— 上一轮 ③ 的
+      // `failed` 一直看不见，正是因为这种行被静默丢掉。
+      if (/·\s+.+\s+—\s+[a-z][a-z-]*[a-z](?::.*)?$/.test(line)) {
+        unattributable += 1;
         continue;
       }
 
@@ -503,8 +586,8 @@ export function render({
   }
   if (unattributable > 0) {
     out.push(
-      `> 另有 **${unattributable}** 处日志证明有条目被跳过但没有点名（如 ` +
-        '`Mark without a catalog item`），无法归属到具体条目。',
+      `> 另有 **${unattributable}** 处日志证明有条目被跳过或失败，但无法归属到具体条目或链路（如 ` +
+        '`Mark without a catalog item`，或 reason 被多条链路共用、尚未登记的明细行）。',
     );
     out.push('');
   }
@@ -599,8 +682,8 @@ export function render({
   out.push('');
   out.push(
     '采集自本轮 `sync` 的控制台日志，**只包含同步过程打印过的条目**。' +
-      '② Douban → NeoDB 的未匹配条目当前只记数量、不打印标题，因此不会出现在这里；' +
-      '白名单过滤、增量命中、重复跳过属于设计行为，也不采集。',
+      '类别白名单过滤、增量命中、重复跳过属于设计行为，不采集；' +
+      'reason 被多条链路共用（如 `category-not-allowed`）时不做猜测，只计入上面的「无法归属」计数。',
   );
 
   return out.join('\n');

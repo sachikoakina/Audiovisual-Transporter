@@ -350,7 +350,11 @@ export function printOverallSummary(reports: PathReport[]): void {
       : `${reports.length} path(s) ran, ${failedCount} FAILED${toleratedSuffix}`;
 
   printFrame(`Sync finished — ${headline}`, lines);
-  appendJobSummary(summaryMarkdown(reports, headline));
+  // Written before the exit code is set, and read by a workflow step that runs regardless of it:
+  // the summary survives a failed run. See `publishJobSummary`.
+  // 在确定退出码之前写出，由一个与退出码无关的 workflow step 读取：失败的运行同样留下摘要。
+  // 见 `publishJobSummary`。
+  publishJobSummary(summaryMarkdown(reports, headline));
 
   if (failedCount === 0) {
     consola.success('All enabled sync paths completed.');
@@ -508,28 +512,45 @@ function appendDetailSummary(
 }
 
 /**
- * Append the report to `$GITHUB_STEP_SUMMARY`, which GitHub renders on the
- * run's summary page.
+ * Leave the rendered report in a file for the workflow to publish as the job
+ * summary.
  *
- * Chosen over `actions/upload-artifact` for three reasons: GitHub's billing
- * docs exempt job summaries (and logs) from the storage allowance, so this
- * costs nothing; the panel is readable without downloading or unzipping
- * anything; and it needs no workflow change at all, since the path is already
- * in the environment of the step that runs this. It is also immune to the
- * scrollback truncation that has already cost us one log capture.
+ * The process deliberately does **not** append to `$GITHUB_STEP_SUMMARY` itself
+ * any more. That file is per-step and is attached when its step ends, so writing
+ * the summary from inside the step that may exit non-zero made the report's
+ * visibility depend on the sync's success — and the failed run is exactly the
+ * one whose summary matters. `sync.yml` publishes this file from a step with
+ * `if: always()`, which decouples the two: the sync decides the exit code, the
+ * publishing step decides whether anyone gets to read why.
  *
- * Must be plain markdown — anything consola touches would gain a prefix and
- * stop rendering. Absent outside Actions, where this is a no-op.
+ * Must be plain markdown — anything consola touches would gain a prefix and stop
+ * rendering. Written unconditionally, including outside Actions, where the file
+ * is simply there to read.
+ *
+ * 把渲染好的报告写进文件，交给工作流发布成作业摘要。
+ *
+ * 进程刻意不再自己往 `$GITHUB_STEP_SUMMARY` 追加。那个文件是 per-step 的、随所属 step 结束
+ * 才提交，因此把摘要写在「可能以非零码退出」的那个 step 里，等于让报表的可见性取决于同步是否
+ * 成功 —— 而恰恰是失败的那一轮最需要这份说明。`sync.yml` 改用一个 `if: always()` 的 step 发布
+ * 这个文件，两者从此解耦：同步负责退出码，发布 step 负责「有人能看到为什么」。
+ *
+ * 必须是纯 markdown —— 被 consola 碰过就会多出前缀、不再渲染。无条件写出，Actions 之外也写，
+ * 本地跑完直接看这个文件即可。
  */
-function appendJobSummary(markdown: string): void {
-  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
-  if (!summaryFile) {
-    return;
-  }
+function publishJobSummary(markdown: string): void {
+  const target = path.resolve(
+    process.env.SYNC_SUMMARY_FILE || '.cache/sync-summary.md',
+  );
   try {
-    fs.appendFileSync(summaryFile, `${markdown}\n`, 'utf8');
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    // Overwrite rather than append: one run, one summary. Appending would stack a second copy
+    // on top of the first when `npm run sync` is re-run locally.
+    // 覆盖而非追加：一轮一份。追加会让本地重跑 `npm run sync` 时在第一份后面再叠一份。
+    fs.writeFileSync(target, `${markdown}\n`, 'utf8');
   } catch (error) {
-    // A summary is a convenience. Never let it affect the run's outcome.
-    consola.debug('Could not write the job summary: ', error);
+    // A summary is a convenience, but a *silently* missing one costs an hour of guessing, so
+    // this must not hide behind `consola.debug` (which CI never prints).
+    // 摘要只是便利，但「悄悄没有」要用一小时去猜，所以不能藏在 CI 从不打印的 `consola.debug` 后面。
+    consola.warn(`Could not write the job summary to ${target}: `, error);
   }
 }
