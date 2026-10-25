@@ -112,6 +112,13 @@ function stateLabel(report: PathReport): string {
   if (report.tolerated && (report.aborted || report.failed > 0)) {
     return 'TOLERATED';
   }
+  // A dry run reports what it *would* have done. Without this word the row reads as a run that
+  // wrote 12 items, which is the one claim a dry run must never make.
+  // dry-run 报的是「本来会做什么」。少了这个词，该行读起来就像真的写了 12 条 ——
+  // 而那正是 dry-run 绝不能声称的事。
+  if (report.dryRun) {
+    return report.unresolved > 0 ? `dry-run, ${report.unresolved} unresolved` : 'dry-run';
+  }
   if (report.capped) {
     return report.unresolved > 0 ? `capped, ${report.unresolved} unresolved` : 'capped';
   }
@@ -179,7 +186,8 @@ export function printPathSummary(report: PathReport): void {
       `unchanged ${report.unchanged}, skipped ${report.skipped}, ` +
       `unresolved ${report.unresolved}, failed ${report.failed}` +
       `${report.capped ? ' — cap reached' : ''}` +
-      `${report.aborted ? ' — aborted before it could run' : ''}`,
+      `${report.aborted ? ' — aborted before it could run' : ''}` +
+      `${report.dryRun ? ' — dry run, nothing was sent' : ''}`,
   );
 
   if (!report.aborted) {

@@ -172,8 +172,7 @@ const DETAIL_REASONS = new Map([
   ['item-threw', ['failed', 'bangumi→neodb']],
   ['tmdb-item-threw', ['failed', 'neodb→tmdb']],
   ['no-catalog-item', ['failed', 'neodb→tmdb']],
-  ['tmdb-rating-write-failed', ['failed', 'neodb→tmdb']],
-  ['tmdb-watchlist-write-failed', ['failed', 'neodb→tmdb']],
+  ['tmdb-write-failed', ['failed', 'neodb→tmdb']],
 ]);
 
 /**

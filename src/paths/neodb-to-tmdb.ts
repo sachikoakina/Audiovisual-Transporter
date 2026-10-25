@@ -243,7 +243,12 @@ export default async function runNeodbToTmdb(
 function fillReport(report: PathReport, ctx: SyncContext): void {
   const c = ctx.counters;
   report.scanned = c.scanned;
-  report.written = c.writtenRating + c.writtenWatchlist;
+  // Item-level, not field-level: one item can write both fields, and the self-check compares
+  // these five buckets against `scanned`. The field breakdown is printed separately.
+  // 按条目计，不按字段：一个条目可能两个字段都写，而自检是拿这五个桶与 `scanned` 对账的。
+  // 字段分项另行打印。
+  report.written = c.written;
+  report.dryRun = neodbTmdbConfig.dryRun;
   report.unchanged = c.unchanged;
   report.skipped =
     c.skippedCategory + c.skippedShelf + c.skippedCached + c.skippedDuplicate;
@@ -499,26 +504,27 @@ async function applyPatch(
     for (const reason of patch.reasons) {
       consola.info(`[dry-run] ${reason} — ${targetKey(target)} ${label}`);
     }
+    // The field counters predict, `written` counts the item — the self-check has to add up even
+    // when nothing was sent. The row is labelled `dry-run` so the prediction cannot read as fact.
+    // 字段计数是预测，`written` 按条目计 —— 即使一条都没发，自检也必须对得上。该行标了
+    // `dry-run`，预测因此不会被读成事实。
     if (patch.setRating !== null) ctx.counters.writtenRating += 1;
     if (patch.setWatchlist !== null) ctx.counters.writtenWatchlist += 1;
+    ctx.counters.written += 1;
     return true;
   }
 
-  let ok = true;
+  // Which fields failed, if any. Collected rather than acted on immediately, because this path
+  // now counts and names per **item**: two failed fields are one failed item with one detail.
+  // 失败的字段先收集。本链路现在按**条目**计数与点名：两项都失败，是「一个失败条目、一条明细」。
+  const failedFields: string[] = [];
 
   // 1) Rating.
   if (patch.setRating !== null) {
     if (await setTmdbRating(target, patch.setRating, ctx.auth)) {
       ctx.counters.writtenRating += 1;
     } else {
-      ok = false;
-      ctx.counters.failed += 1;
-      // One detail per *field*, not per item: this path counts rating and watchlist separately,
-      // so a single item that fails both really does add 2 to `failed` — and 2 details, keeping
-      // the listing's arithmetic honest.
-      // 每个**字段**一条明细，而不是每个条目：本链路把评分与 watchlist 分开计数，因此两项都
-      // 写失败的同一个条目确实会给 `failed` 加 2，也就产生 2 条明细，清单的算术才站得住。
-      ctx.failedItems.push({ label, reason: 'tmdb-rating-write-failed' });
+      failedFields.push('rating');
     }
   }
 
@@ -527,13 +533,28 @@ async function applyPatch(
     if (await setTmdbWatchlist(target, patch.setWatchlist, ctx.auth, ctx.accountId)) {
       ctx.counters.writtenWatchlist += 1;
     } else {
-      ok = false;
-      ctx.counters.failed += 1;
-      ctx.failedItems.push({ label, reason: 'tmdb-watchlist-write-failed' });
+      failedFields.push('watchlist');
     }
   }
 
-  return ok;
+  if (failedFields.length > 0) {
+    // Returning `false` also skips `recordSynced`, so the next run retries this item — and the
+    // retry is idempotent: the field that did land comes back as "already correct" on the re-read.
+    // 返回 `false` 同时跳过 `recordSynced`，下一轮会重试这一条 —— 而重试是幂等的：已经写成功的
+    // 那个字段在重读时会显示为「already correct」。
+    ctx.counters.failed += 1;
+    ctx.failedItems.push({
+      label,
+      reason: `tmdb-write-failed: ${failedFields.join('+')}`,
+    });
+    consola.error(
+      `TMDB rejected ${failedFields.join('+')} for ${label}; will retry next run.`,
+    );
+    return false;
+  }
+
+  ctx.counters.written += 1;
+  return true;
 }
 
 /**

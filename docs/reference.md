@@ -491,8 +491,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 |                    | skipped | `unchanged-since-last-run`       | 增量指纹命中；正常增量运行的主体，通常数百条                                                             |
 |                    | skipped | `duplicate-in-run: <目标>`       | 同一 TMDB 条目本轮已被处理过（同一作品在两个书架）                                                       |
 |                    | failed  | `no-catalog-item`                | 标记没有目录条目，连标题都没有                                                                           |
-|                    | failed  | `tmdb-rating-write-failed`       | 评分写失败                                                                                               |
-|                    | failed  | `tmdb-watchlist-write-failed`    | watchlist 写失败                                                                                         |
+|                    | failed  | `tmdb-write-failed: <字段>`      | 评分 / watchlist 写失败。字段取值 `rating`、`watchlist` 或 `rating+watchlist`；按**条目**计一条，下一轮重试 |
 |                    | failed  | `tmdb-item-threw: <错误>`        | 单条处理抛错（刻意与 ④ 的 `item-threw` 分开：两条链路原先用同一个 slug，待核对名单只能记到其中一条名下） |
 
 > **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。

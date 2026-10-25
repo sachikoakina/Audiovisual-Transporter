@@ -353,8 +353,22 @@ export type SyncCounters = {
   matchedImdb: number;
   matchedSearch: number;
   unmatched: number;
+  /**
+   * Field-level counters: one item can write both fields, so these sum to more than `written`.
+   * Printed in the breakdown, never used for the self-check equation.
+   * 字段级计数：一个条目可能两个字段都写，因此它们的和大于 `written`。只在分项明细里打印，
+   * 不参与自检等式。
+   */
   writtenWatchlist: number;
   writtenRating: number;
+  /**
+   * Items whose write landed — one per item, not one per field. This is what `report.written`
+   * carries, so the self-check (`scanned = written + unchanged + skipped + unresolved + failed`)
+   * holds for this path exactly as it does for the other four.
+   * 写入真正落地的**条目**数（按条目计，不按字段）。`report.written` 用的是它，自检等式
+   * （`scanned = written + unchanged + skipped + unresolved + failed`）因此对本链路与另外四条一样成立。
+   */
+  written: number;
   unchanged: number;
   failed: number;
 };
@@ -373,6 +387,7 @@ export function newSyncCounters(): SyncCounters {
     unmatched: 0,
     writtenWatchlist: 0,
     writtenRating: 0,
+    written: 0,
     unchanged: 0,
     failed: 0,
   };
@@ -434,6 +449,13 @@ export type PathReport = {
   /** The path could not run at all (missing credentials, network failure). */
   aborted: boolean;
   /**
+   * Nothing was sent: the counters describe what *would* have been written. The summary says so
+   * in the row label, because "written 12" without that word is a lie a dry run tells very well.
+   * 什么都没发出去：计数描述的是「本来会写什么」。汇总在行标签里说明这一点 —— 少了这句话，
+   * 「written 12」是 dry-run 说得最像的一句谎。
+   */
+  dryRun: boolean;
+  /**
    * Report the failure but do not fail the run.
    *
    * Used by the Douban RSS feed when `SYNC_DOUBAN_REQUIRED=0`: the failure stays visible (it is
@@ -475,6 +497,7 @@ export function newPathReport(label: string): PathReport {
     failed: 0,
     capped: false,
     aborted: false,
+    dryRun: false,
     tolerated: false,
     unresolvedTitles: [],
     failedItems: [],
