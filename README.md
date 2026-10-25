@@ -768,9 +768,9 @@ Audiovisual-Transporter/
 │       ├── bangumi-to-neodb.ts           ④ 收藏分页、孪生对齐、合并写入
 │       └── neodb-to-tmdb.ts              ⑤ 书架遍历、三级匹配、读后 diff 写入
 │
-├── scripts/                      辅助脚本：probe-neodb-shelf.ts · verify-tmdb-mapping.ts · verify-rules.ts<br/>                                 verify-douban-parsers.ts · image-downloader.d.ts · download-douban-note-images.ts（未接通）<br/>                                 review-queue.mjs（读日志 → 跨轮维护待核对名单）
+├── scripts/                      辅助脚本：probe-neodb-shelf.ts · verify-tmdb-mapping.ts · verify-rules.ts<br/>                                 verify-douban-parsers.ts · verify-log-contract.ts（slug 与日志哨兵）<br/>                                 image-downloader.d.ts · download-douban-note-images.ts（未接通）<br/>                                 review-queue.mjs（读日志 → 跨轮维护待核对名单）
 ├── tests/fixtures/               解析器断言用的 HTML fixture（5 个，手工构造）
-├── docs/                         README 配图 + 参考手册 + 待核对名单机制（`review-queue.md`）
+├── docs/                         README 配图 + 参考手册（`reference.md`）+ 待核对名单机制（`review-queue.md`）<br/>                                 决策记录（`decisions.md`）+ 一次外部重构评审的完整结论（`refactor-review.md`）
 ├── archive/                      已废弃：旧爬虫与历史回填脚本，仅供追溯
 ├── userscript/                   浏览器用户脚本，手动导出用（src/ 不引用；eslint / prettier / tsconfig 均排除）
 ├── cols.json                     Notion 数据库列定义

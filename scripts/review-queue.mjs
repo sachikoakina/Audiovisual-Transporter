@@ -99,6 +99,11 @@ const TASK_BOX = '[ ] ';
 // 因为日志库升级而失效，而不是因为文案变化。
 // ───────────────────────────────────────────────────────────────────────────
 
+// Matching a control character is the whole job here: consola colourises every line in a TTY,
+// and an unstripped escape sequence breaks the title/reason split.
+// 这里匹配控制字符正是目的本身：consola 在 TTY 里给每行上色，没剥掉的转义序列会破坏
+// 标题 / reason 的切分。
+// eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 /** `title[url]` → `{ title, url }`, else `null`. Used by path ② and ③ labels. / 解析 `标题[链接]` 形式。 */

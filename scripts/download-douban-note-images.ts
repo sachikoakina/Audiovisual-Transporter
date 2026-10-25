@@ -49,17 +49,27 @@ const IMG_PREFIX = '/assets/images/'; // for my blog setting
 
 (async () => {
   const notesFiles = await readDir(DIR);
-  let COUNT = 0,
-    FAILED_URLS: string[] = [];
+  let COUNT = 0;
+  const FAILED_URLS: string[] = [];
   for (const notesFile of notesFiles) {
-    let basename = path.basename(notesFile); // 2020-07-08-filename.md
-    basename = basename.match(/^\d{4}-\d{2}-\d{2}-(.+)\.md$/)?.[1].replace(/\s/g, '-')!; // filename, no .md, use as image folder name
+    // Narrowed instead of asserted: a file that does not match the date prefix used to make
+    // `basename` the string "undefined" (`?.[1].replace(...)` short-circuits, then `!` lies).
+    // 这里改为窄化而不是断言：不匹配日期前缀的文件过去会让 `basename` 变成字符串 "undefined"
+    // （`?.[1].replace(...)` 短路，然后 `!` 说谎）。
+    const parsedBasename = path
+      .basename(notesFile)
+      .match(/^\d{4}-\d{2}-\d{2}-(.+)\.md$/)?.[1];
+    if (!parsedBasename) {
+      console.warn(`Skipping ${notesFile}: no yyyy-mm-dd- prefix.`);
+      continue;
+    }
+    const basename = parsedBasename.replace(/\s/g, '-');
 
     let file = await readFile(path.resolve(HERE, `${DIR}/${notesFile}`), 'utf8');
-    let imgs: string[] = [];
+    const imgs: string[] = [];
     file = file.replace(/!\[(.*?)\]\((.+?)\)/g, function (whole, desc, url) {
       imgs.push(url);
-      let name = url.match(/\/([^/]*\.(?:jpg|webp))$/); // last p12344.jpg
+      const name = url.match(/\/([^/]*\.(?:jpg|webp))$/); // last p12344.jpg
       return `![${desc}](${IMG_PREFIX}${basename}/${name[1]})`; // last is pic name
     });
     if (imgs.length > 0) {
@@ -78,7 +88,7 @@ const IMG_PREFIX = '/assets/images/'; // for my blog setting
             COUNT++;
           })
           .catch(() => {
-            let msg = 'Failed to download ' + url + ' which belongs to ' + basename;
+            const msg = 'Failed to download ' + url + ' which belongs to ' + basename;
             FAILED_URLS.push(msg);
           });
 
