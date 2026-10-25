@@ -261,7 +261,7 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   // `unmatched > 0` alone would claim the log even when every write failed; the flag is set by
   // the writer itself.
   // 只看 `unmatched > 0` 会在每次写入都失败时仍然声明留档；这个标志由写入方自己置位。
-  report.reviewLog = ctx.reviewLogWritten ? neodbTmdbConfig.unmatchedLog : '';
+  report.reviewLog = ctx.reviewLogWritten ? neodbTmdbConfig.unmatchedLogFile : '';
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -427,7 +427,7 @@ async function syncMark(
     ctx.counters.unmatched += 1;
     ctx.unmatchedTitles.push(label);
     consola.warn(`No TMDB match; skip ${label}.`);
-    const logged = upsertReviewEntry(neodbTmdbConfig.unmatchedLog, {
+    const logged = upsertReviewEntry(neodbTmdbConfig.unmatchedLogFile, {
       source: 'neodb→tmdb',
       reason: 'no-tmdb-match',
       uuid: item.uuid,

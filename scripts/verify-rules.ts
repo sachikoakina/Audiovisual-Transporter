@@ -44,6 +44,7 @@ import {
 } from '../src/rules/bangumi-neodb';
 import { mergeNeodbMark } from '../src/rules/neodb-mark-merge';
 import { classifyReadFailure } from '../src/rules/read-result';
+import { extractItemInfo } from '../src/clients/douban-rss';
 import {
   ItemReadError,
   PathAbortedError,
@@ -931,6 +932,47 @@ check(
   capped.listed + capped.omitted === forty.length && capped.omitted === 24,
 );
 check('an empty detail list renders nothing', renderDetailLines([]).lines.length === 0);
+
+// ───────────────────────────────────────────────────────────────────────────
+// extractItemInfo — the (status vocabulary, category, link shape) table
+// extractItemInfo —— 那张（状态词汇、分类、链接形状）表
+//
+// This one imports the RSS client because the function lives there; nothing in it touches the
+// network at import time. The five rows below are the table's contract: `看过` resolved by link
+// host, and one row each for book / music / game.
+// 这里导入 RSS 客户端只因为这个函数住在那里；它在导入期不碰网络。下面五行就是那张表的契约：
+// `看过` 由链接域名决定，其余图书 / 音乐 / 游戏各一行。
+// ───────────────────────────────────────────────────────────────────────────
+
+check(
+  '看过 + a film link resolves to movie',
+  extractItemInfo('看过 海边的曼彻斯特', 'https://movie.douban.com/subject/26340039/')
+    ?.category === ItemCategory.Movie,
+);
+check(
+  '看过 + a stage-drama link resolves to drama',
+  extractItemInfo('看过 如梦之梦', 'https://www.douban.com/location/drama/12103559/')
+    ?.category === ItemCategory.Drama,
+);
+check(
+  '读过 + a book link resolves to book, with the id',
+  extractItemInfo('读过 三体', 'https://book.douban.com/subject/2567698/')?.id ===
+    '2567698',
+);
+check(
+  '听过 + a music link resolves to music',
+  extractItemInfo('听过 依然', 'https://music.douban.com/subject/1395438/')
+    ?.category === ItemCategory.Music,
+);
+check(
+  '玩过 + a game link resolves to game',
+  extractItemInfo('玩过 塞尔达传说', 'https://www.douban.com/game/26817171/')
+    ?.category === ItemCategory.Game,
+);
+check(
+  'an unrecognisable title yields nothing',
+  extractItemInfo('随便写的标题', 'https://movie.douban.com/subject/1/') === undefined,
+);
 
 // ───────────────────────────────────────────────────────────────────────────
 // classifyReadFailure — which failed reads may be written over

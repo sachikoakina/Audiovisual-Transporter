@@ -60,6 +60,15 @@ dotenv.config();
  * @param feeds - Feed items to sync. 待同步的条目。
  * @returns The path's report. 本条链路的报告。
  */
+/**
+ * Fixed pause between page creates. Notion's published limit is an average of ~3 requests per
+ * second, so one request per second is the conservative reading of it. A constant on purpose, not
+ * an env var: the limit belongs to Notion, not to whoever runs the sync.
+ * 每建一页之间的固定停顿。Notion 公开的限制是平均每秒约 3 次请求，因此每秒一次是对它保守的读法。
+ * 刻意做成常量而非环境变量：这条限制属于 Notion，不属于运维。
+ */
+const NOTION_INSERT_INTERVAL_MS = 1000;
+
 export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<PathReport> {
   const report = newPathReport('Douban → Notion');
 
@@ -369,7 +378,7 @@ async function syncCategoryToNotion(
           reason: 'notion-insert-failed',
         });
       }
-      await sleep(1000);
+      await sleep(NOTION_INSERT_INTERVAL_MS);
     } catch (error) {
       // Scrape failures are counted too, so the report matches reality instead of silently
       // dropping the item.

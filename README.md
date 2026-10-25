@@ -677,15 +677,15 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### Bangumi 与豆瓣 RSS
 
-| 变量                          | 默认    | 说明                                                                        |
-| ----------------------------- | ------- | --------------------------------------------------------------------------- |
-| `BANGUMI_PRIVATE`             | `false` | 收藏是否私密                                                                |
-| `BANGUMI_COLLECTION_LIMIT`    | `50`    | 拉取收藏时每页数量                                                          |
-| `BANGUMI_USER_AGENT`          | 空      | 自定义 UA（被拦截时使用）                                                   |
-| `BANGUMI_FULL_SYNC`           | `0`     | 设 `1` 时追加执行全量 Bangumi → NeoDB                                       |
-| `SYNC_BANGUMI_NEODB_PROGRESS` | `0`     | 是否同步观看进度（集 / 章 / 曲）                                            |
-| `DOUBAN_RSS_USER_AGENT`       | 空      | 豆瓣 RSS 被拦截时替换 UA（403 多为 IP 级风控，改 UA 不保证解决）            |
-| `SYNC_DOUBAN_REQUIRED`        | `1`     | `1` = 豆瓣 RSS 失败让整轮失败；`0` = 照常打印并标 `TOLERATED`，不参与退出码 |
+| 变量                          | 默认    | 说明                                                                           |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `BANGUMI_PRIVATE`             | `false` | 收藏是否私密                                                                   |
+| `BANGUMI_COLLECTION_LIMIT`    | `50`    | 拉取收藏时每页数量                                                             |
+| `BANGUMI_USER_AGENT`          | 空      | 自定义 UA（被拦截时使用）                                                      |
+| `BANGUMI_FULL_SYNC`           | `0`     | 设 `1` 时追加执行全量 Bangumi → NeoDB                                          |
+| `SYNC_BANGUMI_NEODB_PROGRESS` | `0`     | 是否同步观看进度（集 / 章 / 曲）                                               |
+| `DOUBAN_RSS_USER_AGENT`       | 空      | 豆瓣 RSS 与条目页共用；被拦截时替换 UA（403 多为 IP 级风控，改 UA 不保证解决） |
+| `SYNC_DOUBAN_REQUIRED`        | `1`     | `1` = 豆瓣 RSS 失败让整轮失败；`0` = 照常打印并标 `TOLERATED`，不参与退出码    |
 
 ### 留档
 
@@ -772,7 +772,7 @@ Audiovisual-Transporter/
 ├── tests/fixtures/               解析器断言用的 HTML fixture（5 个，手工构造）
 ├── docs/                         README 配图 + 参考手册 + 待核对名单机制（`review-queue.md`）
 ├── archive/                      已废弃：旧爬虫与历史回填脚本，仅供追溯
-├── userscript/                   浏览器用户脚本，手动导出用
+├── userscript/                   浏览器用户脚本，手动导出用（src/ 不引用；eslint / prettier / tsconfig 均排除）
 ├── cols.json                     Notion 数据库列定义
 ├── .github/workflows/            定时同步（`sync.yml`）+ 待核对名单（`review-queue.yml`，`sync` 结束后触发）
 ├── .env.example                  配置模板

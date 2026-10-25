@@ -498,7 +498,7 @@ export const neodbTmdbConfig = {
    */
   fullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
   /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
-  unmatchedLog: unmatchedLogFile,
+  unmatchedLogFile,
 
   neodb: {
     /** Self-hosted instances: point this at your server. / 自建实例：把它指向你自己的服务器。 */

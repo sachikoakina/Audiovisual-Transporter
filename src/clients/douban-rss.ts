@@ -154,13 +154,19 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
     // replaces four non-null assertions that only silenced the compiler.
     // `textContent` 在 DOM 侧是 `string | null`；`?? ''` 才是诚实的窄化，它替掉了四个只是
     // 让编译器闭嘴的非空断言。
-    const ratingElements = contents.filter((el) => (el.textContent ?? '').startsWith('推荐'));
+    const ratingElements = contents.filter((el) =>
+      (el.textContent ?? '').startsWith('推荐'),
+    );
     let stars = 0;
     if (ratingElements.length) {
-      const rating = (ratingElements[0].textContent ?? '').replace(/^推荐: /, '').trim();
+      const rating = (ratingElements[0].textContent ?? '')
+        .replace(/^推荐: /, '')
+        .trim();
       stars = RATING_TEXT_TO_STARS[rating as keyof typeof RATING_TEXT_TO_STARS];
     }
-    const commentElements = contents.filter((el) => (el.textContent ?? '').startsWith('备注'));
+    const commentElements = contents.filter((el) =>
+      (el.textContent ?? '').startsWith('备注'),
+    );
     let comment = '';
     if (commentElements.length) {
       comment = (commentElements[0].textContent ?? '').replace(/^备注: /, '').trim();
@@ -198,6 +204,48 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
  * @returns The decoded info, or `undefined` when the title carries no recognizable status.
  *   解出的信息；标题中状态不可识别时返回 `undefined`。
  */
+/**
+ * One row per (status vocabulary, category, link shape). The four `if/else` branches this
+ * replaces were identical apart from those three things, and the COPY is what made the film /
+ * stage-drama split easy to get wrong: `看过` is one vocabulary pointing at two categories.
+ * 每行一个（状态词汇、分类、链接形状）三元组。它替掉的四段 `if/else` 除了这三样之外完全一样，
+ * 而正是**复制**让「电影 / 舞台剧」这一分叉容易出错：`看过` 是同一套词汇指向两个分类。
+ *
+ * Order matters only for `看*`: the film pattern wins because it is listed first.
+ * 顺序只对 `看*` 有意义：电影模式在前，因此它优先。
+ */
+const ITEM_RULES: ReadonlyArray<{
+  statuses: Record<string, ItemStatus>;
+  category: ItemCategory;
+  idPattern: RegExp;
+}> = [
+  {
+    statuses: SEE_STATUS_MAP,
+    category: ItemCategory.Movie,
+    idPattern: /movie\.douban\.com\/subject\/(\d+)\/?/,
+  },
+  {
+    statuses: SEE_STATUS_MAP,
+    category: ItemCategory.Drama,
+    idPattern: /www\.douban\.com\/location\/drama\/(\d+)\/?/,
+  },
+  {
+    statuses: READ_STATUS_MAP,
+    category: ItemCategory.Book,
+    idPattern: /book\.douban\.com\/subject\/(\d+)\/?/,
+  },
+  {
+    statuses: LISTEN_STATUS_MAP,
+    category: ItemCategory.Music,
+    idPattern: /music\.douban\.com\/subject\/(\d+)\/?/,
+  },
+  {
+    statuses: PLAY_STATUS_MAP,
+    category: ItemCategory.Game,
+    idPattern: /www\.douban\.com\/game\/(\d+)\/?/,
+  },
+];
+
 export function extractItemInfo(title: string, link: string): ItemInfo | undefined {
   const m = title.match(ANY_STATUS_PREFIX)?.[1];
 
@@ -205,35 +253,26 @@ export function extractItemInfo(title: string, link: string): ItemInfo | undefin
     return;
   }
 
-  if (Object.keys(SEE_STATUS_MAP).includes(m)) {
-    const isMovie =
-      link.startsWith('http://movie.douban.com/') ||
-      link.startsWith('https://movie.douban.com/');
-    return {
-      category: isMovie ? ItemCategory.Movie : ItemCategory.Drama,
-      id: isMovie
-        ? (link.match(/movie\.douban\.com\/subject\/(\d+)\/?/)?.[1] ?? '')
-        : (link.match(/www\.douban\.com\/location\/drama\/(\d+)\/?/)?.[1] ?? ''),
-      status: SEE_STATUS_MAP[m as keyof typeof SEE_STATUS_MAP],
-    };
-  } else if (Object.keys(READ_STATUS_MAP).includes(m)) {
-    return {
-      category: ItemCategory.Book,
-      id: link.match(/book\.douban\.com\/subject\/(\d+)\/?/)?.[1] ?? '',
-      status: READ_STATUS_MAP[m as keyof typeof READ_STATUS_MAP],
-    };
-  } else if (Object.keys(LISTEN_STATUS_MAP).includes(m)) {
-    return {
-      category: ItemCategory.Music,
-      id: link.match(/music\.douban\.com\/subject\/(\d+)\/?/)?.[1] ?? '',
-      status: LISTEN_STATUS_MAP[m as keyof typeof LISTEN_STATUS_MAP],
-    };
-  } else if (Object.keys(PLAY_STATUS_MAP).includes(m)) {
-    return {
-      category: ItemCategory.Game,
-      id: link.match(/www\.douban\.com\/game\/(\d+)\/?/)?.[1] ?? '',
-      status: PLAY_STATUS_MAP[m as keyof typeof PLAY_STATUS_MAP],
-    };
+  for (const rule of ITEM_RULES) {
+    const status = rule.statuses[m];
+    if (status === undefined) {
+      continue;
+    }
+    const id = link.match(rule.idPattern)?.[1];
+    if (!id) {
+      continue;
+    }
+    return { category: rule.category, id, status };
+  }
+
+  // A `看*` title whose link is neither a film nor a stage drama still resolves to a drama with
+  // an empty id — which is what this function has always returned. Dropping it here would be a
+  // silent loss; downstream, an empty id fails loudly instead.
+  // 链接既不是电影也不是舞台剧的 `看*` 标题，仍解析为「分类=舞台剧、id 为空」—— 这也是本函数
+  // 一直以来的返回。在这里丢掉它是无声的损失；交给下游，空 id 会响亮地失败。
+  const seenStatus = SEE_STATUS_MAP[m as keyof typeof SEE_STATUS_MAP];
+  if (seenStatus !== undefined) {
+    return { category: ItemCategory.Drama, id: '', status: seenStatus };
   }
 
   return;

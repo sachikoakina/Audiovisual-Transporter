@@ -117,7 +117,9 @@ function stateLabel(report: PathReport): string {
   // dry-run 报的是「本来会做什么」。少了这个词，该行读起来就像真的写了 12 条 ——
   // 而那正是 dry-run 绝不能声称的事。
   if (report.dryRun) {
-    return report.unresolved > 0 ? `dry-run, ${report.unresolved} unresolved` : 'dry-run';
+    return report.unresolved > 0
+      ? `dry-run, ${report.unresolved} unresolved`
+      : 'dry-run';
   }
   if (report.capped) {
     return report.unresolved > 0 ? `capped, ${report.unresolved} unresolved` : 'capped';
@@ -327,10 +329,17 @@ function printUnresolved(report: PathReport): void {
  * 过去这在日志里与「运行成功但所有写入都是无操作」无法区分，因此现在改为明确说明，而不是
  * 静默返回。
  */
-export function printOverallSummary(reports: PathReport[]): void {
+export function printOverallSummary(reports: PathReport[], skipReason?: string): void {
   if (reports.length === 0) {
+    // `skipReason` exists for the one case the old sentence got wrong: an empty feed is neither a
+    // switch that is off nor a missing credential, and claiming otherwise sends the reader to the
+    // wrong config file. The caller knows why nothing ran; the summary should repeat it, not guess.
+    // `skipReason` 专为旧那句话唯一说错的情形而设：feed 为空既不是开关关着，也不是凭据缺失，
+    // 那样说会把读者送去翻错的配置文件。调用方知道为什么什么都没跑；汇总应当复述，而不是猜。
     consola.warn(
-      'No sync path ran — every SYNC_* switch is off, or every enabled path lacked credentials.',
+      skipReason
+        ? `No sync path ran — ${skipReason}.`
+        : 'No sync path ran — every SYNC_* switch is off, or every enabled path lacked credentials.',
     );
     return;
   }

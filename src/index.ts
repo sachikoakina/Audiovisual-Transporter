@@ -60,12 +60,20 @@ async function main(): Promise<void> {
    * 会带 `aborted` 返回，因此它依然出现 —— 作为失败出现，这正是目的。
    */
   const reports: PathReport[] = [];
+  // Only consulted when no path produced a report at all — see `printOverallSummary`.
+  // 只在没有任何链路产出报告时使用 —— 见 `printOverallSummary`。
+  let skipReason: string | undefined;
 
   if (needsDoubanRss()) {
     try {
       const feeds = await fetchRSSFeeds();
       if (feeds.length === 0) {
+        // The feed window is ~10 entries, so an empty page usually means "nothing new", not
+        // "broken". Saying which one it is keeps the closing summary from blaming the switches.
+        // feed 窗口约 10 条，因此空页通常意味着「没有新条目」，而不是「坏了」。说清是哪一种，
+        // 收尾汇总才不会去怪开关。
         consola.info('No new Douban RSS items.');
+        skipReason = 'the Douban feed had no new items this run';
       } else {
         const normalizedFeeds = normalizeRssFeeds(feeds);
         const completeFeeds = normalizedFeeds.filter(
@@ -145,7 +153,7 @@ async function main(): Promise<void> {
   }
 
   // Printed before the exit code is finalised so the summary always survives.
-  printOverallSummary(reports);
+  printOverallSummary(reports, skipReason);
 
   if (reports.some(pathHasFailed)) {
     process.exitCode = 1;

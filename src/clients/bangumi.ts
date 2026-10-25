@@ -28,7 +28,12 @@ export const bangumiCollectionLimit = Math.min(
 /** Bangumi requires a descriptive UA. / Bangumi 要求带一个可识别的 UA。 */
 export const bangumiUserAgent =
   process.env.BANGUMI_USER_AGENT ||
-  'douban-backup/1.0 (https://github.com/bambooom/douban-backup)';
+  // A descriptive UA with a real URL, which is what Bangumi asks for. The old default
+  // (`douban-backup/1.0 (…/bambooom/douban-backup)`) named a different project — and carried its
+  // typo — so a misbehaving request pointed at somebody else's repository.
+  // Bangumi 要求带可识别的 UA 与真实链接。旧默认值（`douban-backup/1.0 (…/bambooom/douban-backup)`）
+  // 写的是另一个项目，还带着那个项目的拼写错误 —— 出问题时指向的是别人的仓库。
+  'audiovisual-transporter/1.0 (+https://github.com/sachikoakina/Audiovisual-Transporter)';
 
 const BGM_API = 'https://api.bgm.tv';
 
@@ -47,6 +52,14 @@ function isUnauthorized(error: unknown): boolean {
   return error instanceof HTTPError && error.response.statusCode === 401;
 }
 
+/**
+ * Explain a 401 in the user's own language, with the exact fix — the same contract as
+ * `neodb-http.ts#logNeodbUnauthorized`. These three messages are the deliberate exception to
+ * "runtime messages are English"; keeping the reason in all three stops the next reader from
+ * "fixing" one of them.
+ * 用用户的语言解释 401，并给出确切的修复步骤 —— 与 `neodb-http.ts#logNeodbUnauthorized` 同一契约。
+ * 这三条消息是「运行时消息用英文」的刻意例外；把理由写进三处，下一个读者才不会去「修」其中一条。
+ */
 function logUnauthorized(): void {
   consola.error(
     'Bangumi token 可能已过期，请到 https://next.bgm.tv/demo/access-token 重新生成并更新 BANGUMI_ACCESS_TOKEN secret',
@@ -73,10 +86,12 @@ export type BangumiCollection = {
   vol_status?: number;
   updated_at: string;
   private: boolean;
-  subject?: BangumiSubject & {
-    name?: string;
-    name_cn?: string;
-  };
+  // `subject` is a full `BangumiSubject`, which already declares `name` and `name_cn` as
+  // required. The old intersection re-declared both as optional, i.e. it made the type weaker
+  // than the payload it describes while looking more precise.
+  // `subject` 就是完整的 `BangumiSubject`，它本来就声明了必填的 `name` 与 `name_cn`。旧的交叉
+  // 把两者重新声明成可选，看上去更精确，实际比它描述的载荷更弱。
+  subject?: BangumiSubject;
 };
 
 export type BangumiUser = {
