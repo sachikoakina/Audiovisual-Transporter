@@ -75,14 +75,14 @@ flowchart LR
 
 ### 关键数字
 
-| 项                    | 值         | 说明                                                        |
-| --------------------- | ---------- | ----------------------------------------------------------- |
-| 同步链路              | **5 条**   | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立           |
-| `src/` 文件           | **28 个**  | `clients/` 9 · `rules/` 7 · `paths/` 5 · 顶层 7             |
-| 离线断言              | **256 条** | `npm run verify:all`，不需网络与凭据                        |
-| 环境变量              | **51 个**  | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名 |
-| `process.exit()`      | **0 处**   | 无实际调用；失败一律走 `PathReport` → 退出码                |
-| 硬编码 `neodb.social` | **1 处**   | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`   |
+| 项                    | 值                 | 说明                                                          |
+| --------------------- | ------------------ | ------------------------------------------------------------- |
+| 同步链路              | **5 条**           | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立             |
+| `src/` 文件           | **28 个**          | `clients/` 9 · `rules/` 7 · `paths/` 5 · 顶层 7               |
+| 离线断言              | **320 条 + 19 例** | `npm run verify:all`（vitest 与四个校验脚本），不需网络与凭据 |
+| 环境变量              | **51 个**          | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名   |
+| `process.exit()`      | **0 处**           | 无实际调用；失败一律走 `PathReport` → 退出码                  |
+| 硬编码 `neodb.social` | **1 处**           | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`     |
 
 ### 三条设计原则
 
@@ -142,7 +142,7 @@ cp .env.example .env      # Windows: copy .env.example .env
 ### 4. 本地验证
 
 ```bash
-npm run verify:all           # 离线自测：256 条断言，不联网
+npm run verify:all           # 离线自测：19 个路径测试 + 320 条断言，不联网
 SYNC_DRY_RUN=1 npm run sync  # 空跑：只打印计划，不写任何数据
 npm run sync                 # 正式同步全部链路
 ```
@@ -722,7 +722,7 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 npm run sync                  # 全部启用链路
 npm run sync:bangumi-full     # 只跑链路④，且全量
 npm run sync:neodb-tmdb-full  # 只跑链路⑤，且全量
-npm run verify:all            # 离线断言（256 条）
+npm run verify:all            # 离线（19 个路径测试 + 320 条断言）
 npm run typecheck             # tsc --noEmit
 npm run lint / lint:fix       # ESLint
 npm run format / format:check # Prettier
@@ -771,6 +771,7 @@ Audiovisual-Transporter/
 │
 ├── scripts/                      辅助脚本：probe-neodb-shelf.ts · verify-tmdb-mapping.ts · verify-rules.ts<br/>                                 verify-douban-parsers.ts · verify-log-contract.ts（slug 与日志哨兵）<br/>                                 image-downloader.d.ts · download-douban-note-images.ts（未接通）<br/>                                 review-queue.mjs（读日志 → 跨轮维护待核对名单）
 ├── tests/fixtures/               解析器断言用的 HTML fixture（5 个，手工构造）
+├── tests/unit/                   vitest 用例：读取三态、`paths/read.ts` 的异常选择、④ 的三种出口、对账方向
 ├── docs/                         README 配图 + 参考手册（`reference.md`）+ 待核对名单机制（`review-queue.md`）<br/>                                 决策记录（`decisions.md`）+ 一次外部重构评审的完整结论（`refactor-review.md`）
 ├── archive/                      已废弃：旧爬虫与历史回填脚本，仅供追溯
 ├── userscript/                   浏览器用户脚本，手动导出用（src/ 不引用；eslint / prettier / tsconfig 均排除）
@@ -825,10 +826,11 @@ flowchart TB
 ### 离线断言
 
 ```bash
-npm run verify:all      # 依次跑三个脚本；CI 在同步之前先跑它
+npm run verify:all      # 依次跑 vitest 与四个校验脚本；CI 在同步之前先跑它
 ```
 
-- 全部**不需要网络、不需要凭据、不引入测试框架**，几秒内跑完；`verify:mapping`（57 项）/ `verify:rules`（113 项）/ `verify:parsers`（75 项）可单独运行。
+- 分为两半：`npm test`（vitest，19 例，**带客户端替身**驱动 `paths/` 的真实接线）与四个 `tsx` 校验脚本（纯断言，无框架）。全部**不需要网络、不需要凭据**，几秒内跑完；`verify:mapping`（57 项）/ `verify:rules`（144 项）/ `verify:parsers`（75 项）/ `verify:log-contract`（47 项）可单独运行。
+- **为什么路径层需要 vitest 而规则层不需要**：规则是纯函数，字面量进、字面量出，`tsx` 足够；`paths/` 要替换 `clients/` 才能在没有 NeoDB 的情况下验证「读失败不写」这类行为，而 `vi.mock` 是这里唯一够用的能力。三轮评审里出错的三处（漏检返回值、`switch` 缺分支、读错当不存在）全在这一层。
 - **关于 `tests/fixtures/*.html` 的诚实说明**：这五个 fixture 的标记结构是**由解析器使用的选择器反推构造**的，并非从豆瓣抓取。它们能让每个分支都有用例、并把期望值（含若干「怪癖」）精确钉住，因此任何改变解析行为的编辑都会立刻失败；但**无法**证明这些选择器今天仍与线上一致。下次改动解析器时，请用真实抓取的 HTML 替换它们。
 - **关于「唯一的 env 读取点」**：目前并非事实。除 `sync-config.ts` 外，还有 5 个文件直接读 `process.env`：`clients/bangumi.ts`、`clients/douban-rss.ts`、`clients/neodb-http.ts`、`clients/notion.ts`、`sync-report.ts`（2 个 CI 注入变量）。`sync-config.ts` 是**集中解析开关与配置的中心**，「所有 env 只此一处」仍是待办目标。
 
