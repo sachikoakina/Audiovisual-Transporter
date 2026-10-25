@@ -107,10 +107,16 @@ export function neodbGradeToTmdbRating(
 }
 
 /** Read an existing TMDB rating defensively (`rated` may be `false`). / 防御性地读取 TMDB 现有评分（`rated` 可能是 `false`）。 */
-export function extractTmdbRating(states: TmdbAccountStates | null): number | null {
-  if (!states) {
-    return null;
-  }
+/**
+ * The rating already on TMDB, or `null` when there is none.
+ * TMDB 上已有的评分；没有则 `null`。
+ *
+ * Takes a *read* states object, never a maybe-null: accepting `null` was how "could not read"
+ * became "no rating yet", and the write plan then had no way to tell the two apart.
+ * 参数是**读到的** states，不接受可空：以前接受 `null` 正是「读不到」变成「还没有评分」的路径，
+ * 而写计划从此再也分不清这两者。
+ */
+export function extractTmdbRating(states: TmdbAccountStates): number | null {
   const rated = states.rated;
   if (rated && typeof rated === 'object' && typeof rated.value === 'number') {
     return rated.value;

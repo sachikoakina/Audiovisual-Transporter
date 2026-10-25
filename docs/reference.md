@@ -543,6 +543,10 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 比对结果汇总为 `shouldWrite`：**`false` 时调用方不得发出任何写入请求**（`planTmdbWrites` 的契约注释明确写了这一点）。写入时**按字段分别发请求**——`setRating` 与 `setWatchlist` 各自独立判断，**不存在的字段根本不会出现在 payload 里**，所以不存在「全量覆盖」。
 
+**读失败一律不写**（2026-10-25 起）。上面所有比对的基准都来自一次读取，而读取有三种结果：`found` / `absent` / `error`。只有 `absent`（目标端明确回答「这里什么都没有」）才会进入新建或写入分支；`error` 一律**不写**，该条计入 `failed` 并在明细里点名（`neodb-read-failed` / `bangumi-read-failed` / `item-threw` / `tmdb-item-threw`）。凭据类错误（401 / 403）再进一步：整条链路标 `aborted`、退出码非零，而不是逐条刷失败。
+
+在这条规则之前，读取失败与「空记录」是同一个 `null`：一次 500 就足以让 `tmdb_prefer` 失效、把用户在 TMDB 上手设的评分覆盖掉。代码层面由 `ReadResult<T>`（`src/types.ts`）与 `paths/read.ts` 强制，`planTmdbWrites` / `extractTmdbRating` 的参数也不再接受 `null`。
+
 > `plan === null` 的字段（如日志中的 `rating untouched`）表示**映射上就不该动这个字段**，此时既不 POST 也不 DELETE——**绝不删除**用户手动在 TMDB 设的评分。这是刻意的保护。
 
 ### Bangumi → NeoDB 与豆瓣 → NeoDB：读 `getNeodbMark` 逐字段比对

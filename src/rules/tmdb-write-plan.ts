@@ -39,9 +39,16 @@ export type TmdbPatch = {
  *   计划为 skip           → 什么都不做
  *
  * `shouldWrite === false` 表示调用方**不得**发出任何写入请求。
+ *
+ * `current` is a states object that was actually read — not `TmdbAccountStates | null`. The
+ * nullable version made `null` mean "no rating, not on the watchlist", which is exactly the state
+ * the plan then writes over; a failed read must stop at the caller, not reach this function.
+ * `current` 是**确实读到了**的 states，而不是 `TmdbAccountStates | null`。可空版本让 `null`
+ * 等于「没有评分、不在 watchlist」—— 而那正是计划接下来会覆盖的状态；读取失败必须停在调用方，
+ * 不该走到这个函数里。
  */
 export function planTmdbWrites(
-  current: TmdbAccountStates | null,
+  current: TmdbAccountStates,
   plan: TmdbOperationPlan,
   profile: RatingProfile,
 ): TmdbPatch {
@@ -59,7 +66,7 @@ export function planTmdbWrites(
   // ── Watchlist ──────────────────────────────────────────────────────────
   let setWatchlist: boolean | null = null;
   if (plan.watchlist !== null) {
-    const existing = current?.watchlist ?? false;
+    const existing = current.watchlist;
     if (existing === plan.watchlist) {
       reasons.push(`watchlist already ${existing}`);
     } else {
