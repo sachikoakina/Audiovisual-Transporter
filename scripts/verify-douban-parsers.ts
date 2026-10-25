@@ -44,23 +44,9 @@ import {
 } from '../src/clients/douban-subject-parsers';
 import { extractItemInfo } from '../src/clients/douban-rss';
 import { DB_PROPERTIES, ItemCategory, ItemStatus } from '../src/types';
+import { createChecker } from './verify-lib';
 
-let passed = 0;
-let failed = 0;
-
-function check(name: string, condition: boolean): void {
-  if (condition) {
-    passed += 1;
-    console.log(`  ok   ${name}`);
-  } else {
-    failed += 1;
-    console.error(`FAIL   ${name}`);
-  }
-}
-
-function section(name: string): void {
-  console.log(`\n${name}`);
-}
+const { check, section, summary } = createChecker();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -607,7 +593,4 @@ section('Cross-parser invariant / 跨解析器不变量');
 
 // ───────────────────────────────────────────────────────────────────────────
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  process.exitCode = 1;
-}
+summary();

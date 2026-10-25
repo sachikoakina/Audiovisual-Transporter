@@ -22,23 +22,9 @@ import {
 import { resolveTmdbOperations } from '../src/rules/tmdb-mapping';
 import { planTmdbWrites } from '../src/rules/tmdb-write-plan';
 import type { NeodbItem, TmdbAccountStates } from '../src/types';
+import { createChecker } from './verify-lib';
 
-let passed = 0;
-let failed = 0;
-
-function check(name: string, condition: boolean): void {
-  if (condition) {
-    passed += 1;
-    console.log(`  ok   ${name}`);
-  } else {
-    failed += 1;
-    console.error(`FAIL   ${name}`);
-  }
-}
-
-function section(name: string): void {
-  console.log(`\n${name}`);
-}
+const { check, section, summary } = createChecker();
 
 function item(over: Partial<NeodbItem> = {}): NeodbItem {
   return {
@@ -294,7 +280,4 @@ section('transition scenarios');
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  process.exitCode = 1;
-}
+summary();

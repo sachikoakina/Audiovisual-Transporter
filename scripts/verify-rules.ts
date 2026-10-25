@@ -79,23 +79,9 @@ import {
   type TmdbSearchResult,
 } from '../src/types';
 import { groupByReason, renderDetailLines } from '../src/rules/review-detail';
+import { createChecker } from './verify-lib';
 
-let passed = 0;
-let failed = 0;
-
-function check(name: string, condition: boolean): void {
-  if (condition) {
-    passed += 1;
-    console.log(`  ok   ${name}`);
-  } else {
-    failed += 1;
-    console.error(`FAIL   ${name}`);
-  }
-}
-
-function section(name: string): void {
-  console.log(`\n${name}`);
-}
+const { check, section, summary } = createChecker();
 
 function neodbItem(over: Partial<NeodbItem> = {}): NeodbItem {
   return {
@@ -895,8 +881,9 @@ check(
 );
 check(
   'a url is composed into `标题[链接]`, the shape the console has always printed',
-  renderDetailLines([{ title: '某书', url: 'https://book.douban.com/subject/1/', reason: 'r' }])
-    .lines[0] === '某书[https://book.douban.com/subject/1/] — r',
+  renderDetailLines([
+    { title: '某书', url: 'https://book.douban.com/subject/1/', reason: 'r' },
+  ]).lines[0] === '某书[https://book.douban.com/subject/1/] — r',
 );
 check(
   'no url means no brackets, not an empty pair',
@@ -904,12 +891,13 @@ check(
 );
 check(
   'an entry with no title and no url is named (unnamed) rather than printed as an empty bullet',
-  renderDetailLines([{ title: '  ', url: ' ', reason: 'r' }]).lines[0] === '(unnamed) — r',
+  renderDetailLines([{ title: '  ', url: ' ', reason: 'r' }]).lines[0] ===
+    '(unnamed) — r',
 );
 check(
   'a url with no title still gets rendered, because it is the only handle there is',
-  renderDetailLines([{ title: '', url: 'https://bgm.tv/subject/1', reason: 'r' }]).lines[0] ===
-    'https://bgm.tv/subject/1 — r',
+  renderDetailLines([{ title: '', url: 'https://bgm.tv/subject/1', reason: 'r' }])
+    .lines[0] === 'https://bgm.tv/subject/1 — r',
 );
 
 const manySame: ReviewDetail[] = Array.from({ length: 9 }, (_, index) => ({
@@ -1065,7 +1053,4 @@ check(
 
 // ───────────────────────────────────────────────────────────────────────────
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  process.exitCode = 1;
-}
+summary();

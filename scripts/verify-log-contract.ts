@@ -22,6 +22,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createChecker } from './verify-lib';
 
 /** Path display name → the file that prints its detail lines. / 链路显示名 → 打印其明细行的文件。 */
 const PATH_FILES: Record<string, string> = {
@@ -49,22 +50,7 @@ const SENTINELS = [
   'TMDB write threw, continuing: ',
 ];
 
-let passed = 0;
-let failed = 0;
-
-function check(name: string, ok: boolean, detail = ''): void {
-  if (ok) {
-    passed += 1;
-    console.log(`  ok   ${name}`);
-    return;
-  }
-  failed += 1;
-  console.log(`  FAIL ${name}${detail ? ` — ${detail}` : ''}`);
-}
-
-function section(title: string): void {
-  console.log(`\n${title}`);
-}
+const { check, section, summary } = createChecker();
 
 const root = process.cwd();
 const queuePath = path.join(root, 'scripts/review-queue.mjs');
@@ -149,7 +135,4 @@ for (const sentinel of SENTINELS) {
   check(`something in src/ still prints "${sentinel.trim()}"`, inSrc);
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  process.exitCode = 1;
-}
+summary();
