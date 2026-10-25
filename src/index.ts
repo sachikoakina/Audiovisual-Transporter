@@ -7,13 +7,13 @@
  *   2. A failure anywhere in those three is caught here, logged, and recorded as an `aborted`
  *      report named `Douban RSS` — the run CONTINUES, so a Douban outage still lets
  *      Bangumi→NeoDB and NeoDB→TMDB do their work. Recording it as a report (not a side flag)
- *      is what keeps the closing summary honest: it used to print "none failed" while the
- *      process exited 1.
+ *      is what keeps the closing summary and the exit code derived from the same value — see
+ *      `docs/decisions.md` §8 for the incident that made this a rule.
  *   3. `SYNC_DOUBAN_REQUIRED=0` marks that report `tolerated`: still printed, still listed in the
  *      job summary as `TOLERATED`, but excluded from the exit code.
  *   4. Bangumi→NeoDB runs next, then NeoDB→TMDB.
  *   5. `printOverallSummary` runs before the exit code is set, so the summary always survives.
- *   6. No path calls `process.exit()` any more, and all 5 paths return a `PathReport`. A path that
+ *   6. No path calls `process.exit()`, and all 5 paths return a `PathReport`. A path that
  *      is enabled but cannot run (missing credentials, unresolvable identity) reports `aborted`,
  *      which fails the run on purpose — an enabled path with no credentials is a misconfiguration.
  *
