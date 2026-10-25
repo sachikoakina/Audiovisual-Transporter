@@ -204,6 +204,14 @@ export default async function syncBangumiToNeodb(
               counters.unresolved += 1;
               recordUnresolved(collection, report);
               break;
+            default: {
+              // Compile-time tripwire. Adding a member to `CollectionOutcome` without wiring it
+              // up here used to mean a silently uncounted collection; now it fails to compile.
+              // 编译期保险丝。往 `CollectionOutcome` 加成员却忘了在这里接线，过去意味着一条
+              // 被静默漏计的收藏，现在会编译失败。
+              const unreachable: never = outcome;
+              throw new Error(`Unhandled collection outcome: ${unreachable}`);
+            }
           }
         } catch (error) {
           counters.failed += 1;
@@ -314,15 +322,26 @@ async function syncCollectionToNeodb(
   const createdTime = collection.updated_at || undefined;
 
   const mark = await getNeodbMark(neodbItem.uuid);
-  let markWritten: boolean;
+  // Left `false` only when there was nothing to write. A write NeoDB *refused* throws instead,
+  // so `false` here can never mean "the mark did not land".
+  // 只在「本来就没东西要写」时保持 `false`。NeoDB *拒绝*的写入改为抛错，
+  // 于是这里的 `false` 绝不会意味着「标记没落地」。
+  let markWritten = false;
 
   if (!mark) {
-    await markNeodbItem(neodbItem, {
-      shelfType,
-      comment,
-      ratingGrade,
-      createdTime,
-    });
+    if (
+      !(await markNeodbItem(neodbItem, {
+        shelfType,
+        comment,
+        ratingGrade,
+        createdTime,
+      }))
+    ) {
+      // The refusal has to reach the counters, the detail list and the exit code, and this
+      // throw is the only channel the caller already handles for that.
+      // 拒绝必须能到达计数、明细与退出码；这个 throw 是调用方已经处理好的唯一通道。
+      throw new Error('NeoDB rejected the new mark');
+    }
     markWritten = true;
   } else {
     const merged = mergeNeodbMark(
@@ -334,7 +353,6 @@ async function syncCollectionToNeodb(
 
     if (!merged.shouldWrite) {
       consola.info('NeoDB mark unchanged, skip: ', title);
-      markWritten = false;
     } else {
       if (merged.keptRating || merged.keptComment) {
         consola.info(
@@ -347,11 +365,15 @@ async function syncCollectionToNeodb(
         );
       }
       // Do not pass createdTime on update — preserves NeoDB mark date.
-      await markNeodbItem(neodbItem, {
-        shelfType: merged.shelfType,
-        comment: merged.comment,
-        ratingGrade: merged.ratingGrade,
-      });
+      if (
+        !(await markNeodbItem(neodbItem, {
+          shelfType: merged.shelfType,
+          comment: merged.comment,
+          ratingGrade: merged.ratingGrade,
+        }))
+      ) {
+        throw new Error('NeoDB rejected the mark update');
+      }
       markWritten = true;
     }
   }

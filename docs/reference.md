@@ -480,7 +480,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 |                    | skipped | `guard-bangumi-status`           | Bangumi 上是搁置/抛弃，覆盖会毁掉源端没有的事实                                                          |
 |                    | failed  | `bangumi-write-rejected`         | `upsertBangumiCollection` 返回失败                                                                       |
 | ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                                                            |
-|                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析），不影响其余条目                                                                |
+|                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析）或 NeoDB 拒绝标记写入，不影响其余条目                                           |
 | ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 该书架状态在 TMDB 没有对应（例如 `dropped`）                                                             |
 |                    | skipped | `no-tmdb-category: <分类>`       | 分类 TMDB 装不了（游戏等），零请求                                                                       |
 |                    | skipped | `unmapped-category: <分类>`      | 分类不在映射表里（新出现的分类）                                                                         |
