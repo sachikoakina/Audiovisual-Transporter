@@ -73,9 +73,28 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
 
   consola.start('Going to sync to NeoDB...');
   for (const item of filtered) {
-    const outcome = await syncFeedItemToNeodb(item);
-    report[outcome] += 1;
-    recordOutcome(item, outcome, report);
+    try {
+      const outcome = await syncFeedItemToNeodb(item);
+      report[outcome] += 1;
+      recordOutcome(item, outcome, report);
+    } catch (error) {
+      // One bad item must never abort the batch. Until this guard existed, a single throw took
+      // the whole path with it: no report, no counts, and every remaining item unprocessed.
+      // 一条坏数据绝不能让整批停下。在补上这层之前，任何一次抛错都会带走整条链路：
+      // 没有报告、没有计数，剩下的条目一条都没跑。
+      report.failed += 1;
+      report.failedItems.push({
+        label: feedLabel(item),
+        reason: `neodb-item-threw: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      // Deliberately not `Item failed, continuing:` — that sentence is how the review list
+      // recognises Bangumi → NeoDB, and it routes on that string alone.
+      // 刻意不用 `Item failed, continuing:` —— 名单靠那句话认出 Bangumi → NeoDB，它只认这个字符串。
+      consola.error(
+        `Douban → NeoDB item threw, continuing: ${feedLabel(item)} —`,
+        error instanceof Error ? error.message : error,
+      );
+    }
     await neodbThrottle();
   }
   consola.success('NeoDB synced ✨');

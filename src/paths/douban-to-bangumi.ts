@@ -105,24 +105,43 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
 
   consola.start('Going to sync Douban → Bangumi...');
   for (const item of filtered) {
-    const outcome = await syncFeedItemToBangumi(item, me.username);
-    report[outcome] += 1;
-    if (outcome === 'unresolved') {
-      recordUnresolved(item, report);
-    } else if (outcome === 'skipped') {
-      // The only skip this path can produce: Bangumi already holds a status Douban cannot express
-      // (搁置/抛弃), so overwriting it would destroy a fact the source has no way to restore.
-      // 本链路唯一可能的跳过：Bangumi 上已是豆瓣表达不了的状态（搁置/抛弃），覆盖它会毁掉源端
-      // 无法再表达的事实。
-      report.skippedItems.push({
-        label: `${item.title || item.id}[${item.link}]`,
-        reason: 'guard-bangumi-status',
-      });
-    } else if (outcome === 'failed') {
+    try {
+      const outcome = await syncFeedItemToBangumi(item, me.username);
+      report[outcome] += 1;
+      if (outcome === 'unresolved') {
+        recordUnresolved(item, report);
+      } else if (outcome === 'skipped') {
+        // The only skip this path can produce: Bangumi already holds a status Douban cannot express
+        // (搁置/抛弃), so overwriting it would destroy a fact the source has no way to restore.
+        // 本链路唯一可能的跳过：Bangumi 上已是豆瓣表达不了的状态（搁置/抛弃），覆盖它会毁掉源端
+        // 无法再表达的事实。
+        report.skippedItems.push({
+          label: `${item.title || item.id}[${item.link}]`,
+          reason: 'guard-bangumi-status',
+        });
+      } else if (outcome === 'failed') {
+        report.failedItems.push({
+          label: `${item.title || item.id}[${item.link}]`,
+          reason: 'bangumi-write-rejected',
+        });
+      }
+    } catch (error) {
+      // One bad item must never abort the batch. Until this guard existed, a single throw took
+      // the whole path with it: no report, no counts, and every remaining item unprocessed.
+      // 一条坏数据绝不能让整批停下。在补上这层之前，任何一次抛错都会带走整条链路：
+      // 没有报告、没有计数，剩下的条目一条都没跑。
+      report.failed += 1;
       report.failedItems.push({
         label: `${item.title || item.id}[${item.link}]`,
-        reason: 'bangumi-write-rejected',
+        reason: `bangumi-item-threw: ${error instanceof Error ? error.message : String(error)}`,
       });
+      // Deliberately not `Item failed, continuing:` — that sentence is how the review list
+      // recognises Bangumi → NeoDB, and it routes on that string alone.
+      // 刻意不用 `Item failed, continuing:` —— 名单靠那句话认出 Bangumi → NeoDB，它只认这个字符串。
+      consola.error(
+        `Douban → Bangumi item threw, continuing: ${item.title || item.id}[${item.link}] —`,
+        error instanceof Error ? error.message : error,
+      );
     }
     await bangumiThrottle();
   }
