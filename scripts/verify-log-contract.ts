@@ -128,6 +128,39 @@ for (const entry of entries) {
 // ───────────────────────────────────────────────────────────────────────────
 section('Log sentinels / 日志哨兵');
 
+/**
+ * Every literal the parser actually matches on, read out of its own source.
+ *
+ * The list above is a *transcription* of these, and a transcription only stays true if something
+ * compares it back. Without this, adding a new `indexOf('…')` to the parser would be invisible
+ * here: the checks below would happily pass for the old set while the new pattern decided real
+ * behaviour.
+ * 上面那份清单是对这些字面量的**抄录**，而抄录只有被反向比对才保持为真。缺了这一段，给解析器
+ * 新增一个 `indexOf('…')` 在这里完全看不见：下面的检查会对旧集合一路放行，而真正的行为已经由
+ * 那个新模式决定。
+ */
+const matchedLiterals = [...queueSource.matchAll(/indexOf\(\s*'([^']*)'/g)].map(
+  (match) => match[1],
+);
+const matchedSet = new Set(matchedLiterals);
+const declaredSet = new Set(SENTINELS);
+
+check(
+  'the parser source yields the sentinels it is expected to match',
+  matchedSet.size > 0,
+  `${matchedLiterals.length} literal(s)`,
+);
+check(
+  'no literal in the parser is missing from the list above',
+  [...matchedSet].every((literal) => declaredSet.has(literal)),
+  [...matchedSet].filter((literal) => !declaredSet.has(literal)).join(' | '),
+);
+check(
+  'no sentinel in the list is stale (absent from the parser source)',
+  [...declaredSet].every((literal) => matchedSet.has(literal)),
+  [...declaredSet].filter((literal) => !matchedSet.has(literal)).join(' | '),
+);
+
 for (const sentinel of SENTINELS) {
   const inParser = queueSource.includes(sentinel);
   const inSrc = [...sources.values()].some((source) => source.includes(sentinel));
