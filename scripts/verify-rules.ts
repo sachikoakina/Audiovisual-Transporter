@@ -44,6 +44,12 @@ import {
 } from '../src/rules/bangumi-neodb';
 import { mergeNeodbMark } from '../src/rules/neodb-mark-merge';
 import { classifyReadFailure } from '../src/rules/read-result';
+import {
+  ItemReadError,
+  PathAbortedError,
+  readOptionalOrThrow,
+  readValueOrThrow,
+} from '../src/paths/read';
 import { normalizeTitleKey, pickExactTmdbMatch } from '../src/rules/tmdb-matching';
 import {
   NEODB_CATEGORIES_WITHOUT_TMDB,
@@ -957,6 +963,46 @@ check(
 check(
   'no response at all is an item failure, not an absent record',
   classifyReadFailure(null) === 'item',
+);
+
+// `paths/read.ts` is where that classification turns into control flow. These assertions matter
+// because the whole point is *which* exception comes out: `auth` must stop the path, everything
+// else must merely fail one item.
+// `paths/read.ts` 是把归类变成控制流的地方。这几条要钉的是**抛出哪一个**异常：`auth` 必须让整条
+// 链路停下，其余只失败一条。
+function caughtThrow(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+check(
+  'a found read hands the value back',
+  readOptionalOrThrow({ status: 'found', value: 7 }, 'x') === 7,
+);
+check(
+  'an absent read is the only one that yields null',
+  readOptionalOrThrow({ status: 'absent' }, 'x') === null,
+);
+check(
+  'an auth failure raises PathAbortedError, not an item error',
+  caughtThrow(() =>
+    readOptionalOrThrow({ status: 'error', scope: 'auth', message: '401' }, 'x'),
+  ) instanceof PathAbortedError,
+);
+check(
+  'an item failure raises ItemReadError',
+  caughtThrow(() =>
+    readOptionalOrThrow({ status: 'error', scope: 'item', message: '500' }, 'x'),
+  ) instanceof ItemReadError,
+);
+check(
+  'readValueOrThrow treats absent as an error too',
+  caughtThrow(() => readValueOrThrow({ status: 'absent' }, 'x')) instanceof
+    ItemReadError,
 );
 
 // ───────────────────────────────────────────────────────────────────────────
