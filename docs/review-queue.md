@@ -1,5 +1,7 @@
 # 待核对名单：用 90 天 Artifact 跨轮维护
 
+> **2026-10-25 起多了一个对账入口**：`sync.yml` 现在把同一轮的 `PathReport` 以 JSON 上传为 `sync-report-<run_id>`，名单作业会下载它、在摘要末尾追加一节「运行报表（JSON）」，比较「本轮实际计了多少 failed」与「日志解析出多少」。**名单内容仍由日志决定**——这一节只提示差值，不增删条目。缺 artifact 时该节整体不出现（旧运行、上传失败都走这条路）。
+>
 > 基线 `main@e13c482`。机制本身仍是两个文件：`.github/workflows/review-queue.yml`（触发器）与 `scripts/review-queue.mjs`（解析 + 状态机 + 渲染）。`.github/workflows/sync.yml` 现在多了一个 `if: always()` 的「发布作业摘要」步骤（与名单无关，见 `docs/reference.md` 的「CI 中的作业摘要」）；`src/` 的改动仍限于展示与日志层 —— ② 补了一条未匹配日志、⑤ 的条目级失败换了措辞，不涉及写入目标端的行为与退出码。
 
 ## 1. 目标与硬约束

@@ -353,7 +353,7 @@
 
 ### CI 中的作业摘要
 
-由 `src/sync-report.ts` 先写进 `SYNC_SUMMARY_FILE`（默认 `.cache/sync-summary.md`），再由 `sync.yml` 里一个 `if: always()` 的步骤贴到 `$GITHUB_STEP_SUMMARY`。运行页顶部会出现一块 **Markdown 面板**，顺序固定为：
+由 `src/sync-report.ts` 先写进 `SYNC_SUMMARY_FILE`（默认 `.cache/sync-summary.md`），再由 `sync.yml` 里一个 `if: always()` 的步骤贴到 `$GITHUB_STEP_SUMMARY`。**同一时刻**还会写出 `SYNC_REPORT_FILE`（默认 `.cache/sync-report.json`）：同一批 `PathReport` 的 JSON 版本，由 `sync.yml` 以 `sync-report-<run_id>` 上传为 artifact，保留 7 天。两份文件都在确定退出码之前写出，因此失败的那一轮同样会留下它们。运行页顶部会出现一块 **Markdown 面板**，顺序固定为：
 
 1. 一行极简的六字段中文说明（含义）；
 2. 一段计数关系说明（谁是谁的划分、哪个链路例外）；
@@ -466,33 +466,33 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 控制台与作业摘要里每条明细都带一个 `reason` slug；同一 slug 在留档日志里也是同一个词，可以用一次 grep 对齐。带 `:` 的 slug 会把具体值接在后面（例如 `no-tmdb-category: game`），**分组按完整取值**，因此 `game` 与 `music` 会各占一组。
 
-| 链路               | 档位    | reason                           | 含义                                                                                                     |
-| ------------------ | ------- | -------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| ① Douban → Notion  | skipped | `category-not-allowed`           | 分类不在 `DOUBAN_NOTION_CATEGORIES` 里（白名单模式）                                                     |
-|                    | skipped | `no-notion-database: <分类>`     | 该分类没配 data source id，整类条目都不会写（要补的是**一行配置**）                                      |
-|                    | failed  | `notion-insert-failed`           | Notion 收到请求但没建页（列不匹配 / 令牌权限）                                                           |
-|                    | failed  | `douban-scrape-failed`           | 豆瓣条目页抓取或 PoW 求解失败，请求没发出过                                                              |
-|                    | failed  | `notion-category-failed: <错误>` | 该分类的去重查询或 schema 读取抛错，整类计入失败                                                         |
-| ② Douban → NeoDB   | skipped | `category-not-allowed`           | 同上，白名单排除                                                                                         |
-|                    | skipped | `guard-target-status`            | 目标端状态是豆瓣表达不了的（如 `dropped`），留着不动                                                     |
-|                    | failed  | `neodb-mark-rejected`            | 标记写入（新建或更新）被拒                                                                               |
-|                    | failed  | `neodb-read-failed`              | 现有标记读取失败（401 除外）。这一条**没有写入**，目标端保持原样                                         |
-|                    | failed  | `neodb-item-threw: <错误>`       | 单条处理抛错（预料之外的异常），不影响其余条目                                                           |
-| ③ Douban → Bangumi | skipped | `category-not-allowed`           | 同上                                                                                                     |
-|                    | skipped | `guard-bangumi-status`           | Bangumi 上是搁置/抛弃，覆盖会毁掉源端没有的事实                                                          |
-|                    | failed  | `bangumi-write-rejected`         | `upsertBangumiCollection` 返回失败                                                                       |
-|                    | failed  | `bangumi-read-failed`            | 现有收藏读取失败（401 除外）。这一条**没有写入**，Bangumi 保持原样                                       |
-|                    | failed  | `bangumi-item-threw: <错误>`     | 单条处理抛错（预料之外的异常），不影响其余条目                                                           |
-| ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                                                            |
-|                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析）或 NeoDB 拒绝标记写入，不影响其余条目                                           |
-| ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 该书架状态在 TMDB 没有对应（例如 `dropped`）                                                             |
-|                    | skipped | `no-tmdb-category: <分类>`       | 分类 TMDB 装不了（游戏等），零请求                                                                       |
-|                    | skipped | `unmapped-category: <分类>`      | 分类不在映射表里（新出现的分类）                                                                         |
-|                    | skipped | `unchanged-since-last-run`       | 增量指纹命中；正常增量运行的主体，通常数百条                                                             |
-|                    | skipped | `duplicate-in-run: <目标>`       | 同一 TMDB 条目本轮已被处理过（同一作品在两个书架）                                                       |
-|                    | failed  | `no-catalog-item`                | 标记没有目录条目，连标题都没有                                                                           |
+| 链路               | 档位    | reason                           | 含义                                                                                                        |
+| ------------------ | ------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| ① Douban → Notion  | skipped | `category-not-allowed`           | 分类不在 `DOUBAN_NOTION_CATEGORIES` 里（白名单模式）                                                        |
+|                    | skipped | `no-notion-database: <分类>`     | 该分类没配 data source id，整类条目都不会写（要补的是**一行配置**）                                         |
+|                    | failed  | `notion-insert-failed`           | Notion 收到请求但没建页（列不匹配 / 令牌权限）                                                              |
+|                    | failed  | `douban-scrape-failed`           | 豆瓣条目页抓取或 PoW 求解失败，请求没发出过                                                                 |
+|                    | failed  | `notion-category-failed: <错误>` | 该分类的去重查询或 schema 读取抛错，整类计入失败                                                            |
+| ② Douban → NeoDB   | skipped | `category-not-allowed`           | 同上，白名单排除                                                                                            |
+|                    | skipped | `guard-target-status`            | 目标端状态是豆瓣表达不了的（如 `dropped`），留着不动                                                        |
+|                    | failed  | `neodb-mark-rejected`            | 标记写入（新建或更新）被拒                                                                                  |
+|                    | failed  | `neodb-read-failed`              | 现有标记读取失败（401 除外）。这一条**没有写入**，目标端保持原样                                            |
+|                    | failed  | `neodb-item-threw: <错误>`       | 单条处理抛错（预料之外的异常），不影响其余条目                                                              |
+| ③ Douban → Bangumi | skipped | `category-not-allowed`           | 同上                                                                                                        |
+|                    | skipped | `guard-bangumi-status`           | Bangumi 上是搁置/抛弃，覆盖会毁掉源端没有的事实                                                             |
+|                    | failed  | `bangumi-write-rejected`         | `upsertBangumiCollection` 返回失败                                                                          |
+|                    | failed  | `bangumi-read-failed`            | 现有收藏读取失败（401 除外）。这一条**没有写入**，Bangumi 保持原样                                          |
+|                    | failed  | `bangumi-item-threw: <错误>`     | 单条处理抛错（预料之外的异常），不影响其余条目                                                              |
+| ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                                                               |
+|                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析）或 NeoDB 拒绝标记写入，不影响其余条目                                              |
+| ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 该书架状态在 TMDB 没有对应（例如 `dropped`）                                                                |
+|                    | skipped | `no-tmdb-category: <分类>`       | 分类 TMDB 装不了（游戏等），零请求                                                                          |
+|                    | skipped | `unmapped-category: <分类>`      | 分类不在映射表里（新出现的分类）                                                                            |
+|                    | skipped | `unchanged-since-last-run`       | 增量指纹命中；正常增量运行的主体，通常数百条                                                                |
+|                    | skipped | `duplicate-in-run: <目标>`       | 同一 TMDB 条目本轮已被处理过（同一作品在两个书架）                                                          |
+|                    | failed  | `no-catalog-item`                | 标记没有目录条目，连标题都没有                                                                              |
 |                    | failed  | `tmdb-write-failed: <字段>`      | 评分 / watchlist 写失败。字段取值 `rating`、`watchlist` 或 `rating+watchlist`；按**条目**计一条，下一轮重试 |
-|                    | failed  | `tmdb-item-threw: <错误>`        | 单条处理抛错（刻意与 ④ 的 `item-threw` 分开：两条链路原先用同一个 slug，待核对名单只能记到其中一条名下） |
+|                    | failed  | `tmdb-item-threw: <错误>`        | 单条处理抛错（刻意与 ④ 的 `item-threw` 分开：两条链路原先用同一个 slug，待核对名单只能记到其中一条名下）    |
 
 > **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。
 >

@@ -698,6 +698,102 @@ export function render({
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// The run's own report — a cross-check, not a second source of truth
+// 本轮运行自己的报表 —— 用来对账，而不是第二个真源
+//
+// The list is still built from logs, on purpose: a log line is what a human can also read, and
+// swapping the parser out in one step would change what the list contains without anyone being
+// able to say which change caused it. What the JSON buys is the opposite of a silent gap: if the
+// run counted 3 `failed` and the parser only recognised 1, that difference is now printed.
+// 名单仍然由日志构建，这是刻意的：日志行也是人能读的东西，而一次性替掉解析器会让名单内容变化，
+// 却没人能说清是哪处改动造成的。JSON 买到的是「缺口不再无声」：如果本轮计了 3 条 `failed`
+// 而解析器只认出 1 条，这个差值现在会被打印出来。
+
+/**
+ * Find the run report under `dir`, wherever the artifact was unzipped.
+ * @param {string} dir
+ * @returns {{paths: Array<{label: string, failed: number, skipped: number, unresolved: number, scanned: number}>} | null}
+ * 在 `dir` 下找到运行报表，不管 artifact 被解压到哪一层。
+ */
+function readRunReport(dir) {
+  if (!dir || !fs.existsSync(dir)) {
+    return null;
+  }
+  /** @type {string[]} */
+  const files = [];
+  const walk = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.json')) {
+        files.push(full);
+      }
+    }
+  };
+  walk(dir);
+
+  for (const file of files) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      // `version` + `paths` is the shape `publishRunReport` writes; anything else under the
+      // artifact directory is not ours to read.
+      // `version` + `paths` 就是 `publishRunReport` 写出的形状；artifact 目录下别的 JSON 不归我们读。
+      if (parsed && parsed.version === 1 && Array.isArray(parsed.paths)) {
+        return parsed;
+      }
+    } catch {
+      // Not the report, or truncated. Try the next file; absence is handled by the caller.
+      // 不是报表，或者被截断。试下一个；缺失由调用方处理。
+    }
+  }
+  return null;
+}
+
+/**
+ * Lines appended to the summary when a run report was available.
+ * @param {{paths: Array<{label: string, failed: number, skipped: number, unresolved: number}>} | null} report
+ * @param {Array<{kind: string}>} observed
+ * @returns {string[]}
+ */
+function runReportLines(report, observed) {
+  if (!report) {
+    return [];
+  }
+  const total = report.paths.reduce(
+    (acc, item) => ({
+      failed: acc.failed + (item.failed || 0),
+      skipped: acc.skipped + (item.skipped || 0),
+      unresolved: acc.unresolved + (item.unresolved || 0),
+    }),
+    { failed: 0, skipped: 0, unresolved: 0 },
+  );
+  const parsedFailed = observed.filter((item) => item.kind === 'failed').length;
+
+  const lines = ['', '### 运行报表（JSON）', ''];
+  lines.push(
+    `报表合计：failed ${total.failed} · skipped ${total.skipped} · unresolved ${total.unresolved}。` +
+      `本次从日志解析出 ${observed.length} 条（其中 failed ${parsedFailed} 条）。`,
+  );
+
+  const failedPaths = report.paths
+    .filter((item) => (item.failed || 0) > 0)
+    .map((item) => `\`${item.label}\` ${item.failed}`);
+  if (failedPaths.length) {
+    lines.push(`有 failed 的链路：${failedPaths.join(' · ')}。`);
+  }
+
+  if (total.failed > parsedFailed) {
+    lines.push(
+      `> ⚠️ 报表记了 ${total.failed} 条 failed，日志只解析出 ${parsedFailed} 条 —— ` +
+        '差值意味着有失败行没有被任何规则认领（多半是 slug 未登记，或措辞改了而哨兵没跟上）。' +
+        '这一节只做提示，不改变上面的名单。',
+    );
+  }
+  return lines;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // CLI
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -715,6 +811,7 @@ function main() {
     process.env.RUN_STARTED_AT || new Date().toISOString(),
   );
   const runUrl = arg('run-url', process.env.RUN_URL || '');
+  const reportDir = arg('report', process.env.REPORT_DIR || '');
 
   if (!logsDir || !fs.existsSync(logsDir)) {
     // Nothing to read is not a crash: report it and leave the old snapshot alone.
@@ -735,15 +832,19 @@ function main() {
     'utf8',
   );
 
-  const summary = render({
-    items,
-    added,
-    removed,
-    degraded,
-    runStartedAt,
-    runUrl,
-    unattributable,
-  });
+  const report = readRunReport(reportDir);
+  const summary = [
+    render({
+      items,
+      added,
+      removed,
+      degraded,
+      runStartedAt,
+      runUrl,
+      unattributable,
+    }),
+    ...runReportLines(report, observed),
+  ].join('\n');
   fs.writeFileSync(path.join(outDir, 'summary.md'), `${summary}\n`, 'utf8');
 
   fs.writeFileSync(
@@ -758,6 +859,7 @@ function main() {
         removed: removed.length,
         unattributable,
         degraded,
+        runReport: report ? { paths: report.paths.length } : null,
       },
       null,
       2,

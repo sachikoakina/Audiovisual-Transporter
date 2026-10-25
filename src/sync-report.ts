@@ -372,6 +372,7 @@ export function printOverallSummary(reports: PathReport[], skipReason?: string):
   // 在确定退出码之前写出，由一个与退出码无关的 workflow step 读取：失败的运行同样留下摘要。
   // 见 `publishJobSummary`。
   publishJobSummary(summaryMarkdown(reports, headline));
+  publishRunReport(reports);
 
   if (failedCount === 0) {
     consola.success('All enabled sync paths completed.');
@@ -398,7 +399,7 @@ function summaryMarkdown(reports: PathReport[], headline: string): string {
     '',
     'Scanned 源端读取并尝试处理的条目数；Written 成功写入（新建或更新）；Unchanged 目标端已有且内容一致、未写入；Skipped 被同步规则主动跳过（不计为失败）；Unresolved 无法确定目标端对应实体；Failed 处理时实际出错。',
     '',
-    '**计数关系**：Scanned 是分母，其余五项是对它的划分，彼此互不重合 —— `written + unchanged + skipped + unresolved + failed = scanned`，每条链路的 `self-check` 行会校验这一点。唯一例外是 `NeoDB → TMDB`：它的 Written 与 Failed 按**字段**计（评分、watchlist 各一次），同一作品最多贡献 2，因此该链路在两项都写时等式可能不成立。State 列的 `TOLERATED` 表示该链路失败但被 `SYNC_DOUBAN_REQUIRED=0` 免除了退出码。',
+    '**计数关系**：Scanned 是分母，其余五项是对它的划分，彼此互不重合 —— `written + unchanged + skipped + unresolved + failed = scanned`，每条链路的 `self-check` 行会校验这一点，**五条链路一视同仁**（`NeoDB → TMDB` 的评分与 watchlist 也按条目计，字段分项单独打印）。State 列的取值：`TOLERATED` 表示该链路失败但被 `SYNC_DOUBAN_REQUIRED=0` 免除了退出码；`dry-run` 表示这一轮什么都没发出去，计数是「本来会写什么」。',
     '',
     '**明细小节**：按链路分组，每条链路一个 `### 来源 → 目标` 标题，其下再按档位分 `#### unresolved（N）`、`#### failed（N）`、`#### skipped（N）`。顺序固定为 `unresolved` → `failed` → `skipped`，空档位不产生标题，三档全零的链路连 `###` 标题都不出现 —— 与待核对名单的分组规则一致。`unresolved` 逐条列出（最多 200 条，编号即位置）；`failed` / `skipped` 按**原因**分组 —— 同一原因超过 20 条时折叠成一行，带上条数与示例，因为一轮完整运行里 `unchanged-since-last-run` 这类机械跳过动辄数百条，逐条展开会把真正需要处理的几条埋掉。折叠行的数字与节标题的计数同源，不会对不上。三档都用 Markdown 有序列表、**各自从 1 起**：`unresolved` 的编号即位置，`failed` / `skipped` 的编号只表示「本节第几条可见记录」—— 折叠行一次代表多条，编号不与条数一一对应。',
     '',
@@ -554,6 +555,30 @@ function appendDetailSummary(
  * 必须是纯 markdown —— 被 consola 碰过就会多出前缀、不再渲染。无条件写出，Actions 之外也写，
  * 本地跑完直接看这个文件即可。
  */
+/**
+ * The same run, as data.
+ *
+ * The summary above is for a human; this file is what a machine can check itself against — the
+ * review queue reads it to notice log lines it failed to attribute. Written at the same moment as
+ * the summary, i.e. before the exit code, so a failed run still leaves one behind.
+ * 同一轮运行，以数据形式。上面的摘要给人看；这个文件给机器对账 —— 待核对名单读它，用来发现
+ * 自己没能认领的日志行。与摘要同一时刻写出，即在确定退出码之前，因此失败的那一轮也会留下它。
+ */
+function publishRunReport(reports: readonly PathReport[]): void {
+  const target = path.resolve(
+    process.env.SYNC_REPORT_FILE || '.cache/sync-report.json',
+  );
+  const payload = { version: 1, generatedAt: new Date().toISOString(), paths: reports };
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    // Same policy as the summary: a write failure is noise, not a run failure.
+    // 与摘要同一策略：写不进去是噪音，不是运行失败。
+    consola.warn(`Could not write the run report to ${target}: `, error);
+  }
+}
+
 function publishJobSummary(markdown: string): void {
   const target = path.resolve(
     process.env.SYNC_SUMMARY_FILE || '.cache/sync-summary.md',

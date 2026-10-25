@@ -154,3 +154,20 @@ jobs:
           else
             echo '> 这一轮没有产出摘要文件：进程在打印汇总之前就退出了，原因见上一节的日志。' >> "$GITHUB_STEP_SUMMARY"
           fi
+      # The machine-readable half of the same report. The summary above is prose for a human; this
+      # file lets the review queue check its own log parsing against what the run actually counted,
+      # instead of re-deriving it from console text. Same `always()` rule as the summary — a failed
+      # run is the one worth reading.
+      # 同一份报表的机器可读那一半。上面的摘要给人读；这个文件让待核对名单拿「本轮实际计了什么」
+      # 对照自己的日志解析，而不必再从控制台文本里重推一遍。与摘要同一条 `always()`：失败的那一轮
+      # 才是最值得读的。
+      - name: Upload the run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Run-scoped name: sync runs upload every round, and artifact names must not collide.
+          # 名字带 run id：同步每轮都上传，artifact 名不能相撞。
+          name: sync-report-${{ github.run_id }}
+          path: .cache/sync-report.json
+          if-no-files-found: warn
+          retention-days: 7

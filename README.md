@@ -80,7 +80,7 @@ flowchart LR
 | 同步链路              | **5 条**   | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立           |
 | `src/` 文件           | **28 个**  | `clients/` 9 · `rules/` 7 · `paths/` 5 · 顶层 7             |
 | 离线断言              | **256 条** | `npm run verify:all`，不需网络与凭据                        |
-| 环境变量              | **50 个**  | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名 |
+| 环境变量              | **51 个**  | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名 |
 | `process.exit()`      | **0 处**   | 无实际调用；失败一律走 `PathReport` → 退出码                |
 | 硬编码 `neodb.social` | **1 处**   | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`   |
 
@@ -689,10 +689,11 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### 留档
 
-| 变量                 | 默认                     | 说明                                                                                                                                       |
-| -------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json`  | **四条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍打印计数与清单）          |
-| `SYNC_SUMMARY_FILE`  | `.cache/sync-summary.md` | 每轮结束渲染的 Markdown 摘要落在这里，覆盖写、不追加。CI 里由一个 `if: always()` 的步骤贴进 `$GITHUB_STEP_SUMMARY`，因此失败的运行也有摘要 |
+| 变量                 | 默认                      | 说明                                                                                                                                             |
+| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json`   | **四条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍打印计数与清单）                |
+| `SYNC_SUMMARY_FILE`  | `.cache/sync-summary.md`  | 每轮结束渲染的 Markdown 摘要落在这里，覆盖写、不追加。CI 里由一个 `if: always()` 的步骤贴进 `$GITHUB_STEP_SUMMARY`，因此失败的运行也有摘要       |
+| `SYNC_REPORT_FILE`   | `.cache/sync-report.json` | 同一轮的**机器可读**版本（`version` + 每条链路的完整 `PathReport`）。`sync.yml` 以 `sync-report-<run_id>` 上传，待核对名单用它对照自己的日志解析 |
 
 > 这是**相对路径**，按进程的工作目录解析：`npm run sync` 下就是仓库根，落到 `<仓库>/.cache/unmatched.json`；在 CI 里则是 runner 上的 `$GITHUB_WORKSPACE/.cache/`，作业一结束随虚拟机销毁。日志里打印的是**解析后的绝对路径**；作业摘要只在**本地**打印绝对路径，CI 里只给条目数与体积并说明文件随 runner 销毁（那边给绝对路径等于指向一台已经不存在的机器）。两种情况下文件不在都明写 `not present`。所以「找不到文件」时的第一步是核对那条路径属于哪台机器。`.cache` 在 `.gitignore` 里，`git status` 与 GitHub Desktop 都看不到它。②③④⑤ 会写，① 不写（它的失败与未配置分类走 Notion 侧的明细）。
 

@@ -99,6 +99,37 @@ jobs:
           unzip -q -o logs.zip -d logs
           find logs -type f | head -20
 
+      # ── 2b. The run's own report, if the sync uploaded one ──────────────
+      # `continue-on-error` on purpose: a sync run from before this step existed, or an upload
+      # that failed, must not fail the queue. Absent means "no cross-check this round", which is
+      # exactly what the old behaviour was for every round.
+      # 刻意 `continue-on-error`：早于这一步的同步运行，或上传失败的运行，都不能让名单作业失败。
+      # 缺失只意味着「这一轮没有对账」—— 而那正是过去每一轮的情形。
+      - name: Download the run report
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p run-report
+          set -o pipefail
+          LIST=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?name=sync-report-$RUN_ID&per_page=100")
+          ID=$(printf '%s' "$LIST" | jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+          if [ -z "$ID" ]; then
+            echo "No run report for run $RUN_ID (older sync, or the upload failed); skipping the cross-check."
+            exit 0
+          fi
+          echo "Downloading run report artifact $ID"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ID/zip" -o run-report.zip
+          unzip -q -o run-report.zip -d run-report
+          find run-report -name '*.json' | head -5
+
       # ── 3. Merge, sweep, render ─────────────────────────────────────────
       - name: Merge into the carried-over list
         env:
@@ -111,6 +142,7 @@ jobs:
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           OUT_DIR: review-state
           LOGS_DIR: logs
+          REPORT_DIR: run-report
         run: node scripts/review-queue.mjs
 
       # ── 4. Publish ──────────────────────────────────────────────────────
