@@ -56,6 +56,7 @@ import {
 } from '../sync-config';
 import { printPathSummary } from '../sync-report';
 import { upsertReviewEntry } from '../utils';
+import { PathAbortedError, failureReason, readOptionalOrThrow } from './read';
 
 dotenv.config();
 
@@ -126,6 +127,16 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
         });
       }
     } catch (error) {
+      if (error instanceof PathAbortedError) {
+        // Every remaining item would fail the same way, so the honest thing is to stop and say
+        // it once: the exit code comes from `aborted`, and the summary says "aborted" in words.
+        // 剩下每一条都会以同样方式失败，所以诚实的做法是停下并说一次：退出码来自 `aborted`，
+        // 摘要里也会用文字写明「aborted」。
+        report.aborted = true;
+        consola.error(`Douban → Bangumi aborted: ${error.message}`);
+        break;
+      }
+
       // One bad item must never abort the batch. Until this guard existed, a single throw took
       // the whole path with it: no report, no counts, and every remaining item unprocessed.
       // 一条坏数据绝不能让整批停下。在补上这层之前，任何一次抛错都会带走整条链路：
@@ -133,7 +144,7 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
       report.failed += 1;
       report.failedItems.push({
         label: `${item.title || item.id}[${item.link}]`,
-        reason: `bangumi-item-threw: ${error instanceof Error ? error.message : String(error)}`,
+        reason: failureReason(error, 'bangumi-read-failed', 'bangumi-item-threw'),
       });
       // Deliberately not `Item failed, continuing:` — that sentence is how the review list
       // recognises Bangumi → NeoDB, and it routes on that string alone.
@@ -204,7 +215,13 @@ async function syncFeedItemToBangumi(
   const desiredRate = doubanStarsToTenPoint(item.rating);
   const desiredComment = item.comment || '';
 
-  const existing = await getBangumiCollection(username, subjectId);
+  // A failed read throws: this item is left untouched and counted, instead of being mistaken for
+  // "not collected yet" and created over.
+  // 读取失败会抛出：这一条原样不动并计入失败，而不是被当成「还没有收藏」直接新建覆盖。
+  const existing = readOptionalOrThrow(
+    await getBangumiCollection(username, subjectId),
+    'Bangumi collection',
+  );
   if (existing && BANGUMI_STATUSES_ABSENT_FROM_DOUBAN.has(existing.type)) {
     consola.info(
       'Bangumi has Douban-absent status (搁置/抛弃), skip overwrite: ',

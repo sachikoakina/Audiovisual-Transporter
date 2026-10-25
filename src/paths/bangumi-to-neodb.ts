@@ -60,6 +60,7 @@ import {
 } from '../sync-config';
 import { upsertReviewEntry } from '../utils';
 import { printPathSummary } from '../sync-report';
+import { PathAbortedError, readOptionalOrThrow, readValueOrThrow } from './read';
 
 dotenv.config();
 
@@ -214,6 +215,15 @@ export default async function syncBangumiToNeodb(
             }
           }
         } catch (error) {
+          if (error instanceof PathAbortedError) {
+            // The credentials are gone, not the item: every remaining collection would fail the
+            // same way. Stop both loops and let `aborted` carry the exit code.
+            // 坏的是凭据而不是条目：剩下每一条收藏都会以同样方式失败。两层循环都停，
+            // 让 `aborted` 去承担退出码。
+            report.aborted = true;
+            consola.error(`Bangumi → NeoDB aborted: ${error.message}`);
+            break;
+          }
           counters.failed += 1;
           // The message goes into the detail on purpose: "item-threw" alone would send the reader
           // back to the log for the one piece of information that was already in hand.
@@ -232,6 +242,10 @@ export default async function syncBangumiToNeodb(
         await bangumiThrottle();
       }
 
+      if (report.aborted) {
+        break;
+      }
+
       if (!fullSync) {
         break;
       }
@@ -240,6 +254,10 @@ export default async function syncBangumiToNeodb(
       if (offset >= page.total) {
         break;
       }
+    }
+
+    if (report.aborted) {
+      break;
     }
   }
 
@@ -321,7 +339,10 @@ async function syncCollectionToNeodb(
   // Bangumi updated_at is unreliable; only used when creating a new NeoDB mark.
   const createdTime = collection.updated_at || undefined;
 
-  const mark = await getNeodbMark(neodbItem.uuid);
+  // A failed read throws: the mark is left alone and the item is counted, instead of being
+  // mistaken for "not marked yet" and created over.
+  // 读取失败会抛出：标记原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
+  const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
   // Left `false` only when there was nothing to write. A write NeoDB *refused* throws instead,
   // so `false` here can never mean "the mark did not land".
   // 只在「本来就没东西要写」时保持 `false`。NeoDB *拒绝*的写入改为抛错，
@@ -388,8 +409,16 @@ async function syncCollectionToNeodb(
 }
 
 async function isBangumiManga(subjectId: number, title: string): Promise<boolean> {
-  const subject = await getBangumiSubject(subjectId);
-  const platform = subject?.platform?.trim() || '';
+  // `readValueOrThrow` rather than a nullable read: "could not read the platform" and "the
+  // platform is not 漫画" both used to end in `skipped-platform`, so a failed read silently
+  // dropped a book this run was supposed to import. Failing the item is the honest answer.
+  // 用 `readValueOrThrow` 而不是可空读取：「读不到平台」与「平台不是漫画」过去都落到
+  // `skipped-platform`，于是一次读取失败会静默丢掉一本本该导入的书。让这一条失败才是诚实的。
+  const subject = readValueOrThrow(
+    await getBangumiSubject(subjectId),
+    'Bangumi subject',
+  );
+  const platform = subject.platform?.trim() || '';
   if (platform === '漫画') {
     return true;
   }

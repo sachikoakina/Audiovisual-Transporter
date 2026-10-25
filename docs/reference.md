@@ -476,10 +476,12 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 | ② Douban → NeoDB   | skipped | `category-not-allowed`           | 同上，白名单排除                                                                                         |
 |                    | skipped | `guard-target-status`            | 目标端状态是豆瓣表达不了的（如 `dropped`），留着不动                                                     |
 |                    | failed  | `neodb-mark-rejected`            | 标记写入（新建或更新）被拒                                                                               |
+|                    | failed  | `neodb-read-failed`              | 现有标记读取失败（401 除外）。这一条**没有写入**，目标端保持原样                                         |
 |                    | failed  | `neodb-item-threw: <错误>`       | 单条处理抛错（预料之外的异常），不影响其余条目                                                           |
 | ③ Douban → Bangumi | skipped | `category-not-allowed`           | 同上                                                                                                     |
 |                    | skipped | `guard-bangumi-status`           | Bangumi 上是搁置/抛弃，覆盖会毁掉源端没有的事实                                                          |
 |                    | failed  | `bangumi-write-rejected`         | `upsertBangumiCollection` 返回失败                                                                       |
+|                    | failed  | `bangumi-read-failed`            | 现有收藏读取失败（401 除外）。这一条**没有写入**，Bangumi 保持原样                                       |
 |                    | failed  | `bangumi-item-threw: <错误>`     | 单条处理抛错（预料之外的异常），不影响其余条目                                                           |
 | ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                                                            |
 |                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析）或 NeoDB 拒绝标记写入，不影响其余条目                                           |

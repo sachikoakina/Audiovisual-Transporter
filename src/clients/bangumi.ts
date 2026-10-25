@@ -10,7 +10,8 @@
 import dotenv from 'dotenv';
 import got, { HTTPError } from 'got';
 import { consola } from 'consola';
-import type { BangumiCollectionType, BangumiSubjectType } from '../types';
+import type { BangumiCollectionType, BangumiSubjectType, ReadResult } from '../types';
+import { classifyReadFailure } from '../rules/read-result';
 import { sleep } from '../utils';
 
 dotenv.config();
@@ -104,51 +105,95 @@ export async function getBangumiMe(): Promise<BangumiUser | null> {
 
 /**
  * Full subject details (includes platform for books: 漫画 / 小说 / ...).
+ *
+ * A 404 here means the subject itself is gone, which is *not* "no platform": the manga gate
+ * cannot be evaluated either way, so 404 is classified as an item-level read failure.
+ * 主体详情（书籍的平台 漫画 / 小说 / … 就在这里）。这里的 404 意味着主体本身不存在，
+ * 而不是「没有平台」：漫画闸门无论如何都判不了，所以 404 归为条目级读取失败。
  */
 export async function getBangumiSubject(
   subjectId: number,
-): Promise<BangumiSubject | null> {
+): Promise<ReadResult<BangumiSubject>> {
   if (!bangumiToken) {
-    return null;
+    return {
+      status: 'error',
+      scope: 'auth',
+      message: 'BANGUMI_ACCESS_TOKEN is not set',
+    };
   }
   try {
-    return (await got(`${BGM_API}/v0/subjects/${subjectId}`, {
-      headers: authHeaders(),
-    }).json()) as BangumiSubject;
+    return {
+      status: 'found',
+      value: (await got(`${BGM_API}/v0/subjects/${subjectId}`, {
+        headers: authHeaders(),
+      }).json()) as BangumiSubject,
+    };
   } catch (error) {
-    if (isUnauthorized(error)) {
+    const status = error instanceof HTTPError ? error.response.statusCode : null;
+    const kind = classifyReadFailure(status, 'item');
+    if (kind === 'auth') {
       logUnauthorized();
-      return null;
-    }
-    if (error instanceof HTTPError && error.response.statusCode === 404) {
-      return null;
+      return {
+        status: 'error',
+        scope: 'auth',
+        message: `subject ${subjectId} returned ${status ?? 'no response'}`,
+      };
     }
     consola.error(`Failed to get Bangumi subject ${subjectId}: `, error);
-    return null;
+    return {
+      status: 'error',
+      scope: 'item',
+      message: `subject ${subjectId} returned ${status ?? 'no response'}`,
+    };
   }
 }
 
+/**
+ * One collection (the user's status/rating/comment on a subject).
+ * 一条收藏（用户对某主体 的状态/评分/短评）。
+ *
+ * `absent` = the user has not collected this subject, which is the only reading a create may be
+ * based on. A 404 is that answer; a 401 or a 5xx is not.
+ * `absent` = 用户没有收藏这个主体，也是唯一可以据此新建的读法。404 是这个答案，401 或 5xx 不是。
+ */
 export async function getBangumiCollection(
   username: string,
   subjectId: number,
-): Promise<BangumiCollection | null> {
+): Promise<ReadResult<BangumiCollection>> {
   if (!bangumiToken) {
-    return null;
+    return {
+      status: 'error',
+      scope: 'auth',
+      message: 'BANGUMI_ACCESS_TOKEN is not set',
+    };
   }
   try {
-    return (await got(`${BGM_API}/v0/users/${username}/collections/${subjectId}`, {
-      headers: authHeaders(),
-    }).json()) as BangumiCollection;
+    return {
+      status: 'found',
+      value: (await got(`${BGM_API}/v0/users/${username}/collections/${subjectId}`, {
+        headers: authHeaders(),
+      }).json()) as BangumiCollection,
+    };
   } catch (error) {
-    if (isUnauthorized(error)) {
+    const status = error instanceof HTTPError ? error.response.statusCode : null;
+    const kind = classifyReadFailure(status);
+    if (kind === 'auth') {
       logUnauthorized();
-      return null;
+      return {
+        status: 'error',
+        scope: 'auth',
+        message: `collection ${subjectId} returned ${status ?? 'no response'}`,
+      };
     }
-    if (error instanceof HTTPError && error.response.statusCode === 404) {
-      return null;
+    if (kind === 'absent') {
+      return { status: 'absent' };
     }
     consola.error(`Failed to get Bangumi collection ${subjectId}: `, error);
-    return null;
+    return {
+      status: 'error',
+      scope: 'item',
+      message: `collection ${subjectId} returned ${status ?? 'no response'}`,
+    };
   }
 }
 

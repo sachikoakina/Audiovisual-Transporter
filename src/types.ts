@@ -520,3 +520,25 @@ export function pathHasFailed(report: PathReport): boolean {
  */
 export type ItemSyncOutcome =
   'written' | 'unchanged' | 'skipped' | 'unresolved' | 'failed';
+
+/**
+ * What came back from reading one target-side record.
+ * 读一条目标端记录得到的东西。
+ *
+ * Three cases, because "absent" and "could not read" are different facts and only the first one
+ * may be written over. Collapsing both into `null` is exactly what let a 500 pass for "no rating
+ * yet" — and then for "so let me write the source's rating over whatever was there".
+ * 三种情况 —— 「不存在」与「读不到」是两件不同的事实，只有前者可以被覆盖。把两者压成 `null`
+ * 正是「500 被当成『还没有评分』、进而『那就把源端评分写上去』」的成因。
+ *
+ * `scope` says who failed: `item` is one bad record (skip it, keep going), `auth` means the
+ * credentials are dead and every remaining item would fail the same way.
+ * `scope` 说明是谁失败：`item` 是单条记录的问题（跳过它继续），`auth` 表示凭据已失效，
+ * 剩下每一条都会同样失败。
+ */
+export type ReadScope = 'item' | 'auth';
+
+export type ReadResult<T> =
+  | { status: 'found'; value: T }
+  | { status: 'absent' }
+  | { status: 'error'; scope: ReadScope; message: string };

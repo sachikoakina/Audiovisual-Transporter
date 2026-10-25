@@ -3,11 +3,13 @@ import { consola } from 'consola';
 import { neodbTmdbConfig } from '../sync-config';
 import { sleep } from '../utils';
 import type {
+  ReadResult,
   TmdbAccountStates,
   TmdbMediaType,
   TmdbSearchResult,
   TmdbTarget,
 } from '../types';
+import { classifyReadFailure } from '../rules/read-result';
 
 /**
  * TMDB API client.
@@ -246,26 +248,43 @@ export function targetKey(target: { mediaType: string; id: number }): string {
   return `${target.mediaType}:${target.id}`;
 }
 
-/** Read current account state. This GET is what makes every write idempotent. */
+/**
+ * Read current account state. This GET is what makes every write idempotent.
+ * 读取当前账号状态。正是这个 GET 让每次写入都幂等。
+ *
+ * This endpoint has no "nothing there" answer — an unrated, un-watchlisted item still returns
+ * 200 with empty fields — so a 404 is a failed read, not an empty state. Passing it on as `null`
+ * would let the write plan read "no rating yet" and overwrite a rating it never saw.
+ * 这个端点没有「那里什么都没有」这种答案 —— 未评分、未加 watchlist 的条目照样返回 200，
+ * 只是字段为空 —— 所以 404 是读取失败，不是空状态。把它当 `null` 传下去，写计划会读成
+ * 「还没有评分」，然后覆盖一份它从未看见过的评分。
+ */
 export async function getTmdbAccountStates(
   target: TmdbTarget,
   auth: TmdbAuth,
-): Promise<TmdbAccountStates | null> {
+): Promise<ReadResult<TmdbAccountStates>> {
   try {
-    return (await tmdb(`${target.mediaType}/${target.id}/account_states`, {
-      searchParams: authParams(auth),
-      headers: authHeaders(auth),
-    }).json()) as TmdbAccountStates;
+    return {
+      status: 'found',
+      value: (await tmdb(`${target.mediaType}/${target.id}/account_states`, {
+        searchParams: authParams(auth),
+        headers: authHeaders(auth),
+      }).json()) as TmdbAccountStates,
+    };
   } catch (error) {
-    if (isUnauthorized(error)) {
+    const status = error instanceof HTTPError ? error.response.statusCode : null;
+    const kind = classifyReadFailure(status, 'item');
+    if (kind === 'auth') {
       logUnauthorized();
-    } else {
-      consola.error(
-        `Failed to read account states for ${targetKey(target)}: `,
-        failureCode(error),
-      );
+      return {
+        status: 'error',
+        scope: 'auth',
+        message: `account states ${targetKey(target)} returned ${status ?? 'no response'}`,
+      };
     }
-    return null;
+    const message = failureCode(error);
+    consola.error(`Failed to read account states for ${targetKey(target)}: `, message);
+    return { status: 'error', scope: 'item', message };
   }
 }
 

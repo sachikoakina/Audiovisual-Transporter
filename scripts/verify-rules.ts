@@ -1,7 +1,8 @@
 /*
  * Verify the pure rules offline: Douban vocabulary, scale conversion, Bangumi↔NeoDB status and
- * progress mapping, the NeoDB mark merge, title matching, and the Notion property payload builder.
- * No network, no framework — run with the tsx already in devDependencies.
+ * progress mapping, the NeoDB mark merge, title matching, how a failed read is classified, and
+ * the Notion property payload builder. No network, no framework — run with the tsx already in
+ * devDependencies.
  *
  * Every assertion here is against a literal input and needs no fixture, so it pins the behaviour
  * completely: if one of these fails, the rule genuinely changed.
@@ -11,7 +12,7 @@
  * ───────────────────────────────────────────────────────────────────────────
  *
  * 离线验证纯规则：豆瓣词汇、分制换算、Bangumi↔NeoDB 的状态与进度映射、NeoDB 标记合并、
- * 标题匹配、以及 Notion 属性载荷构造。
+ * 标题匹配、读取失败的归类、以及 Notion 属性载荷构造。
  * 不需要网络、不引入测试框架 —— 直接用 devDependencies 里已有的 tsx 运行。
  *
  * 这里每条断言都针对字面量输入、不需要 fixture，因此能**完整地**钉住行为：
@@ -42,6 +43,7 @@ import {
   resolveBangumiCollectionWrite,
 } from '../src/rules/bangumi-neodb';
 import { mergeNeodbMark } from '../src/rules/neodb-mark-merge';
+import { classifyReadFailure } from '../src/rules/read-result';
 import { normalizeTitleKey, pickExactTmdbMatch } from '../src/rules/tmdb-matching';
 import {
   NEODB_CATEGORIES_WITHOUT_TMDB,
@@ -923,6 +925,39 @@ check(
   capped.listed + capped.omitted === forty.length && capped.omitted === 24,
 );
 check('an empty detail list renders nothing', renderDetailLines([]).lines.length === 0);
+
+// ───────────────────────────────────────────────────────────────────────────
+// classifyReadFailure — which failed reads may be written over
+// classifyReadFailure —— 哪些读取失败允许被覆盖
+//
+// The whole point of the tri-state read is that only `absent` may be written over. If a 500 ever
+// classifies as `absent`, the write that follows silently overwrites a rating the user set by
+// hand, which is the bug `ReadResult` exists to prevent.
+// 三态读取的全部要点就是：只有 `absent` 允许被覆盖。一旦 500 被归成 `absent`，接下来的写入
+// 就会静默覆盖用户手设的评分 —— 那正是 `ReadResult` 要防的那个 bug。
+// ───────────────────────────────────────────────────────────────────────────
+
+check(
+  '404 is "no mark here", the only answer a create may rest on',
+  classifyReadFailure(404) === 'absent',
+);
+check(
+  '404 on an endpoint that cannot answer "absent" is an item failure',
+  classifyReadFailure(404, 'item') === 'item',
+);
+check('401 is the credentials, not the item', classifyReadFailure(401) === 'auth');
+check(
+  '403 is the same story as 401 for the caller',
+  classifyReadFailure(403) === 'auth',
+);
+check(
+  'a 500 is an item failure and must never be written over',
+  classifyReadFailure(500) === 'item',
+);
+check(
+  'no response at all is an item failure, not an absent record',
+  classifyReadFailure(null) === 'item',
+);
 
 // ───────────────────────────────────────────────────────────────────────────
 

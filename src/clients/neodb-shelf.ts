@@ -27,8 +27,10 @@ import {
   type NeodbMe,
   type NeodbPagedMark,
   type NeodbProgressType,
+  type ReadResult,
   type ShelfType,
 } from '../types';
+import { classifyReadFailure } from '../rules/read-result';
 
 /** The current user's mark on one catalog item (no item payload — see `NeodbShelfMark`). / 当前用户在某条目录条目上的标记（不含条目内容，条目级结构见 `NeodbShelfMark`）。 */
 export type NeodbMark = {
@@ -40,24 +42,44 @@ export type NeodbMark = {
 };
 
 /**
- * Get the current user's mark for a NeoDB item. Returns null if not marked.
- * 取当前用户在某条 NeoDB 条目上的标记；未标记时返回 null。
+ * Get the current user's mark for a NeoDB item.
+ * 取当前用户在某条 NeoDB 条目上的标记。
+ *
+ * `absent` means "this item carries no mark yet" and is the only answer a caller may create over.
+ * Everything else — 401, 500, no response — comes back as `error`: NeoDB refusing to answer is
+ * not the same fact as NeoDB having nothing to say, and only the second one may be overwritten.
+ * `absent` 是「这条还没有标记」，也是调用方唯一可以据此新建的答案。其余（401、500、无响应）
+ * 一律回 `error` —— NeoDB 拒绝回答与 NeoDB 无话可说不是同一件事，只有后者可以被覆盖。
  */
-export async function getNeodbMark(uuid: string): Promise<NeodbMark | null> {
+export async function getNeodbMark(uuid: string): Promise<ReadResult<NeodbMark>> {
   if (!neodbToken) {
-    return null;
+    return { status: 'error', scope: 'auth', message: 'NEODB_API_TOKEN is not set' };
   }
 
   try {
-    return (await neodbClient(`api/me/shelf/item/${uuid}`, {
-      headers: neodbAuthHeaders(),
-    }).json()) as NeodbMark;
-  } catch (error: any) {
-    if (error.code === 'ERR_NON_2XX_3XX_RESPONSE') {
-      return null;
+    return {
+      status: 'found',
+      value: (await neodbClient(`api/me/shelf/item/${uuid}`, {
+        headers: neodbAuthHeaders(),
+      }).json()) as NeodbMark,
+    };
+  } catch (error) {
+    const status = error instanceof HTTPError ? error.response.statusCode : null;
+    const kind = classifyReadFailure(status);
+    if (kind === 'auth') {
+      logNeodbUnauthorized();
+      return {
+        status: 'error',
+        scope: 'auth',
+        message: `mark read returned ${status ?? 'no response'}`,
+      };
     }
-    consola.error("Query item's mark with error code: ", error.code);
-    return null;
+    if (kind === 'absent') {
+      return { status: 'absent' };
+    }
+    const message = neodbFailureCode(error);
+    consola.error(`Failed to read the mark for ${uuid}: `, message);
+    return { status: 'error', scope: 'item', message };
   }
 }
 

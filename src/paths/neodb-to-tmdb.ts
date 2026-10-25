@@ -70,6 +70,7 @@ import {
   writeState,
   type SyncState,
 } from '../utils';
+import { PathAbortedError, readValueOrThrow } from './read';
 import {
   newPathReport,
   newSyncCounters,
@@ -211,7 +212,14 @@ export default async function runNeodbToTmdb(
   };
 
   for (const shelfType of neodbTmdbConfig.shelfTypes) {
-    await syncShelf(shelfType, ctx);
+    // A dead credential is not a per-item problem: stop the remaining shelves instead of
+    // producing the same failure for every mark in them.
+    // 凭据失效不是单条的问题：剩下几个书架直接停下，而不是让每个书架里的每条标记都失败一遍。
+    const aborted = await syncShelf(shelfType, ctx);
+    if (aborted) {
+      report.aborted = true;
+      break;
+    }
   }
 
   if (ctx.stateDirty && !neodbTmdbConfig.dryRun) {
@@ -253,7 +261,12 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
 
 // ───────────────────────────────────────────────────────────────────────────
 
-async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<void> {
+/**
+ * Sync one shelf. Returns `true` when the run must stop — the credentials failed, so every
+ * remaining mark would produce the same error.
+ * 同步一个书架。返回 `true` 表示整轮必须停下 —— 凭据失效了，剩下的标记都会产生同一个错误。
+ */
+async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolean> {
   consola.start(`Shelf "${shelfType}"`);
 
   for (const category of resolveTargetCategories()) {
@@ -281,13 +294,21 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<void> 
               'For a one-off full import set NEODB_TMDB_FULL_SYNC=1 (or run `npm run sync:neodb-tmdb-full`).',
           );
         }
-        return;
+        return false;
       }
 
       // One bad item must never abort the batch.
       try {
         await syncMark(mark, shelfType, ctx);
       } catch (error) {
+        if (error instanceof PathAbortedError) {
+          // The credentials are gone, not the item: stop right here so the remaining shelves and
+          // their marks do not repeat the same failure once each.
+          // 坏的是凭据而不是条目：就地停下，免得剩下的书架与标记各把同一个失败重放一遍。
+          consola.error(`NeoDB → TMDB aborted: ${error.message}`);
+          return true;
+        }
+
         ctx.counters.failed += 1;
         const thrown = error instanceof Error ? error.message : String(error);
         ctx.failedItems.push({
@@ -315,6 +336,8 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<void> 
     }
     await neodbThrottle();
   }
+
+  return false;
 }
 
 async function syncMark(
@@ -427,7 +450,14 @@ async function syncMark(
   ctx.seen.add(identity);
 
   // 6) Read current state; this GET is what makes the writes idempotent.
-  const states = await getTmdbAccountStates(target, ctx.auth);
+  // A failed read throws instead of turning into `null`: `null` means "no rating, not on the
+  // watchlist" to the write plan, which is precisely the state that gets overwritten.
+  // 读取失败会抛出，而不是变成 `null`：对写计划来说 `null` 意味着「没有评分、不在 watchlist」，
+  // 而那正是会被覆盖的那种状态。
+  const states = readValueOrThrow(
+    await getTmdbAccountStates(target, ctx.auth),
+    'TMDB account states',
+  );
   const patch = planTmdbWrites(states, plan, neodbTmdbConfig.ratingProfile);
 
   if (!patch.shouldWrite) {
