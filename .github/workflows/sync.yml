@@ -30,6 +30,18 @@ on:
         description: 'NeoDB → TMDB full sync (no item/page caps, incremental off) — slow'
         type: boolean
         default: false
+      # Path ④'s default window is one page (BANGUMI_COLLECTION_LIMIT, 50 at most), so anything
+      # marked before that is never looked at. This walks every page instead. It is a different
+      # kind of "full" from the input above: ④ has no item cap to lift and no incremental cache to
+      # switch off — it re-reads and compares every collection on every run either way — so the
+      # only thing this changes is how much of the shelf is walked.
+      # ④ 的默认窗口是一页（`BANGUMI_COLLECTION_LIMIT`，最多 50），比它更早标记的收藏永远不会被看
+      # 一眼。勾选本项即遍历全部页。它与上面那个「全量」不是同一类：④ 没有条目上限可取消、也没有增量
+      # 缓存可关闭 —— 它本来每轮都重读并逐条比对 —— 这项只改变「走完多少书架」。
+      bangumi_full_sync:
+        description: 'Bangumi → NeoDB full sync (all pages, no cap) — slow, may queue the next cron'
+        type: boolean
+        default: false
   schedule:
     # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events
     # Mon / Wed / Fri at 08:00 UTC. Three runs a week instead of one: the Douban RSS feed only
@@ -49,7 +61,7 @@ jobs:
     # 否则一次卡住的网络调用会烧掉默认的 360 分钟额度。常规运行已受
     # NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS 节流，并由 SYNC_MAX_ITEMS / NEODB_MAX_PAGES
     # 封顶，一小时足够宽裕。全量导入没有这些上限，速度约 0.6–1.0 秒/条，因此手动全量单独给预算。
-    timeout-minutes: ${{ inputs.full_sync && 180 || 60 }}
+    timeout-minutes: ${{ (inputs.full_sync || inputs.bangumi_full_sync) && 180 || 60 }}
 
     strategy:
       matrix:
@@ -75,7 +87,12 @@ jobs:
       BANGUMI_PRIVATE: ${{ vars.BANGUMI_PRIVATE || 'false' }}
       BANGUMI_COLLECTION_LIMIT: ${{ vars.BANGUMI_COLLECTION_LIMIT || '50' }}
       BANGUMI_USER_AGENT: ${{ vars.BANGUMI_USER_AGENT || '' }}
-      BANGUMI_FULL_SYNC: ${{ vars.BANGUMI_FULL_SYNC || '0' }}
+      # Same precedence as NEODB_TMDB_FULL_SYNC: the per-run input wins, the Variables value stays
+      # as the fallback so a long-lived "always full" setting remains possible — but it no longer
+      # has to be the only way, which used to mean flipping a sticky switch for a one-off run.
+      # 与 NEODB_TMDB_FULL_SYNC 同一优先级：本次运行的输入优先，Variables 的值作为兜底，好让「长期
+      # 全量」仍然可配 —— 但它不再是唯一途径，而过去一次性的全量要靠改动一个会残留的开关。
+      BANGUMI_FULL_SYNC: ${{ inputs.bangumi_full_sync && '1' || vars.BANGUMI_FULL_SYNC || '0' }}
       SYNC_DOUBAN_NOTION: ${{ vars.SYNC_DOUBAN_NOTION || '0' }}
       SYNC_DOUBAN_NEODB: ${{ vars.SYNC_DOUBAN_NEODB || '1' }}
       SYNC_DOUBAN_BANGUMI: ${{ vars.SYNC_DOUBAN_BANGUMI || '1' }}

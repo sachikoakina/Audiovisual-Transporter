@@ -167,7 +167,11 @@ NOTION_BOOK_DATABASE_ID  NOTION_GAME_DATABASE_ID  NOTION_DRAMA_DATABASE_ID
 **触发方式**
 
 - **定时**：每周一、三、五 08:00 UTC（`cron: '0 8 * * 1,3,5'`）。三次而非一次，是因为豆瓣 RSS 只保留约 10 条——一周一次可能在集中标记时漏掉周初的条目。这**只是缩小**丢失窗口，不是消除：两次运行之间新增超过约 10 条仍会丢。
-- **手动**：`workflow_dispatch`，可勾选 `full_sync` → 本次 `NEODB_TMDB_FULL_SYNC=1`（取消链路⑤的两道单轮上限、关闭增量），超时预算同时从 60 分钟提到 180 分钟。
+- **手动**：`workflow_dispatch`，两个互不影响的复选框，任一勾选都会把超时预算从 60 分钟提到 180 分钟：
+  - `full_sync` → 本次 `NEODB_TMDB_FULL_SYNC=1`（取消链路⑤的两道单轮上限、关闭增量）。
+  - `bangumi_full_sync` → 本次 `BANGUMI_FULL_SYNC=1`（链路④ 从「只取第一页」改为遍历全部页）。两种「全量」不是一回事：④ 没有条目上限可取消、也没有增量缓存可关，它本来每轮都重读并逐条比对，这项只决定**走完多少书架**。
+  - 两个复选框都只对**本次**运行生效；仓库 Variables 里的同名值只作为兜底（长期全量仍可用 Variables，但一次性全量不必再去改一个会残留的开关）。
+  - ⚠️ ④ 的全量**没有条目上限**，也不会断点续跑：几千条收藏可能吃满 180 分钟预算，且 `concurrency` 是 `cancel-in-progress: false`，这期间到点的定时运行会**排队**而不是取消。
 
 > ⚠️ **变量只有在工作流里被引用才会生效**。GitHub 上设了 Variable 但 `sync.yml` 没声明，程序读到的仍是空值。
 >
@@ -574,10 +578,10 @@ flowchart TD
 
 两条链路都**不遍历全部收藏**，但机制不同：
 
-| 链路            | 默认行为                                                             | 全量模式                                                   |
-| --------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Bangumi → NeoDB | **只取第一页**（`BANGUMI_COLLECTION_LIMIT=50`）                      | `BANGUMI_FULL_SYNC=1` 或 `npm run sync:bangumi-full`       |
-| NeoDB → TMDB    | 逐书架翻页，最多 `NEODB_MAX_PAGES` 页 / 书架、共 `SYNC_MAX_ITEMS` 条 | `NEODB_TMDB_FULL_SYNC=1` 或 `npm run sync:neodb-tmdb-full` |
+| 链路            | 默认行为                                                             | 全量模式                                                                            |
+| --------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Bangumi → NeoDB | **只取第一页**（`BANGUMI_COLLECTION_LIMIT=50`）                      | 手动勾选 `bangumi_full_sync`、`BANGUMI_FULL_SYNC=1`，或 `npm run sync:bangumi-full` |
+| NeoDB → TMDB    | 逐书架翻页，最多 `NEODB_MAX_PAGES` 页 / 书架、共 `SYNC_MAX_ITEMS` 条 | `NEODB_TMDB_FULL_SYNC=1` 或 `npm run sync:neodb-tmdb-full`                          |
 
 ### Bangumi → NeoDB：第一页是怎么筛出来的
 
@@ -677,15 +681,15 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### Bangumi 与豆瓣 RSS
 
-| 变量                          | 默认    | 说明                                                                           |
-| ----------------------------- | ------- | ------------------------------------------------------------------------------ |
-| `BANGUMI_PRIVATE`             | `false` | 收藏是否私密                                                                   |
-| `BANGUMI_COLLECTION_LIMIT`    | `50`    | 拉取收藏时每页数量                                                             |
-| `BANGUMI_USER_AGENT`          | 空      | 自定义 UA（被拦截时使用）                                                      |
-| `BANGUMI_FULL_SYNC`           | `0`     | 设 `1` 时追加执行全量 Bangumi → NeoDB                                          |
-| `SYNC_BANGUMI_NEODB_PROGRESS` | `0`     | 是否同步观看进度（集 / 章 / 曲）                                               |
-| `DOUBAN_RSS_USER_AGENT`       | 空      | 豆瓣 RSS 与条目页共用；被拦截时替换 UA（403 多为 IP 级风控，改 UA 不保证解决） |
-| `SYNC_DOUBAN_REQUIRED`        | `1`     | `1` = 豆瓣 RSS 失败让整轮失败；`0` = 照常打印并标 `TOLERATED`，不参与退出码    |
+| 变量                          | 默认    | 说明                                                                                               |
+| ----------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `BANGUMI_PRIVATE`             | `false` | 收藏是否私密                                                                                       |
+| `BANGUMI_COLLECTION_LIMIT`    | `50`    | 拉取收藏时每页数量                                                                                 |
+| `BANGUMI_USER_AGENT`          | 空      | 自定义 UA（被拦截时使用）                                                                          |
+| `BANGUMI_FULL_SYNC`           | `0`     | 设 `1` 时遍历全部分页（默认只取第一页）；`workflow_dispatch` 的 `bangumi_full_sync` 勾选时覆盖本值 |
+| `SYNC_BANGUMI_NEODB_PROGRESS` | `0`     | 是否同步观看进度（集 / 章 / 曲）                                                                   |
+| `DOUBAN_RSS_USER_AGENT`       | 空      | 豆瓣 RSS 与条目页共用；被拦截时替换 UA（403 多为 IP 级风控，改 UA 不保证解决）                     |
+| `SYNC_DOUBAN_REQUIRED`        | `1`     | `1` = 豆瓣 RSS 失败让整轮失败；`0` = 照常打印并标 `TOLERATED`，不参与退出码                        |
 
 ### 留档
 
