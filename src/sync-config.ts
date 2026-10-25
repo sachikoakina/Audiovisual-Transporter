@@ -184,6 +184,15 @@ function formatAllowlist<T extends string>(allowlist: CategoryAllowlist<T>): str
  * Which sync paths to run. Defaults match a NeoDB + Bangumi setup (Notion off).
  * 要运行哪些同步链路。默认值对应「NeoDB + Bangumi」的组合（Notion 关闭）。
  */
+/**
+ * Where a full Bangumi → NeoDB walk leaves its cursor. Only full runs read it — see the note in
+ * `paths/bangumi-to-neodb.ts` on why a capped cron run must start from the head every time.
+ * Bangumi → NeoDB 全量遍历的游标落点。只有全量读它 —— 为何常规 cron 必须每次从头部开始，
+ * 见 `paths/bangumi-to-neodb.ts` 里的说明。
+ */
+export const bangumiFullSyncState =
+  process.env.BANGUMI_FULL_SYNC_STATE ?? '.cache/bangumi-full-sync.json';
+
 export const syncConfig = {
   /** Douban RSS → Notion / 豆瓣 RSS → Notion */
   doubanNotion: envEnabled('SYNC_DOUBAN_NOTION', false),
@@ -195,6 +204,8 @@ export const syncConfig = {
   bangumiNeodb: envEnabled('SYNC_BANGUMI_NEODB', true),
   /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
   bangumiNeodbProgress: envEnabled('SYNC_BANGUMI_NEODB_PROGRESS', false),
+  /** Cursor for a full Bangumi → NeoDB walk. Only full runs read it. / 全量遍历的游标，仅全量读取。 */
+  bangumiFullSyncState,
 
   /**
    * Whether a Douban RSS failure must fail the whole run.

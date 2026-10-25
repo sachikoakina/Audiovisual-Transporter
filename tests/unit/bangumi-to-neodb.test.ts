@@ -18,7 +18,14 @@
  *   2. 单条读取失败 → **什么都不写**，该条计入 `failed`（`b35595b` 的 fail-closed 规则）。
  *   3. 凭据读取失败 → 整条链路 abort，而不是让剩下每一条都失败一遍（`b35595b` 的 `auth`）。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `vi.mock` factories are hoisted above the imports, so the path they read has to be hoisted too.
+// `vi.mock` 的工厂会被提升到 import 之前，因此它读取的路径也必须一起提升。
+const cursorPath = vi.hoisted(() => ({ value: '' }));
 
 const listBangumiCollections = vi.fn();
 const markNeodbItem = vi.fn();
@@ -62,14 +69,22 @@ vi.mock('../../src/sync-config', () => ({
     bangumiNeodbCategories: { mode: 'all' },
     bangumiNeodbMerge: 'neodb_prefer',
     bangumiNeodbProgress: false,
+    // A getter, not a value: each test points it at its own temp file.
+    // 用 getter 而不是值：每个用例把它指向自己的临时文件。
+    get bangumiFullSyncState() {
+      return cursorPath.value;
+    },
   },
   bangumiSubjectTypesForAllowlist: () => undefined,
   needsBangumiMangaPlatformCheck: () => false,
 }));
 
-vi.mock('../../src/utils', () => ({
-  upsertReviewEntry: () => false,
-}));
+// Partial: the cursor helpers run for real (they are plain fs), only the review log is stubbed.
+// 部分替换：游标读写用真实现（就是普通 fs 调用），只有留档日志被替换。
+vi.mock('../../src/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils')>();
+  return { ...actual, upsertReviewEntry: () => false };
+});
 
 vi.mock('../../src/sync-report', () => ({
   printPathSummary: () => {},
@@ -157,5 +172,62 @@ describe('④ Bangumi → NeoDB', () => {
     expect(listBangumiCollections).toHaveBeenCalledTimes(1);
     expect(markNeodbItem).not.toHaveBeenCalled();
     expect(report.failed).toBe(0);
+  });
+});
+
+describe('④ full-sync cursor / 全量游标', () => {
+  let dir = '';
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bgm-cursor-'));
+    cursorPath.value = path.join(dir, 'cursor.json');
+    getNeodbMark.mockResolvedValue({ status: 'absent' });
+    markNeodbItem.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    cursorPath.value = '';
+  });
+
+  it('resumes a full walk at the stored offset instead of starting at the head', async () => {
+    fs.writeFileSync(
+      cursorPath.value,
+      JSON.stringify({ version: 1, updatedAt: '', offsets: { mixed: 50 } }),
+    );
+
+    await syncBangumiToNeodb(true);
+
+    // The first request is the assertion: a resumed walk must not re-read the first page.
+    // 关键断言在第一个请求上：续跑的全量不该重读第一页。
+    expect(listBangumiCollections.mock.calls[0][0]).toMatchObject({ offset: 50 });
+  });
+
+  it('ignores the cursor for a capped run, whose window is the newest page', async () => {
+    fs.writeFileSync(
+      cursorPath.value,
+      JSON.stringify({ version: 1, updatedAt: '', offsets: { mixed: 50 } }),
+    );
+
+    await syncBangumiToNeodb(false);
+
+    // A cron run must always start at the head — honouring a stale cursor there would hide the
+    // new marks the run exists to catch.
+    // 常规运行必须永远从头部开始 —— 在那里沿用旧游标会藏掉这一轮本来要抓的新标记。
+    expect(listBangumiCollections.mock.calls[0][0]).toMatchObject({ offset: 0 });
+  });
+
+  it('advances the offset page by page, then drops the pass cursor at the end', async () => {
+    listBangumiCollections.mockResolvedValue({ total: 3, data: [collection] });
+
+    await syncBangumiToNeodb(true);
+
+    expect(listBangumiCollections.mock.calls.map((call) => call[0].offset)).toEqual([0, 1, 2]);
+    // One page was left over after each of the first two; the third reached the total and cleared
+    // the key, so the next full run starts from the head again.
+    // 前两页各留下一格进度；第三页走完即清键，下一次全量从头部重新开始。
+    const saved = JSON.parse(fs.readFileSync(cursorPath.value, 'utf8'));
+    expect(saved.offsets).toEqual({});
+    expect(saved.version).toBe(1);
   });
 });

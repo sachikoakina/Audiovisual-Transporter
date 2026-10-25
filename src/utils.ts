@@ -159,6 +159,69 @@ function pruneState(state: SyncState): SyncState {
 }
 
 /** Build the state key for one shelf item. / 生成一个书架条目在状态文件里的键。 */
+/**
+ * Where a full ④ walk got to, so a run killed by the job timeout continues instead of restarting.
+ * ④ 全量走到了哪里 —— 让被作业超时杀掉的运行继续，而不是从零重来。
+ *
+ * Keyed by *pass* (`mixed` for the untyped fetch, `1`/`2`/`4`/`6` when the allowlist asks for one
+ * `subject_type` each), because a full sync may walk several passes and each has its own offset.
+ * 按**趟**为键（混合抓取用 `mixed`，白名单按 `subject_type` 分趟时用 `1`/`2`/`4`/`6`），因为一次
+ * 全量可能走多趟，每趟有自己的 offset。
+ *
+ * It is a *cursor*, not a cache: it never decides whether to write. The worst case for a stale
+ * value is re-walking a page, because every write is already idempotent (`mergeNeodbMark`).
+ * 它是**游标**而不是缓存：它从不决定要不要写。旧值的最坏后果是多重走一页，因为写入本身已经幂等
+ * （`mergeNeodbMark`）。
+ */
+export type FullSyncCursor = {
+  version: 1;
+  updatedAt: string;
+  /** Pass key → collections of that pass already processed. / 趟 键 → 该趟已处理的收藏数。 */
+  offsets: Record<string, number>;
+};
+
+export function emptyFullSyncCursor(): FullSyncCursor {
+  return { version: 1, updatedAt: '', offsets: {} };
+}
+
+export function readFullSyncCursor(file: string): FullSyncCursor {
+  if (!file) {
+    return emptyFullSyncCursor();
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as FullSyncCursor;
+    if (parsed?.version !== 1 || typeof parsed.offsets !== 'object') {
+      consola.warn(
+        `Cursor file ${file} has an unexpected shape; starting from the first page.`,
+      );
+      return emptyFullSyncCursor();
+    }
+    return parsed;
+  } catch (error) {
+    const { code, text } = fileErrorDetail(error);
+    if (code !== 'ENOENT') {
+      consola.warn(`Could not read the full-sync cursor ${file}: ${text}`);
+    }
+    return emptyFullSyncCursor();
+  }
+}
+
+export function writeFullSyncCursor(file: string, cursor: FullSyncCursor): void {
+  if (!file) {
+    return;
+  }
+  try {
+    writeJsonAtomic(file, { ...cursor, updatedAt: new Date().toISOString() });
+  } catch (error) {
+    // A lost cursor costs one wasted walk and never a wrong write, so this stays a warning:
+    // failing the run over it would be worse than the thing it protects against.
+    // 丢掉游标只浪费一次遍历，绝不会写错数据，因此这里只告警：为它让整轮失败，比它要防的事更糟。
+    consola.warn(
+      `Could not save the full-sync cursor ${file}: ${fileErrorDetail(error).text}`,
+    );
+  }
+}
+
 export function stateKey(shelfType: string, itemUuid: string): string {
   return `${shelfType}:${itemUuid}`;
 }

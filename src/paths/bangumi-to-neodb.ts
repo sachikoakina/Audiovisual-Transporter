@@ -58,7 +58,11 @@ import {
   syncConfig,
   unmatchedLogFile,
 } from '../sync-config';
-import { upsertReviewEntry } from '../utils';
+import {
+  readFullSyncCursor,
+  upsertReviewEntry,
+  writeFullSyncCursor,
+} from '../utils';
 import { printPathSummary } from '../sync-report';
 import { PathAbortedError, readOptionalOrThrow, readValueOrThrow } from './read';
 
@@ -143,13 +147,31 @@ export default async function syncBangumiToNeodb(
 
   const mangaPlatformCheck = needsBangumiMangaPlatformCheck(allowlist);
 
+  // Only a full walk resumes. A capped run must start at the head every time, on purpose: its
+  // whole window *is* the newest page, so honouring a leftover cursor there would silently hide
+  // exactly the marks that run exists to catch. The cursor also never decides whether to write —
+  // every write is already compared — so a stale value can only cost a re-walk.
+  // 只有全量才续跑。常规运行每次必须从头部开始，这是刻意的：它的窗口**就是**最新那一页，
+  // 在那里沿用残留游标会静默藏掉这一轮本来要抓的新标记。游标也从不决定要不要写 —— 每次写入本来
+  // 都要先比对 —— 因此旧值最多只让某一页重走一遍。
+  const cursorFile = fullSync ? syncConfig.bangumiFullSyncState : '';
+  const cursor = readFullSyncCursor(cursorFile);
+
   // null = mixed fetch (all types); otherwise one pass per subject_type
   const typePasses: Array<BangumiSubjectType | undefined> = subjectTypes
     ? subjectTypes
     : [undefined];
 
   for (const subjectType of typePasses) {
-    let offset = 0;
+    // One cursor per pass: a full sync can run several, and each has its own offset.
+    // 一趟一个游标：一次全量可能跑多趟，每趟有自己的 offset。
+    const passKey = subjectType === undefined ? 'mixed' : String(subjectType);
+    let offset = fullSync ? (cursor.offsets[passKey] ?? 0) : 0;
+    if (offset > 0) {
+      consola.info(
+        `Resuming the ${passKey} pass at offset ${offset}; earlier collections are already done.`,
+      );
+    }
     const limit = bangumiCollectionLimit;
 
     while (true) {
@@ -253,6 +275,18 @@ export default async function syncBangumiToNeodb(
       }
 
       offset += page.data.length;
+      // Written once per page, never per item: a kill loses at most one page of progress, and this
+      // is two orders of magnitude cheaper than the page it follows.
+      // 每页写一次，绝不每条写：被杀最多丢一页进度，而这次写入比它之前那一页便宜两个数量级。
+      if (offset >= page.total) {
+        // The pass is done, so drop its cursor — otherwise the next full run would start in the
+        // middle of a shelf that has since changed shape.
+        // 这一趟走完了，去掉它的游标 —— 否则下一次全量会从一条已经变了形状的书架中间开始。
+        delete cursor.offsets[passKey];
+      } else {
+        cursor.offsets[passKey] = offset;
+      }
+      writeFullSyncCursor(cursorFile, cursor);
       if (offset >= page.total) {
         break;
       }

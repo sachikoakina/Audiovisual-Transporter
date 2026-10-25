@@ -80,7 +80,7 @@ flowchart LR
 | 同步链路              | **5 条**           | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立             |
 | `src/` 文件           | **28 个**          | `clients/` 9 · `rules/` 7 · `paths/` 5 · 顶层 7               |
 | 离线断言              | **320 条 + 19 例** | `npm run verify:all`（vitest 与四个校验脚本），不需网络与凭据 |
-| 环境变量              | **51 个**          | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名   |
+| 环境变量              | **52 个**          | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名   |
 | `process.exit()`      | **0 处**           | 无实际调用；失败一律走 `PathReport` → 退出码                  |
 | 硬编码 `neodb.social` | **1 处**           | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`     |
 
@@ -681,15 +681,16 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### Bangumi 与豆瓣 RSS
 
-| 变量                          | 默认    | 说明                                                                                               |
-| ----------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| `BANGUMI_PRIVATE`             | `false` | 收藏是否私密                                                                                       |
-| `BANGUMI_COLLECTION_LIMIT`    | `50`    | 拉取收藏时每页数量                                                                                 |
-| `BANGUMI_USER_AGENT`          | 空      | 自定义 UA（被拦截时使用）                                                                          |
-| `BANGUMI_FULL_SYNC`           | `0`     | 设 `1` 时遍历全部分页（默认只取第一页）；`workflow_dispatch` 的 `bangumi_full_sync` 勾选时覆盖本值 |
-| `SYNC_BANGUMI_NEODB_PROGRESS` | `0`     | 是否同步观看进度（集 / 章 / 曲）                                                                   |
-| `DOUBAN_RSS_USER_AGENT`       | 空      | 豆瓣 RSS 与条目页共用；被拦截时替换 UA（403 多为 IP 级风控，改 UA 不保证解决）                     |
-| `SYNC_DOUBAN_REQUIRED`        | `1`     | `1` = 豆瓣 RSS 失败让整轮失败；`0` = 照常打印并标 `TOLERATED`，不参与退出码                        |
+| 变量                          | 默认                            | 说明                                                                                               |
+| ----------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `BANGUMI_PRIVATE`             | `false`                         | 收藏是否私密                                                                                       |
+| `BANGUMI_COLLECTION_LIMIT`    | `50`                            | 拉取收藏时每页数量                                                                                 |
+| `BANGUMI_USER_AGENT`          | 空                              | 自定义 UA（被拦截时使用）                                                                          |
+| `BANGUMI_FULL_SYNC`           | `0`                             | 设 `1` 时遍历全部分页（默认只取第一页）；`workflow_dispatch` 的 `bangumi_full_sync` 勾选时覆盖本值 |
+| `BANGUMI_FULL_SYNC_STATE`     | `.cache/bangumi-full-sync.json` | 全量遍历的游标。**只有全量读它**；CI 里由 `actions/cache` 跨运行保存，被超时打断的全量下次接着走   |
+| `SYNC_BANGUMI_NEODB_PROGRESS` | `0`                             | 是否同步观看进度（集 / 章 / 曲）                                                                   |
+| `DOUBAN_RSS_USER_AGENT`       | 空                              | 豆瓣 RSS 与条目页共用；被拦截时替换 UA（403 多为 IP 级风控，改 UA 不保证解决）                     |
+| `SYNC_DOUBAN_REQUIRED`        | `1`                             | `1` = 豆瓣 RSS 失败让整轮失败；`0` = 照常打印并标 `TOLERATED`，不参与退出码                        |
 
 ### 留档
 

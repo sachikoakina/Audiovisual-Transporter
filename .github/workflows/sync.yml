@@ -153,6 +153,24 @@ jobs:
       # 用离线断言给同步设门禁。它们不需要凭据也不需要网络，只需几秒；而规则若被悄悄改坏，
       # 应当**在**任何内容写入 Notion / NeoDB / TMDB 之前就把这一轮拦下来。
       - run: npm run verify:all || exit 1
+      # The cursor a full ④ walk leaves behind. Restored before the run, saved after it whatever
+      # the outcome was — a run killed at the 180-minute ceiling must continue where it stopped,
+      # otherwise a big shelf could never be walked end to end.
+      # ④ 全量留下的游标。运行前恢复、运行后无论成败都保存 —— 被 180 分钟上限杀掉的运行必须能
+      # 从停下的地方继续，否则大书架永远走不到底。
+      #
+      # The key is per-run because cache entries are immutable; the prefix below makes the newest
+      # entry the one restored. Only full runs participate: a cron run must start at the head.
+      # 键带 run id，因为缓存条目不可变；下面的前缀让最新那份被恢复。只有全量参与：常规运行必须
+      # 从头部开始。
+      - name: Restore the full-sync cursor
+        if: inputs.bangumi_full_sync
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/bangumi-full-sync.json
+          key: bangumi-full-sync-${{ github.run_id }}
+          restore-keys: |
+            bangumi-full-sync-
       - run: npm run sync || exit 1
       # Publish the report the sync just wrote, whatever the sync's own outcome was. The per-step
       # `$GITHUB_STEP_SUMMARY` file is attached when its own step ends, so writing the summary from
@@ -178,6 +196,12 @@ jobs:
       # 同一份报表的机器可读那一半。上面的摘要给人读；这个文件让待核对名单拿「本轮实际计了什么」
       # 对照自己的日志解析，而不必再从控制台文本里重推一遍。与摘要同一条 `always()`：失败的那一轮
       # 才是最值得读的。
+      - name: Save the full-sync cursor
+        if: always() && inputs.bangumi_full_sync
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/bangumi-full-sync.json
+          key: bangumi-full-sync-${{ github.run_id }}
       - name: Upload the run report
         if: always()
         uses: actions/upload-artifact@v4
