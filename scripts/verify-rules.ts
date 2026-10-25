@@ -64,7 +64,7 @@ import {
   NOTION_COLUMN_TYPES,
   PAGE_ICON_EMOJI,
   buildPropertyValue,
-} from '../src/clients/notion';
+} from '../src/rules/notion-payload';
 import {
   DB_PROPERTIES,
   ItemCategory,

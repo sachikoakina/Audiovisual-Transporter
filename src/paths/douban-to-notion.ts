@@ -3,12 +3,12 @@ import dayjs from 'dayjs';
 import dotenv from 'dotenv';
 import { type CreatePageParameters } from '@notionhq/client/build/src/api-endpoints';
 import scrapeDoubanSubjectPage from '../clients/douban-subject-page';
+import { notion } from '../clients/notion';
 import {
   NOTION_COLUMN_TYPES,
   PAGE_ICON_EMOJI,
   buildPropertyValue,
-  notion,
-} from '../clients/notion';
+} from '../rules/notion-payload';
 import { sleep } from '../utils';
 import {
   ItemCategory,
@@ -61,6 +61,19 @@ dotenv.config();
  */
 export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<PathReport> {
   const report = newPathReport('Douban → Notion');
+
+  // ① was the last path with no credential gate at all: `clients/notion.ts` builds the SDK client
+  // with `auth: process.env.NOTION_TOKEN`, so without a token every page create failed one item at
+  // a time and the run looked like a data problem. Say it once, and say it before any request.
+  // ① 是最后一条完全没有凭据闸门的链路：`clients/notion.ts` 用 `auth: process.env.NOTION_TOKEN`
+  // 构造 SDK 客户端，没配 token 时每一页都会逐条失败，读起来像是数据问题。只声明一次，且在
+  // 任何请求之前。
+  if (!process.env.NOTION_TOKEN) {
+    consola.warn('Douban → Notion needs NOTION_TOKEN; skip.');
+    report.aborted = true;
+    printPathSummary(report);
+    return report;
+  }
 
   const filtered = filterDoubanFeedsByCategory(
     feeds,
@@ -466,14 +479,17 @@ async function addItemToNotion(
       };
     }
 
-    const response = await notion.pages.create(createPageRequest);
-    if (response && response.id) {
-      consola.success(
-        itemData[DB_PROPERTIES.NAME] +
-          `[${itemData[DB_PROPERTIES.ITEM_LINK]}]` +
-          ' page inserted into Notion database.',
-      );
-    }
+    // `pages.create` either throws or returns a page that carries an `id`. The old
+    // `if (response && response.id)` guard could never be false, and it implied a failure mode
+    // that does not exist — a throw is already turned into a `failed` item one level up.
+    // `pages.create` 要么抛错，要么返回一个带 `id` 的页面。旧的 `if (response && response.id)`
+    // 永不为假，还暗示了一种并不存在的失败模式 —— 抛错在上一层就已经变成 `failed` 条目。
+    await notion.pages.create(createPageRequest);
+    consola.success(
+      itemData[DB_PROPERTIES.NAME] +
+        `[${itemData[DB_PROPERTIES.ITEM_LINK]}]` +
+        ' page inserted into Notion database.',
+    );
     return true;
   } catch (error) {
     consola.error(

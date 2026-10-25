@@ -26,7 +26,11 @@ import type { FeedItem, ItemStatus, ItemSyncOutcome, PathReport } from '../types
 import { newPathReport } from '../types';
 import { fetchNeodbItemByUrl } from '../clients/neodb-catalog';
 import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
-import { getNeodbMark, markNeodbItem } from '../clients/neodb-shelf';
+import {
+  getNeodbMark,
+  markNeodbItem,
+  verifyNeodbToken,
+} from '../clients/neodb-shelf';
 import {
   filterDoubanFeedsByCategory,
   syncConfig,
@@ -53,6 +57,17 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
 
   if (!neodbToken) {
     consola.warn('Douban → NeoDB needs NEODB_API_TOKEN; skip.');
+    report.aborted = true;
+    printPathSummary(report);
+    return report;
+  }
+
+  // A live check, not just an existence check. Without it the first item learns the token is
+  // dead, and `b35595b` turns that into `aborted` — but only after a catalogue lookup and a mark
+  // read have already gone out. One cheap request buys a clean "credentials are dead" verdict.
+  // 活体校验，而不只是存在性检查。缺了它，是第一条目才发现 token 已失效；`b35595b` 之后那会变成
+  // `aborted`，但已经先发出一次目录查询和一次标记读取了。一次廉价请求换来干净的「凭据已失效」结论。
+  if (!(await verifyNeodbToken())) {
     report.aborted = true;
     printPathSummary(report);
     return report;
