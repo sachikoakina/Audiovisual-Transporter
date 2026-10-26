@@ -372,7 +372,14 @@ async function syncCollectionToNeodb(
     subjectType: collection.subject_type,
   });
   if (!neodbItem?.uuid) {
-    consola.warn('NeoDB could not resolve Bangumi URL, skip: ', url);
+    // The title leads and the URL follows, instead of the URL alone. The review list has to name
+    // the entry it is asking about, and a bare `bgm.tv/subject/N` is only an address — the list
+    // could show the reader a link and nothing to recognise it by. `标题[链接]` is also the shape
+    // ② (`feedLabel`) and ③ already print, so one `splitLabel` reads all three.
+    // 标题在前、链接在后，而不是只打链接。名单必须能说出它在问哪一条，而光秃秃的
+    // `bgm.tv/subject/N` 只是个地址 —— 读者只会看到一个认不出来的链接。`标题[链接]` 也正是
+    // ②（`feedLabel`）与 ③ 已有的形状，一个 `splitLabel` 就能读这三条。
+    consola.warn('NeoDB could not resolve Bangumi URL, skip: ', `${title}[${url}]`);
     return 'unresolved';
   }
 

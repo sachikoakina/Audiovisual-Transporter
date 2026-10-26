@@ -24,6 +24,47 @@ export type RunReportPath = {
 
 export type RunReport = { version: number; paths: RunReportPath[] };
 
+/**
+ * One item as the log parser sees it, and as `render` consumes it.
+ * 解析器看到、`render` 消费的单条条目。
+ *
+ * The three timeline fields are optional because a freshly parsed item has not been through
+ * `merge` yet — only `render` needs them, and it defaults them the same way `merge` does.
+ * 三个时间线字段是可选的：刚解析出的条目还没经过 `merge`，只有 `render` 用得到它们，而它对缺省值
+ * 的处理与 `merge` 一致。
+ */
+export type ReviewItem = {
+  key: string;
+  kind: string;
+  source: string;
+  reason: string;
+  title: string;
+  url: string;
+  id: string;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  missedRuns?: number;
+  seenCount?: number;
+};
+
+export type ParsedLogs = {
+  items: ReviewItem[];
+  unattributable: number;
+  sawPathSummary: boolean;
+};
+
+export function parseLogs(logsDir: string): ParsedLogs;
+
+export function render(input: {
+  items: ReadonlyArray<ReviewItem>;
+  added: ReadonlyArray<ReviewItem>;
+  removed: ReadonlyArray<ReviewItem>;
+  degraded: string;
+  runStartedAt: string;
+  runUrl?: string;
+  unattributable?: number;
+}): string;
+
 export function readRunReport(dir: string): RunReport | null;
 
 export function runReportLines(

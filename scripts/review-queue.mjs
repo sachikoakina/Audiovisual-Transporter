@@ -313,15 +313,23 @@ export function parseLogs(logsDir) {
       }
 
       // ── ④ Bangumi → NeoDB ─────────────────────────────────────────────
+      // `标题[链接]` since 2026-10-26; before that this path printed the URL alone, which is why
+      // its entries used to reach the list as an address with no name. A bare URL is still
+      // accepted (an older run's log, or a replayed artifact) and falls back to using the URL as
+      // the name — the entry is still worth showing, it just cannot be recognised at a glance.
+      // 2026-10-26 起是 `标题[链接]`；在此之前这条链路只打链接，所以它的条目一直是以「有地址、
+      // 没名字」的样子进名单的。光秃秃的 URL 仍被接受（旧一轮的日志、重放的 artifact），退化
+      // 成用 URL 当名字 —— 条目仍值得列出，只是没法一眼认出来。
       const noNeodb = line.indexOf('NeoDB could not resolve Bangumi URL, skip: ');
       if (noNeodb >= 0) {
-        const url = line
+        const raw = line
           .slice(noNeodb + 'NeoDB could not resolve Bangumi URL, skip: '.length)
           .trim();
+        const label = splitLabel(raw);
         add('unresolved', 'bangumi→neodb', 'neodb-unresolved', {
-          url,
-          id: bangumiSubjectId(url),
-          title: url,
+          url: label ? label.url : raw,
+          id: bangumiSubjectId(label ? label.url : raw),
+          title: label ? label.title : '',
         });
         continue;
       }
@@ -560,6 +568,68 @@ const compareKind = (a, b) => {
   return rank(a) - rank(b) || byText(String(a), String(b));
 };
 
+/**
+ * One bullet for an entry that is a diff notice rather than a task: no checkbox, no ordinal. It is
+ * not something to work through — it is what changed since the last round. The path used to trail
+ * the line as `（链路）`; it is now the heading above it, so the line does not repeat it.
+ * 「本轮新增 / 本轮移除 / 观察中」这种差量提示的条目行：没有复选框也没有序号，因为它不是待办清单，
+ * 而是「上一轮之后变了什么」。链路原先跟在行尾当 `（链路）`，现在是它上面的标题，行内不再重复。
+ *
+ * Name first, link second — `名称 — 链接 · reason`. A bare address tells the reader nothing about
+ * which entry needs a look, and ④'s lines used to carry nothing else.
+ * 名称在前、链接在后 —— `名称 — 链接 · reason`。光一个地址说明不了是哪一条要核对，而 ④ 的行
+ * 原先只有地址。
+ *
+ * `strike` marks a removed entry, and only the name is struck: the link stays clickable, because
+ * "did it really get matched?" is exactly the question a removal raises.
+ * `strike` 标记已移除的条目，且只有名字加删除线：链接保持可点 —— 「它真的匹配上了吗」正是移除会
+ * 引出的那个问题。
+ */
+function diffLine(item, { strike = false } = {}) {
+  const name = strike ? `~~${item.title}~~` : item.title;
+  // The name falls back to the URL when the log had nothing better to name it with (④ before
+  // 2026-10-26). Printing the address twice would only add noise.
+  // 日志里没有更好的名字时名字会退化成 URL（2026-10-26 之前的 ④）。把地址打印两遍只会多出噪声。
+  const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
+  return `- \`${item.kind}\` ${name}${link} · ${item.reason}`;
+}
+
+/**
+ * Emit a section body grouped by path: `### 链路（N）` in ①→⑤ order, entries in arrival order.
+ *
+ * `本轮新增` and `本轮移除` share this, so the two sections cannot drift apart: same heading level,
+ * same grouping rule, same item line. Learning where a path heading sits in one of them is enough
+ * to find it in the other.
+ * 按链路分组输出一节正文：`### 链路（N）` 按 ①→⑤ 顺序，条目保持到达顺序。
+ *
+ * `本轮新增` 与 `本轮移除` 共用它，两节因此不会走样：相同的标题层级、相同的分组规则、相同的条目
+ * 行。在哪一节的哪个位置找到某个链路标题，在另一节的同一位置也能找到。
+ */
+function pushGroupedBySource(out, items, lineOf) {
+  const bySource = new Map();
+  for (const item of items) {
+    const bucket = bySource.get(item.source);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      bySource.set(item.source, [item]);
+    }
+  }
+  // `compareSource` keeps ①→⑤, and unknown slugs last in a stable order — the same rule the main
+  // list uses, so a path never appears in a different position in the two places it is shown.
+  // `compareSource` 保持 ①→⑤、未知 slug 排最后且顺序稳定 —— 与主名单同一条规则，同一条链路在
+  // 出现它的两处位置一致。
+  for (const source of [...bySource.keys()].sort(compareSource)) {
+    const bucket = bySource.get(source);
+    out.push(`### ${sourceLabel(source)}（${bucket.length}）`);
+    out.push('');
+    for (const item of bucket) {
+      out.push(lineOf(item));
+    }
+    out.push('');
+  }
+}
+
 export function render({
   items,
   added,
@@ -574,6 +644,12 @@ export function render({
   const observing = items.filter(
     (item) => (item.seenCount || 1) < (MIN_ROUNDS[item.kind] ?? 1),
   );
+  // What actually entered the list this round. `added` also holds entries still inside their
+  // observation window; those are 观察中's business alone. Counting them here (as the old summary
+  // line did, via `added.filter(listed)`) meant the number described something other than the body.
+  // 本轮真正进入名单的条目。`added` 里还包含仍在观察期内的条目，那些只归「观察中」管。把它们
+  // 也计进这里（旧计数行就是这么做的，用 `added.filter(listed)`）会让数字描述的并不是正文。
+  const fresh = listed(added);
 
   const out = [];
   out.push(`# 待核对名单（${live.length} 条）`);
@@ -581,7 +657,7 @@ export function render({
   out.push(`本轮运行：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}`);
   out.push('');
   out.push(
-    `新增 **${added.filter((item) => listed([item]).length > 0).length}** · ` +
+    `新增 **${fresh.length}** · ` +
       `移除 **${removed.length}** · 观察中 **${observing.length}** · 名单合计 **${live.length}**`,
   );
   out.push('');
@@ -600,23 +676,22 @@ export function render({
     out.push('');
   }
 
-  if (added.length) {
+  // 新增 / 移除 are the same shape on purpose: H2 is the kind of change, H3 is the path (same
+  // order and same names as the main list below), entries carry name-then-link. The two sections
+  // used to be flat lists that only spelled the path in a trailing bracket, which made a long run
+  // read as one undifferentiated pile and let the two sections describe themselves differently.
+  // 新增 / 移除 刻意同形：H2 是变化类型，H3 是链路（顺序与显示名都与下面的主名单一致），条目行
+  // 名称在前、链接在后。这两节原先是不分组的平铺列表，链路只塞在行尾括号里，一轮跑下来就是一堆
+  // 分不清的条目，而且两节各自描述自己的方式还不一样。
+  if (fresh.length) {
     out.push('## 本轮新增');
     out.push('');
-    for (const item of added) {
-      out.push(
-        `- \`${item.kind}\` ${item.title} — ${item.reason}（${sourceLabel(item.source)}）`,
-      );
-    }
-    out.push('');
+    pushGroupedBySource(out, fresh, (item) => diffLine(item));
   }
   if (removed.length) {
     out.push('## 本轮移除（已连续两轮未出现）');
     out.push('');
-    for (const item of removed) {
-      out.push(`- ~~${item.title}~~ — ${item.reason}（${sourceLabel(item.source)}）`);
-    }
-    out.push('');
+    pushGroupedBySource(out, removed, (item) => diffLine(item, { strike: true }));
   }
 
   // Two passes: bucket by path first (buckets keep `live`'s order, i.e. `state.json`'s
@@ -653,9 +728,11 @@ export function render({
       out.push('');
       bucket.forEach((item, index) => {
         const age = daysSince(item.firstSeenAt, now);
-        // Path ④ has no title in its log line, so `add()` falls back to the URL as the title;
-        // printing it twice (`https://… — https://…`) would only add noise.
-        // ④ 的日志行里没有标题，`add()` 会退化成用 URL 当标题；再拼一次链接只多出噪声。
+        // Name, then link. `add()` falls back to the URL as the name when the log carried nothing
+        // better — old ④ lines, or a snapshot carried over from before 2026-10-26 — and printing
+        // the address twice (`https://… — https://…`) would only add noise.
+        // 名称在前、链接在后。日志里没有更好的名字时（旧的 ④ 行，或 2026-10-26 之前沿用到现在的
+        // 快照），`add()` 会退化成用 URL 当名称；再拼一次链接只多出噪声。
         const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
         // Bullet + checkbox + the ordinal *in the text*. See `TASK_BOX` above for why the
         // number cannot be the list marker. `seenCount` is printed nowhere: it only decides
@@ -676,12 +753,12 @@ export function render({
     out.push(`## 观察中（${observing.length}，下一轮仍出现才入名单）`);
     out.push('');
     for (const item of observing) {
-      // The path is spelled out here too: without it the reader cannot tell which H2 this
-      // entry will land under once it clears its observation window.
-      // 这里也标注链路：否则读者无法判断它在过了观察期后会落到哪个 H2 下。
-      out.push(
-        `- \`${item.kind}\` ${item.title} — ${item.reason}（${sourceLabel(item.source)}）`,
-      );
+      // Same line as 新增/移除, plus the path in brackets: this section has no per-path headings,
+      // so without the bracket the reader cannot tell which H2 the entry will land under once it
+      // clears its observation window.
+      // 与「新增 / 移除」同一行式，另加一个括号标注链路：本节没有按链路分标题，不标的话读者无法
+      // 判断它过了观察期会落到哪个 H2 下。
+      out.push(`${diffLine(item)}（${sourceLabel(item.source)}）`);
     }
     out.push('');
   }
