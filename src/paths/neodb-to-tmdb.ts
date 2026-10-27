@@ -34,6 +34,7 @@ import {
   extractImdbIdFromNeodb,
   extractNeodbYear,
   extractTmdbTargetFromNeodb,
+  isLinkTypeCompatible,
   resolveTmdbOperations,
   toShelfType,
 } from '../rules/tmdb-mapping';
@@ -618,8 +619,17 @@ type NoMatchReason = 'no-tmdb-match' | 'no-neodb-year' | 'no-neodb-year-fetch-fa
 type TmdbResolution = { target: TmdbTarget } | { target: null; reason: NoMatchReason };
 
 /**
+ * How far a hand-maintained TMDB link may sit from the NeoDB item's year before it earns a warning.
+ * Wide on purpose: remakes, re-releases, compilations and "the film vs the series" all differ by
+ * more than the search tolerance yet are legitimately the same work.
+ * 人工维护的 TMDB 外链与 NeoDB 条目年份相差多少才值得告警。刻意宽：翻拍、重映、合集，以及「电影
+ * vs 剧集」，都可能超出匹配容差却仍属同一部作品。
+ */
+const LINK_YEAR_WARN_DRIFT = 5;
+
+/**
  * NeoDB item → TMDB target, cheapest-exact first:
- *   1) the item's own TMDB link (external_resources) — exact, no lookup guess
+ *   1) the item's own TMDB link (external_resources) — exact, but only if it agrees with the category
  *   2) its IMDb id → /3/find                       — exact, zero false positives
  *   3) title + year → /3/search                    — strict exact-title comparison, year required
  *
@@ -630,7 +640,7 @@ type TmdbResolution = { target: TmdbTarget } | { target: null; reason: NoMatchRe
  * year to break the tie.
  *
  * NeoDB 条目 → TMDB 目标，从最廉价且最精确的开始：
- *   1) 条目自带的 TMDB 外链（external_resources）—— 精确，不做猜测
+ *   1) 条目自带的 TMDB 外链（external_resources）—— 精确，但仅在它与分类一致时采信
  *   2) 它的 IMDb 号 → /3/find                     —— 精确，零误配
  *   3) 标题 + 年份 → /3/search                    —— 严格精确标题比对，年份必填
  *
@@ -645,11 +655,26 @@ async function resolveTmdbTarget(
 ): Promise<TmdbResolution> {
   const tmdbLink = extractTmdbTargetFromNeodb(item);
   if (tmdbLink) {
-    const target = await getTmdbById(tmdbLink.mediaType, tmdbLink.id);
-    if (target) {
-      ctx.counters.matchedTmdbLink += 1;
-      consola.info(`Matched via NeoDB TMDB link: ${targetKey(target)}`);
-      return { target };
+    // A cross-type link is not a near miss, it is a different entity: a `category: tv` item cannot
+    // legitimately live on `movie/N`. The shelf reports such a link as the *most* trustworthy level,
+    // so it is the one place where a wrong entry is adopted with no comparison at all — the type
+    // check is the minimum evidence required before trusting it.
+    // 跨类型的外链不是「差一点」，而是另一个实体：`category: tv` 的条目不可能合理地落在
+    // `movie/N` 上。外链是书架标称「最可信」的那一级，也是唯一一处完全不做比较就采信的地方 ——
+    // 类型一致是采信它之前所需的最低证据。
+    if (!isLinkTypeCompatible(tmdbLink.mediaType, mediaType)) {
+      consola.warn(
+        `NeoDB TMDB link points at ${tmdbLink.mediaType}:${tmdbLink.id}, ` +
+          `but the item is ${mediaType}; ignoring the link and falling through to lookup.`,
+      );
+    } else {
+      const target = await getTmdbById(tmdbLink.mediaType, tmdbLink.id);
+      if (target) {
+        ctx.counters.matchedTmdbLink += 1;
+        consola.info(`Matched via NeoDB TMDB link: ${targetKey(target)}`);
+        warnOnLinkYearDrift(item, target, ctx);
+        return { target };
+      }
     }
   }
 
@@ -752,6 +777,47 @@ async function resolveItemYear(
   ctx.itemYears.years[item.uuid] = year;
   ctx.itemYearsDirty = true;
   return { status: 'found', year };
+}
+
+/**
+ * Warn when a hand-maintained TMDB link lands on an entity from a different decade.
+ *
+ * The link itself is still honoured: it is the user's own statement of identity, and a program must
+ * not overrule it over a year. But it is the one level where nothing is compared, so a link that is
+ * plainly off deserves a line in the log rather than silence.
+ *
+ * Years available here come only from what is already known — the shelf payload (normally nothing) or
+ * the cache. Fetching the catalogue year for the ~2 000 linked items would roughly double this path's
+ * NeoDB traffic to produce a diagnostic that never changes what is written, so it is deliberately not
+ * done; the type gate above is the check that actually blocks a write.
+ *
+ * 当人工维护的 TMDB 外链落在另一个年代的实体上时告警。
+ *
+ * 外链本身仍然被采信：它是用户自己对身份的声明，程序不该因为年份推翻它。但这正是唯一一级不做任何
+ * 比较的地方，所以一条明显不对的外链应该在日志里留下一行，而不是沉默。
+ *
+ * 这里能用的年份只来自已知信息 —— 书架载荷（通常为空）或缓存。为这约 2 000 条带外链的条目去取目录
+ * 年份，会让本链路的 NeoDB 流量大致翻倍，换来的却是一个从不改变写入内容的诊断，因此刻意不做；真正
+ * 能拦住写入的是上面那道类型闸门。
+ */
+function warnOnLinkYearDrift(
+  item: NeodbItem,
+  target: TmdbTarget,
+  ctx: SyncContext,
+): void {
+  const knownYear = extractNeodbYear(item) ?? ctx.itemYears.years[item.uuid];
+  if (knownYear == null || target.year == null) {
+    return;
+  }
+  const drift = Math.abs(target.year - knownYear);
+  if (drift <= LINK_YEAR_WARN_DRIFT) {
+    return;
+  }
+  const label = item.display_title || item.title || item.uuid;
+  consola.warn(
+    `TMDB link year looks off: ${label} is ${knownYear}, ${targetKey(target)} is ${target.year} ` +
+      `(${drift} years apart). The link is still used — please check it on NeoDB.`,
+  );
 }
 
 /**

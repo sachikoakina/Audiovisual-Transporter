@@ -10,6 +10,7 @@ import type {
   TmdbTarget,
 } from '../types';
 import { classifyReadFailure } from '../rules/read-result';
+import { tmdbResultYear } from '../rules/tmdb-matching';
 
 /**
  * TMDB API client.
@@ -317,7 +318,12 @@ export async function findTmdbByImdbId(imdbId: string): Promise<TmdbTarget[]> {
   }
 }
 
-/** Look up a TMDB item by its own id — used when NeoDB already links to TMDB. */
+/**
+ * Look up a TMDB item by its own id — used when NeoDB already links to TMDB.
+ * The year rides along so the caller can sanity-check a hand-maintained link without a second request.
+ * 按自身 id 查询 TMDB 条目 —— 用于 NeoDB 已经带 TMDB 外链的情形。
+ * 年份一并返回，调用方因此无需第二次请求就能核对人工维护的外链。
+ */
 export async function getTmdbById(
   mediaType: TmdbMediaType,
   id: number,
@@ -329,7 +335,12 @@ export async function getTmdbById(
     if (!data?.id) {
       return null;
     }
-    return { mediaType, id: data.id, title: data.title ?? data.name };
+    return {
+      mediaType,
+      id: data.id,
+      title: data.title ?? data.name,
+      year: tmdbResultYear(data),
+    };
   } catch (error) {
     consola.error(`TMDB lookup failed for ${mediaType}:${id}: `, failureCode(error));
     return null;

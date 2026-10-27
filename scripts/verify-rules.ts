@@ -59,6 +59,7 @@ import {
   extractImdbIdFromNeodb,
   extractNeodbYear,
   extractTmdbTargetFromNeodb,
+  isLinkTypeCompatible,
   toShelfType,
 } from '../src/rules/tmdb-mapping';
 import {
@@ -734,6 +735,21 @@ check(
       }),
     ),
   ) === JSON.stringify(['搏击俱乐部', 'Fight Club']),
+);
+
+check(
+  'isLinkTypeCompatible accepts a link of the item’s own media type',
+  isLinkTypeCompatible('movie', 'movie') && isLinkTypeCompatible('tv', 'tv'),
+);
+check(
+  'isLinkTypeCompatible rejects a cross-type link (the 天涯明月刀 case)',
+  // A `category: tv` item linked to `movie/N` is a different entity, not a near miss.
+  // `category: tv` 的条目链到 `movie/N` 是另一个实体，不是差一点。
+  !isLinkTypeCompatible('movie', 'tv') && !isLinkTypeCompatible('tv', 'movie'),
+);
+check(
+  'isLinkTypeCompatible rejects a missing or unknown link type',
+  !isLinkTypeCompatible(undefined, 'movie') && !isLinkTypeCompatible('person', 'movie'),
 );
 
 // ───────────────────────────────────────────────────────────────────────────

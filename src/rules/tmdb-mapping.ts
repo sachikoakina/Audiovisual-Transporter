@@ -155,6 +155,31 @@ export function extractTmdbTargetFromNeodb(
   return null;
 }
 
+/**
+ * May a NeoDB item's own TMDB link be trusted for this media type?
+ * NeoDB 条目自带的 TMDB 外链，对这个媒体类型是否可信？
+ *
+ * Strict equality, with no allowlist of "compatible" pairs: there is no pair that is legitimately
+ * different. A `movie` link on a `tv` item points at another entity — it is not a near miss, and the
+ * link level is the only level that compares nothing, so this is its minimum evidence.
+ *
+ * TV seasons are covered without a special case: a season's category is `tv`, so a `tv/N` link
+ * agrees. What such a link loses is *which* season, and that is a separate, semantics-level
+ * question this check deliberately does not answer.
+ *
+ * 严格相等，不设「兼容」白名单：没有任何一对是合理不同的。`tv` 条目上的 `movie` 外链指向的是另一个
+ * 实体 —— 它不是差一点，而外链那一级是唯一不做任何比较的一级，这就是它的最低证据。
+ *
+ * 剧集的季不需要特例：季的 category 是 `tv`，因此 `tv/N` 外链是相符的。这类外链丢失的是**哪一季**，
+ * 那是另一个语义层面的问题，本检查刻意不回答。
+ */
+export function isLinkTypeCompatible(
+  linkMediaType: TmdbMediaType | string | undefined,
+  itemMediaType: TmdbMediaType,
+): boolean {
+  return linkMediaType === itemMediaType;
+}
+
 /** Extract an IMDb id from NeoDB external_resources, if the link is present. / 若存在该外链，从 NeoDB 的 external_resources 中提取 IMDb id。 */
 export function extractImdbIdFromNeodb(item: NeodbItem): string | null {
   for (const resource of item.external_resources ?? []) {

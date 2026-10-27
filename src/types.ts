@@ -293,6 +293,19 @@ export type TmdbTarget = {
   mediaType: TmdbMediaType;
   id: number;
   title?: string;
+  /**
+   * Release (or first-air) year, when the response carried a date.
+   *
+   * Only filled by the by-id lookups. It exists so the TMDB-link level can say "this link points at
+   * an entity from a different decade" — the one check that level can still make, since a link is a
+   * choice the user made and must not be overruled silently.
+   *
+   * 发行（或首播）年份，响应带日期时才有值。
+   *
+   * 只有按 id 查询的调用会填它。它的存在是为了让 TMDB 外链那一级能说出「这个外链指向的是另一个
+   * 年代的实体」—— 那一级唯一还能做的检查，因为外链是用户自己的选择，不该被程序静默推翻。
+   */
+  year?: number;
 };
 
 /**

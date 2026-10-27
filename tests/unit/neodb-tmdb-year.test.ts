@@ -256,3 +256,45 @@ describe('⑤ no year means no title search / ⑤ 没有年份就不搜标题', 
     expect(lastReviewEntry().reason).toBe('no-tmdb-match');
   });
 });
+
+describe('⑤ level-1 link type gate / ⑤ 第 1 级的类型闸门', () => {
+  it('refuses a cross-type TMDB link and falls through (the 天涯明月刀 case)', async () => {
+    fetchShelf.mockResolvedValue([
+      mark({
+        uuid: 'season-1',
+        type: 'TVSeason',
+        category: 'tv',
+        display_title: '天涯明月刀',
+        title: '天涯明月刀',
+        api_url: '/api/tv/season/season-1',
+        external_resources: [{ url: 'https://www.themoviedb.org/movie/26875' }],
+      }),
+    ]);
+    getNeodbItemDetail.mockResolvedValue({ uuid: 'season-1', year: 2012 });
+    searchTmdb.mockResolvedValue([
+      { id: 58026, name: '天涯明月刀', first_air_date: '2012-06-20' },
+    ]);
+
+    const report = await runNeodbToTmdb(false);
+
+    // The link pointed at a 1976 film; the item is a 2012 series. Nothing may be read from `movie/26875`.
+    // 外链指向 1976 年的电影，而条目是 2012 年的剧集。绝不能去读 `movie/26875`。
+    expect(getTmdbById).not.toHaveBeenCalled();
+    expect(searchTmdb).toHaveBeenCalledWith('tv', '天涯明月刀', 2012);
+    expect(report.unresolved).toBe(0);
+    expect(report.written).toBe(1);
+  });
+
+  it('honours a same-type TMDB link without searching', async () => {
+    fetchShelf.mockResolvedValue([
+      mark({ external_resources: [{ url: 'https://www.themoviedb.org/movie/550' }] }),
+    ]);
+    getTmdbById.mockResolvedValue({ mediaType: 'movie', id: 550, title: '搏击俱乐部' });
+
+    const report = await runNeodbToTmdb(false);
+
+    expect(getTmdbById).toHaveBeenCalledWith('movie', 550);
+    expect(searchTmdb).not.toHaveBeenCalled();
+    expect(report.unresolved).toBe(0);
+  });
+});
