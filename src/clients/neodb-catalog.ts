@@ -52,6 +52,55 @@ export async function fetchNeodbItemByUrl(
   }
 }
 
+/**
+ * Fetch one catalogue entry from its own `api_url` — the fields the shelf listing never carries.
+ * 用条目自身的 `api_url` 拉取完整目录条目 —— 也就是书架列表永远不带的字段。
+ *
+ * Why this exists: the shelf endpoint (`GET /api/me/shelf/{type}`) inlines `ItemSchema`, and
+ * `ItemSchema` has no `year` / `pub_year`. Those two fields live only on the per-item schemas
+ * (`MovieSchema`, `TVSchema`, the season schema) served from `api_url`. So the shelf payload is
+ * enough to *describe* an item and not enough to *date* one — which is what the title-search level
+ * needs, and its absence is why `SYNC_YEAR_TOLERANCE` had no effect for a long time.
+ *
+ * 为什么需要它：书架端点（`GET /api/me/shelf/{type}`）内联的是 `ItemSchema`，而 `ItemSchema` 没有
+ * `year` / `pub_year`。这两个字段只在 `api_url` 提供的条目级 schema（`MovieSchema`、`TVSchema`、
+ * 季 schema）上。因此书架载荷足以**描述**一个条目，却不足以给它**定年** —— 而标题搜索那一级正
+ * 需要年份，它的缺席正是 `SYNC_YEAR_TOLERANCE` 长期无效的原因。
+ *
+ * `api_url` is a catalogue path (`/api/movie/<uuid>`), so it goes through the same client and base
+ * URL as every other catalogue call; a self-hosted instance works unchanged. Returns `null` rather
+ * than throwing: a year this call cannot deliver costs one match, never a wrong write.
+ *
+ * `api_url` 是目录路径（`/api/movie/<uuid>`），因此与其他目录调用共用同一个客户端与 base URL，
+ * 自建实例无需改动。返回 `null` 而不抛出：这次调用拿不到年份只会少一次匹配，绝不会写错。
+ */
+export async function getNeodbItemDetail(apiUrl: string): Promise<NeodbItem | null> {
+  // `prefixUrl` refuses a leading slash, and NeoDB always ships `api_url` with one. An absolute
+  // URL loses its origin: the path is the only part that identifies the entry.
+  // `prefixUrl` 不接受前导斜杠，而 NeoDB 的 `api_url` 总是带一个。绝对 URL 会丢掉 origin：
+  // 只有路径部分才标识这个条目。
+  const cataloguePath = apiUrl
+    .trim()
+    .replace(/^https?:\/\/[^/]+/i, '')
+    .replace(/^\/+/, '');
+  if (!cataloguePath) {
+    return null;
+  }
+
+  try {
+    const detail = (await neodbClient(cataloguePath, {
+      headers: { accept: 'application/json' },
+    }).json()) as NeodbItem;
+    return detail?.uuid ? detail : null;
+  } catch (error) {
+    consola.warn(
+      'Fetch NeoDB item detail failed: ',
+      `${cataloguePath} — ${neodbFailureCode(error)}`,
+    );
+    return null;
+  }
+}
+
 /** Extract the Bangumi subject id from NeoDB `external_resources`. / 从 NeoDB 的 `external_resources` 中提取 Bangumi subject id。 */
 export function extractBangumiIdFromNeodb(neodbItem: NeodbItem): number | null {
   const resources = neodbItem.external_resources || [];

@@ -104,8 +104,18 @@ function neodbItem(over: Partial<NeodbItem> = {}): NeodbItem {
   };
 }
 
+// A dated fixture by default: `pickExactTmdbMatch` now requires a year, and a result with no date
+// is a distinct, explicitly-asked-for case rather than the normal one.
+// 默认带日期的样本：`pickExactTmdbMatch` 现在必填年份，而「没有日期」是一个要显式点名的情形，
+// 不是常态。
 function searchResult(over: Partial<TmdbSearchResult> = {}): TmdbSearchResult {
-  return { id: 550, media_type: 'movie', title: '搏击俱乐部', ...over };
+  return {
+    id: 550,
+    media_type: 'movie',
+    title: '搏击俱乐部',
+    release_date: '1999-10-15',
+    ...over,
+  };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -594,19 +604,21 @@ check(
 );
 check(
   'pickExactTmdbMatch accepts an exact normalised title',
-  pickExactTmdbMatch([searchResult()], '搏击俱乐部')?.id === 550,
+  pickExactTmdbMatch([searchResult()], '搏击俱乐部', 1999)?.id === 550,
 );
 check(
   'pickExactTmdbMatch is case-insensitive',
-  pickExactTmdbMatch([searchResult({ title: 'Fight Club' })], 'fight club')?.id === 550,
+  pickExactTmdbMatch([searchResult({ title: 'Fight Club' })], 'fight club', 1999)
+    ?.id === 550,
 );
 check(
   'pickExactTmdbMatch never settles for a near match',
-  pickExactTmdbMatch([searchResult({ title: '搏击俱乐部 2' })], '搏击俱乐部') === null,
+  pickExactTmdbMatch([searchResult({ title: '搏击俱乐部 2' })], '搏击俱乐部', 1999) ===
+    null,
 );
 check(
   'pickExactTmdbMatch returns null for an empty title',
-  pickExactTmdbMatch([searchResult()], '   ') === null,
+  pickExactTmdbMatch([searchResult()], '   ', 1999) === null,
 );
 check(
   'year within tolerance (±1) is accepted',
@@ -622,17 +634,32 @@ check(
   ) === null,
 );
 check(
-  'a result with no date is rejected when a year is expected',
-  pickExactTmdbMatch([searchResult()], '搏击俱乐部', 2000) === null,
+  'a result with no date is always rejected',
+  pickExactTmdbMatch(
+    [searchResult({ release_date: undefined })],
+    '搏击俱乐部',
+    1999,
+  ) === null,
 );
+// The removed assertion this replaces said the opposite — "accepted when no year is expected".
+// That branch was the defect: 338 matches in one run were settled by title alone through it.
+// 被替换掉的那条断言说的正相反 ——「期望无年份时接受」。那个分支就是缺陷本身：某轮 338 次命中
+// 全部经由它仅凭标题定案。
 check(
-  'a result with no date is accepted when no year is expected',
-  pickExactTmdbMatch([searchResult()], '搏击俱乐部')?.id === 550,
+  'a year is mandatory: three required parameters, so no caller can omit it',
+  // `Function.length` counts parameters before the first default, i.e. the required ones.
+  // `Function.length` 数的是第一个默认值之前的参数，也就是必填的那些。
+  pickExactTmdbMatch.length === 3 &&
+    pickExactTmdbMatch(
+      [searchResult({ release_date: '1980-01-01' })],
+      '搏击俱乐部',
+      1999,
+    ) === null,
 );
 check(
   'TV results are matched via `name`',
-  pickExactTmdbMatch([searchResult({ title: undefined, name: '某剧' })], '某剧')?.id ===
-    550,
+  pickExactTmdbMatch([searchResult({ title: undefined, name: '某剧' })], '某剧', 1999)
+    ?.id === 550,
 );
 
 // ───────────────────────────────────────────────────────────────────────────

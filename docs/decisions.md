@@ -79,3 +79,15 @@
 **为什么看似不一致却只能这样**：`neodb-mark-rejected` 在 `DETAIL_REASONS` 里归属 **② Douban → NeoDB**。名单的路由键是 slug，因此 ④ 若打同一个 slug，它的条目会被记到 ② 名下 —— 那正是 `f50e6e2` 修掉的那类病（④/⑤ 曾共用 `Item failed, continuing:`，⑤ 的失败全记到 ④ 头上）。而「按来源加前缀」（如 `bangumi-neodb-mark-rejected`）会给同一个事件造出第三种拼法，比现状更不利于 grep。
 
 **判据**：slug 的唯一归属是硬约束，命名一致性是软目标。两者冲突时，唯一归属优先 —— 跨链路统计这类需求应该用 `sync-report.json`（`source` 是字段），而不是靠 slug 拼写。
+
+## 11. 没有年份就不进标题搜索，而不是「只比标题」（2026-10-28 立）
+
+**决策**：⑤ 的第 3 级（标题搜索）要求 NeoDB 与 TMDB 两侧**都有**年份。拿不到 NeoDB 侧年份时，整级跳过并记 `unresolved`，不退回「只比标题」。`pickExactTmdbMatch` 的 `expectedYear` 由可选改为**必填**，那个 `expectedYear == null → return true` 的分支被删除。
+
+**为什么**：那个分支是六次已知错写的共同原因。它不是角落里的例外通道，而是**每一轮的常态**：书架端点内联的是 `ItemSchema`，其中没有 `year` / `pub_year`（它们只在条目级 schema 上），所以 `extractNeodbYear` 恒为 `undefined`，那 300 多次标题命中没有一次比过年份。`矿藏之谜` 与 `TMDB 323208` 相差 31 年、`梦境` 与 `635996` 相差 35 年，这行算术一次都没跑过。改参数为必填，是为了让「忘传一个值」变成编译错误，而不是又一次静默放行。
+
+**代价与取舍**：一批「标题唯一但确实没有年份」的条目会从「匹配上」变成 `unresolved`。这是刻意选的：漏配会进待核对名单被人看见，错配不会 —— 而 ⑤ 是唯一写公共 TMDB 数据库的链路，错的是别人条目上的评分。
+
+**配套**：年份从条目自身的 `api_url` 取（`getNeodbItemDetail`），按 uuid 缓存进 `NEODB_ITEM_YEAR_CACHE`。缓存是纯读的目录事实，因此**空跑也回写**（与 `SYNC_STATE_FILE` 不同，后者空跑不写）；丢了只是每个条目多一次请求。取不到年份的两种原因分开记：`no-neodb-year`（目录里确实没有）与 `no-neodb-year-fetch-failed`（读不到），否则一次端点故障会看起来像目录缺口。
+
+**为什么不动控制台文案**：`scripts/review-queue.mjs` 靠 `No TMDB match; skip` 采名单、`verify-log-contract` 锁着它。差异只进留档的 `reason` 与一行 `debug`。

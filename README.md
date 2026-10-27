@@ -704,16 +704,17 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### NeoDB → TMDB
 
-| 变量                   | 默认                         | CI 差异               | 说明                                                               |
-| ---------------------- | ---------------------------- | --------------------- | ------------------------------------------------------------------ |
-| `NEODB_TMDB_FULL_SYNC` | `0`                          | 手动 `full_sync` 覆盖 | 全量：取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，强制关闭增量      |
-| `SYNC_SHELF_TYPES`     | `wishlist,progress,complete` | —                     | 处理哪些书架。`dropped` 默认排除                                   |
-| `SYNC_DRY_RUN`         | `0`                          | —                     | `1` = 只计算并打印计划，不写数据（全量模式下同样生效）             |
-| `SYNC_MAX_ITEMS`       | `200`                        | —                     | 单次运行处理上限（熔断保护），按进入 TMDB 的条数计；`0` 会回落 200 |
-| `SYNC_RATING_PROFILE`  | `tmdb_prefer`                | —                     | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖      |
-| `SYNC_YEAR_TOLERANCE`  | `1`                          | —                     | 标题匹配时允许的年份差                                             |
-| `SYNC_INCREMENTAL`     | `1`                          | **`0`**               | 跳过内容指纹未变的条目；全量模式强制关                             |
-| `SYNC_STATE_FILE`      | `.cache/sync-state.json`     | —                     | 增量状态文件位置                                                   |
+| 变量                    | 默认                           | CI 差异               | 说明                                                               |
+| ----------------------- | ------------------------------ | --------------------- | ------------------------------------------------------------------ |
+| `NEODB_TMDB_FULL_SYNC`  | `0`                            | 手动 `full_sync` 覆盖 | 全量：取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，强制关闭增量      |
+| `SYNC_SHELF_TYPES`      | `wishlist,progress,complete`   | —                     | 处理哪些书架。`dropped` 默认排除                                   |
+| `SYNC_DRY_RUN`          | `0`                            | —                     | `1` = 只计算并打印计划，不写数据（全量模式下同样生效）             |
+| `SYNC_MAX_ITEMS`        | `200`                          | —                     | 单次运行处理上限（熔断保护），按进入 TMDB 的条数计；`0` 会回落 200 |
+| `SYNC_RATING_PROFILE`   | `tmdb_prefer`                  | —                     | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖      |
+| `SYNC_YEAR_TOLERANCE`   | `1`                            | —                     | 标题匹配时允许的年份差；NeoDB 侧年份取不到时**不进标题搜索**       |
+| `SYNC_INCREMENTAL`      | `1`                            | **`0`**               | 跳过内容指纹未变的条目；全量模式强制关                             |
+| `SYNC_STATE_FILE`       | `.cache/sync-state.json`       | —                     | 增量状态文件位置                                                   |
+| `NEODB_ITEM_YEAR_CACHE` | `.cache/neodb-item-years.json` | **每次运行清空**      | ⑤ 的 `uuid → 年份` 缓存；CI 不跨轮保留，纯缓存，随时可删           |
 
 > `NEODB_TMDB_FULL_SYNC=1` 时，`SYNC_MAX_ITEMS` 与 `NEODB_MAX_PAGES` **被忽略**、`SYNC_INCREMENTAL` **强制关闭**（启动行会打印 `fullSync=on` 与 `maxItems=∞, maxPages=∞`，可据此确认是否生效）；`SYNC_DRY_RUN`、书架与分类不受影响。
 

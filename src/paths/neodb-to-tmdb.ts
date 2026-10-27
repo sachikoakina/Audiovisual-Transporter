@@ -48,6 +48,7 @@ import {
 } from '../sync-config';
 import { neodbThrottle } from '../clients/neodb-http';
 import { fetchShelf, getNeodbMe, verifyNeodbToken } from '../clients/neodb-shelf';
+import { getNeodbItemDetail } from '../clients/neodb-catalog';
 import {
   findTmdbByImdbId,
   getTmdbAccount,
@@ -64,10 +65,13 @@ import {
 import { planTmdbWrites, type TmdbPatch } from '../rules/tmdb-write-plan';
 import {
   fingerprintMark,
+  readItemYearCache,
   readState,
   stateKey,
   upsertReviewEntry,
+  writeItemYearCache,
   writeState,
+  type ItemYearCache,
   type SyncState,
 } from '../utils';
 import { PathAbortedError, readValueOrThrow } from './read';
@@ -75,6 +79,7 @@ import {
   newPathReport,
   newSyncCounters,
   pathHasFailed,
+  type NeodbItem,
   type NeodbShelfMark,
   type PathReport,
   type ReviewDetail,
@@ -97,6 +102,17 @@ type SyncContext = {
   counters: SyncCounters;
   state: SyncState;
   stateDirty: boolean;
+  /**
+   * `uuid → year`, loaded once per run and written back once at the end.
+   *
+   * Carried on the context rather than passed down because every item that reaches the
+   * title-search level may add to it, and the flush has to see all of them.
+   *
+   * `uuid → 年份`，每轮读取一次、结束写回一次。挂在上下文而不是逐层传递：每一个走到标题搜索那一级
+   * 的条目都可能往里加，而回写必须看到全部。
+   */
+  itemYears: ItemYearCache;
+  itemYearsDirty: boolean;
   /**
    * `SYNC_MAX_ITEMS` cut the run short; more items remain unwalked and roll over to the next run.
    *
@@ -204,6 +220,8 @@ export default async function runNeodbToTmdb(
       ? readState(neodbTmdbConfig.stateFile)
       : { version: 1, updatedAt: '', synced: {} },
     stateDirty: false,
+    itemYears: readItemYearCache(neodbTmdbConfig.itemYearCacheFile),
+    itemYearsDirty: false,
     capped: false,
     unmatchedTitles: [],
     failedItems: [],
@@ -224,6 +242,13 @@ export default async function runNeodbToTmdb(
 
   if (ctx.stateDirty && !neodbTmdbConfig.dryRun) {
     writeState(neodbTmdbConfig.stateFile, ctx.state);
+  }
+  // Written even on a dry run, unlike the sync state: this holds read-only catalogue facts, not a
+  // claim about what was written, so warming it is exactly what a dry run is for.
+  // 与同步状态不同，空跑也会写：这里装的是只读的目录事实，不是「写了什么」的声明，把它预热正是
+  // 空跑的目的。
+  if (ctx.itemYearsDirty) {
+    writeItemYearCache(neodbTmdbConfig.itemYearCacheFile, ctx.itemYears);
   }
 
   fillReport(report, ctx);
@@ -424,24 +449,41 @@ async function syncMark(
   ctx.counters.processed += 1;
 
   // 4) Resolve to a concrete TMDB item.
-  const target = await resolveTmdbTarget(item, mediaType, ctx);
-  if (!target) {
+  const resolution = await resolveTmdbTarget(item, mediaType, ctx);
+  if (!resolution.target) {
     ctx.counters.unmatched += 1;
     ctx.unmatchedTitles.push(label);
+    // The wording stays exactly as it was: `scripts/review-queue.mjs` collects the review list by
+    // matching this prefix, and the log contract locks it. The distinction between "nothing matched"
+    // and "not even searched" lives in the archive's `reason` and in the debug line below.
+    // 文案一个字都不改：`scripts/review-queue.mjs` 靠这个前缀采名单，日志契约也锁着它。
+    // 「没匹配到」与「根本没搜」的区别放在留档的 `reason` 和下面的 debug 行里。
     consola.warn(`No TMDB match; skip ${label}.`);
+    if (resolution.reason !== 'no-tmdb-match') {
+      consola.debug(
+        `  ${label}: ${resolution.reason} — title search was not attempted.`,
+      );
+    }
     const logged = upsertReviewEntry(neodbTmdbConfig.unmatchedLogFile, {
       source: 'neodb→tmdb',
-      reason: 'no-tmdb-match',
+      // Replaces the old constant `no-tmdb-match`: an entry that was never searched must not be
+      // filed as "searched and not found", or the archive cannot tell a data gap from a refusal.
+      // 取代原先的常量 `no-tmdb-match`：一条根本没搜过的条目不能被记成「搜过但没找到」，否则留档
+      // 分不清数据缺口与主动拒绝。
+      reason: resolution.reason,
       uuid: item.uuid,
       shelfType,
       category,
       title: label,
       titles: collectTitles(item),
+      year: ctx.itemYears.years[item.uuid],
       externalResources: item.external_resources,
     });
     ctx.reviewLogWritten = ctx.reviewLogWritten || logged;
     return;
   }
+
+  const target = resolution.target;
 
   // 5) Run-local dedupe — the same item can appear in several shelves.
   const identity = targetKey(target);
@@ -561,23 +603,53 @@ async function applyPatch(
 }
 
 /**
+ * Why an item could not be resolved. Only `no-tmdb-match` means "we looked, and TMDB has nothing".
+ * 条目为何没解析出来。只有 `no-tmdb-match` 表示「找过了，TMDB 确实没有」。
+ */
+type NoMatchReason = 'no-tmdb-match' | 'no-neodb-year' | 'no-neodb-year-fetch-failed';
+
+/**
+ * A resolved target, or the reason there is none. Modelled as a union so the caller cannot read
+ * `.target` without deciding what a miss means — the old bare `null` made "no counterpart" and
+ * "refused to search" the same value.
+ * 解析出的目标，或没有目标的原因。用联合类型表示，使调用方无法在不判断「落空意味着什么」的情况下
+ * 读 `.target` —— 原先的裸 `null` 让「没有对应物」与「拒绝搜索」成了同一个值。
+ */
+type TmdbResolution = { target: TmdbTarget } | { target: null; reason: NoMatchReason };
+
+/**
  * NeoDB item → TMDB target, cheapest-exact first:
  *   1) the item's own TMDB link (external_resources) — exact, no lookup guess
  *   2) its IMDb id → /3/find                       — exact, zero false positives
- *   3) title + year → /3/search                    — strict exact-title comparison
+ *   3) title + year → /3/search                    — strict exact-title comparison, year required
+ *
+ * Level 3 needs both sides of the comparison to exist. The NeoDB side is fetched here because the
+ * shelf payload never carries a year; when it still cannot be obtained the level is **skipped**, not
+ * relaxed to "title only". That relaxation is what produced the known wrong writes: 297 of one
+ * run's 338 title matches were Chinese aliases compared against a translated TMDB title with no
+ * year to break the tie.
+ *
+ * NeoDB 条目 → TMDB 目标，从最廉价且最精确的开始：
+ *   1) 条目自带的 TMDB 外链（external_resources）—— 精确，不做猜测
+ *   2) 它的 IMDb 号 → /3/find                     —— 精确，零误配
+ *   3) 标题 + 年份 → /3/search                    —— 严格精确标题比对，年份必填
+ *
+ * 第 3 级要求比较的两边都存在。NeoDB 这一边在这里现取，因为书架载荷从不带年份；仍然取不到时，
+ * 这一级**整级跳过**，而不是放宽成「只比标题」。那种放宽正是已知错写的来源：某轮 338 次标题命中
+ * 里有 297 次是中文别名对上了一部译名相同的 TMDB 条目，而没有年份来拆开它们。
  */
 async function resolveTmdbTarget(
   item: NeodbShelfMark['item'],
   mediaType: TmdbMediaType,
   ctx: SyncContext,
-): Promise<TmdbTarget | null> {
+): Promise<TmdbResolution> {
   const tmdbLink = extractTmdbTargetFromNeodb(item);
   if (tmdbLink) {
     const target = await getTmdbById(tmdbLink.mediaType, tmdbLink.id);
     if (target) {
       ctx.counters.matchedTmdbLink += 1;
       consola.info(`Matched via NeoDB TMDB link: ${targetKey(target)}`);
-      return target;
+      return { target };
     }
   }
 
@@ -594,26 +666,92 @@ async function resolveTmdbTarget(
     if (hit) {
       ctx.counters.matchedImdb += 1;
       consola.info(`Matched via IMDb ${imdbId}: ${targetKey(hit)}`);
-      return hit;
+      return { target: hit };
     }
     consola.warn(
       `IMDb ${imdbId} resolved to no ${mediaType} entry; falling through to title search.`,
     );
   }
 
-  const year = extractNeodbYear(item);
+  const year = await resolveItemYear(item, ctx);
+  if (year.status !== 'found') {
+    // Refusing here is the whole point of stage 0: an unmatched entry is visible in the review list,
+    // a wrong write is not. Both reasons are kept apart so a broken endpoint never looks like a
+    // catalogue gap.
+    // 在这里拒绝正是阶段 0 的全部要点：漏配会出现在待核对名单里，而写错不会。两种原因分开记录，
+    // 使端点故障永远不会看起来像目录缺口。
+    return {
+      target: null,
+      reason:
+        year.status === 'fetch-failed' ? 'no-neodb-year-fetch-failed' : 'no-neodb-year',
+    };
+  }
+
   for (const title of collectTitles(item)) {
-    const results = await searchTmdb(mediaType, title, year);
-    const hit = pickExactTmdbMatch(results, title, year, neodbTmdbConfig.yearTolerance);
+    const results = await searchTmdb(mediaType, title, year.year);
+    const hit = pickExactTmdbMatch(
+      results,
+      title,
+      year.year,
+      neodbTmdbConfig.yearTolerance,
+    );
     if (hit) {
       ctx.counters.matchedSearch += 1;
       consola.info(`Matched via search "${title}": ${mediaType}:${hit.id}`);
-      return { mediaType, id: hit.id, title: hit.title ?? hit.name };
+      return { target: { mediaType, id: hit.id, title: hit.title ?? hit.name } };
     }
     await tmdbThrottle();
   }
 
-  return null;
+  return { target: null, reason: 'no-tmdb-match' };
+}
+
+/**
+ * The release year the title-search level compares against, from the cheapest source that has one.
+ * 标题搜索那一级用于比较的发行年份，按代价从低到高取。
+ *
+ * `item.year` is checked first even though the shelf never sends it: a self-hosted NeoDB or a future
+ * `ItemSchema` may, and then the extra request never happens. The cache comes next, so a repeated
+ * run (or a second shelf holding the same work) is free. Only then is the item's own `api_url`
+ * fetched, throttled like every other NeoDB call.
+ *
+ * 先看 `item.year`，尽管书架从不发它：自建的 NeoDB 或未来的 `ItemSchema` 可能会发，那时这次额外
+ * 请求根本不会发生。其次是缓存，因此重复运行（或第二个书架上的同一部作品）是免费的。最后才去取
+ * 条目自身的 `api_url`，并与其他 NeoDB 调用一样节流。
+ *
+ * A miss is not an error: `missing` means the catalogue genuinely has no year for this item, while
+ * `fetch-failed` means we could not read it. Conflating them would make an outage look like a gap.
+ * 落空不是错误：`missing` 表示目录里确实没有这一条的年，`fetch-failed` 表示我们读不到。把两者混
+ * 为一谈会让一次故障看起来像一个缺口。
+ */
+async function resolveItemYear(
+  item: NeodbItem,
+  ctx: SyncContext,
+): Promise<{ status: 'found'; year: number } | { status: 'missing' | 'fetch-failed' }> {
+  const inline = extractNeodbYear(item);
+  if (inline != null) {
+    return { status: 'found', year: inline };
+  }
+
+  const cached = ctx.itemYears.years[item.uuid];
+  if (typeof cached === 'number' && cached > 0) {
+    return { status: 'found', year: cached };
+  }
+
+  const detail = await getNeodbItemDetail(item.api_url);
+  await neodbThrottle();
+  if (!detail) {
+    return { status: 'fetch-failed' };
+  }
+
+  const year = extractNeodbYear(detail);
+  if (year == null) {
+    return { status: 'missing' };
+  }
+
+  ctx.itemYears.years[item.uuid] = year;
+  ctx.itemYearsDirty = true;
+  return { status: 'found', year };
 }
 
 /**

@@ -490,6 +490,20 @@ export const neodbTmdbConfig = {
   yearTolerance: envInt('SYNC_YEAR_TOLERANCE', 1, 0),
   /** Incremental de-duplication store. Empty string disables it. / 增量去重存储；空字符串表示关闭。 */
   stateFile: process.env.SYNC_STATE_FILE ?? '.cache/sync-state.json',
+  /**
+   * NeoDB uuid → release year, used by the title-search level.
+   *
+   * The shelf listing inlines an item shape that has no `year`, so the year costs one extra request
+   * per item. This file makes that request once per item instead of once per run. It holds nothing
+   * but read-only catalogue facts, so losing it is free and it is safe to delete at any time.
+   *
+   * NeoDB uuid → 发行年份，供标题搜索那一级使用。
+   *
+   * 书架列表内联的条目结构没有 `year`，因此年份需要每个条目一次额外请求。这个文件让那次请求按条目
+   * 只发生一次，而不是每轮一次。里面只有只读的目录事实，丢掉没有代价，任何时候都可以删。
+   */
+  itemYearCacheFile:
+    process.env.NEODB_ITEM_YEAR_CACHE ?? '.cache/neodb-item-years.json',
   incremental: envEnabled('SYNC_INCREMENTAL', true),
   /**
    * Full-sync intent from the environment, same idea as `BANGUMI_FULL_SYNC`. It lifts the two

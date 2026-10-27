@@ -35,7 +35,9 @@
 
 上表的五行也是名单的五个一级分组，顺序固定 ①→⑤：`Douban → Notion`、`Douban → NeoDB`、`Douban → Bangumi`、`Bangumi → NeoDB`、`NeoDB → TMDB`。这些字符串与 `src/paths/*.ts` 里的 `LABEL` 逐字相同，因此同一条链路在控制台日志、作业摘要、待核对名单里是同一个词，可以直接 grep 对齐。
 
-两条已知截断：`printPathSummary` 的标题清单上限 20（`src/sync-report.ts:25`），主要影响 ④；⑤ 的标签是 `display_title`（`src/paths/neodb-to-tmdb.ts:282`），所以它只能靠标题建 key——**改标题会让它看起来像新条目**。这一条在 ③ 不存在，因为 ③ 的标签带豆瓣链接。
+两条已知截断：`printPathSummary` 的标题清单上限 20（`src/sync-report.ts:25`），主要影响 ④；⑤ 的标签是 `display_title`（`src/paths/neodb-to-tmdb.ts:382`），所以它只能靠标题建 key——**改标题会让它看起来像新条目**。这一条在 ③ 不存在，因为 ③ 的标签带豆瓣链接。
+
+> **2026-10-28 之后，⑤ 的 `unresolved` 有三种来源，名单只看见一种。** 控制台仍然是同一句 `No TMDB match; skip X.`（名单按它采、`verify-log-contract` 锁着它），区别在留档 `.cache/unmatched.json` 的 `reason`：`no-tmdb-match`（搜过了，TMDB 没有）、`no-neodb-year`（NeoDB 侧没有年份，所以**根本没搜**）、`no-neodb-year-fetch-failed`（取年份的请求失败）。这样一条「没被搜过的条目」不会伪装成「搜过而没找到」，但代价是**名单上看不出这个区别** —— 要看就得读留档或把日志级别开到 `debug`。判据见 [`decisions.md`](./decisions.md) §11。
 
 ## 3. 名单结构
 

@@ -34,8 +34,19 @@ function titleCandidates(result: TmdbSearchResult): string[] {
   ].filter((t): t is string => typeof t === 'string' && t.trim() !== '');
 }
 
-/** Release year of a result, from either the film or the TV date field. / 搜索结果的发行年份，取电影或剧集的日期字段。 */
-function resultYear(result: TmdbSearchResult): number | undefined {
+/**
+ * Release year of a result, from either the film or the TV date field.
+ *
+ * Exported because the same parse is needed on the `getTmdbById` response: a TMDB *link* points at
+ * an entity the user chose, so the only thing left to sanity-check is whether that entity's year is
+ * anywhere near the NeoDB item's. Two copies of `/^(\d{4})/` would drift the day TMDB adds a field.
+ *
+ * 搜索结果的发行年份，取电影或剧集的日期字段。
+ *
+ * 导出是因为 `getTmdbById` 的响应需要同一次解析：TMDB **外链**指向的是用户自己选的实体，剩下
+ * 唯一值得核对的就是它的年份与 NeoDB 条目是否大致相当。两份 `/^(\d{4})/` 迟早会走样。
+ */
+export function tmdbResultYear(result: TmdbSearchResult): number | undefined {
   const raw = result.release_date || result.first_air_date;
   const match = raw?.match(/^(\d{4})/);
   return match ? Number(match[1]) : undefined;
@@ -44,18 +55,29 @@ function resultYear(result: TmdbSearchResult): number | undefined {
 /**
  * Exact normalized title match only — never settle for the closest hit.
  *
- * `expectedYear` is optional: when supplied, the year must be within `tolerance` (default ±1,
- * because release years routinely differ by one between regions and databases).
+ * `expectedYear` is **required** and the candidate must carry a date inside `tolerance`
+ * (default ±1, because release years routinely differ by one between regions and databases).
+ *
+ * It used to be optional, and the branch it skipped was the whole problem: with `expectedYear`
+ * undefined the function returned `true` on a title match alone, so 338 of one run's 2 904 items
+ * were settled by title with nothing else checked, and six known wrong writes came out of it. The
+ * parameter is now mandatory so that "compare years" cannot be skipped by forgetting to pass one —
+ * a caller that has no year must not reach this function at all (see `resolveTmdbTarget`).
  *
  * 只接受规范化后完全相同的标题 —— 绝不退而取「最接近」的结果。
  *
- * `expectedYear` 可选：提供时，年份必须落在 `tolerance` 之内（默认 ±1，因为不同地区与数据库
+ * `expectedYear` **必填**，且候选必须带日期并落在 `tolerance` 之内（默认 ±1，因为不同地区与数据库
  * 记录的上映年份经常相差一年）。
+ *
+ * 它原先是可选的，而它跳过的那个分支正是问题本身：`expectedYear` 为 undefined 时函数仅凭标题
+ * 相等就返回 `true`，于是某轮 2 904 条里有 338 条只由标题定案，已知的六次错写全部出自这里。
+ * 参数改为必填，使「比年份」不可能因为忘传一个值而被跳过 —— 拿不到年份的调用方根本不该走到这个
+ * 函数（见 `resolveTmdbTarget`）。
  */
 export function pickExactTmdbMatch(
   results: TmdbSearchResult[],
   title: string,
-  expectedYear?: number,
+  expectedYear: number,
   tolerance = 1,
 ): TmdbSearchResult | null {
   const wanted = normalizeTitleKey(title);
@@ -69,10 +91,11 @@ export function pickExactTmdbMatch(
       if (!titles.includes(wanted)) {
         return false;
       }
-      if (expectedYear == null) {
-        return true;
-      }
-      const year = resultYear(result);
+      const year = tmdbResultYear(result);
+      // No date on the candidate is a rejection, not a pass: a result that cannot be dated cannot
+      // be shown to be the same work, and an undated entry is exactly what one wrong write landed on.
+      // 候选没有日期是拒绝而不是放行：无法定年的结果就无法证明是同一部作品，而有一次错写正是落在
+      // 一条没有日期的条目上。
       return year != null && Math.abs(year - expectedYear) <= tolerance;
     }) ?? null
   );

@@ -222,6 +222,102 @@ export function writeFullSyncCursor(file: string, cursor: FullSyncCursor): void 
   }
 }
 
+/**
+ * NeoDB uuid → release year, so the one field the shelf listing drops is fetched once per item.
+ * NeoDB uuid → 发行年份，使书架列表丢掉的这一个字段每个条目只需取一次。
+ *
+ * The shelf endpoint inlines `ItemSchema`, which has no year; the year only comes from a second
+ * request per item (`api_url`). That request is the whole cost of the year gate, so it must not
+ * repeat: a year is immutable, which makes uuid a safe key and makes a stale entry impossible.
+ * 书架端点内联的 `ItemSchema` 没有年份，年份只能靠每个条目的一次额外请求（`api_url`）取得。那次
+ * 请求就是年份闸门的全部成本，因此不能重复：年份不可变，所以 uuid 是安全的键，也不可能有陈旧值。
+ *
+ * It is a *cache*, not a source of truth: a miss only costs one request, and a lost file only costs
+ * one request per item. Nothing here may ever decide whether to write.
+ * 它是**缓存**而不是真源：未命中只多一次请求，文件丢失也只让每个条目多一次请求。这里任何东西都不
+ * 得决定要不要写。
+ */
+export type ItemYearCache = {
+  version: 1;
+  updatedAt: string;
+  /** uuid → year, in insertion order (oldest first). / uuid → 年份，按插入顺序（最旧在前）。 */
+  years: Record<string, number>;
+};
+
+const ITEM_YEAR_VERSION = 1;
+/** Keep the cache file bounded; the oldest insertions are dropped first. / 限制缓存文件大小，优先丢弃最早插入的。 */
+const MAX_ITEM_YEARS = 20000;
+
+export function emptyItemYearCache(): ItemYearCache {
+  return { version: ITEM_YEAR_VERSION, updatedAt: '', years: {} };
+}
+
+export function readItemYearCache(file: string): ItemYearCache {
+  if (!file) {
+    return emptyItemYearCache();
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as ItemYearCache;
+    if (parsed?.version !== ITEM_YEAR_VERSION || typeof parsed.years !== 'object') {
+      consola.warn(
+        `Year cache ${file} has an unexpected shape; starting empty (everything refetches).`,
+      );
+      return emptyItemYearCache();
+    }
+    return parsed;
+  } catch (error) {
+    const { code, text } = fileErrorDetail(error);
+    if (code !== 'ENOENT') {
+      consola.warn(`Could not read the year cache ${file}: ${text}`);
+    }
+    return emptyItemYearCache();
+  }
+}
+
+export function writeItemYearCache(file: string, cache: ItemYearCache): void {
+  if (!file) {
+    return;
+  }
+  try {
+    writeJsonAtomic(file, {
+      ...pruneItemYears(cache),
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    // Losing the cache costs one request per item next run and nothing else, so it never fails a run.
+    // 丢掉缓存只会让下一轮每个条目多一次请求，别无其他后果，因此绝不让整轮失败。
+    consola.warn(
+      `Could not save the year cache ${file}: ${fileErrorDetail(error).text}`,
+    );
+  }
+}
+
+/**
+ * Drop the oldest insertions once the cache outgrows its bound.
+ * 缓存超出上限后丢弃最早插入的条目。
+ *
+ * Insertion order is the ordering: JSON objects keep string keys in insertion order, and `uuid`
+ * keys are never numeric, so a round trip through the file preserves it. Recency of *use* is
+ * deliberately not tracked — a year never changes, so evicting a live entry costs one request and
+ * nothing else.
+ * 顺序就是插入顺序：JSON 对象的字符串键保持插入顺序，而 `uuid` 键永远不是数字键，因此经文件往返
+ * 不会打乱。刻意不记录**访问**时间 —— 年份永不改变，淘汰掉一个仍在用的条目只多一次请求，别无损失。
+ */
+function pruneItemYears(cache: ItemYearCache): ItemYearCache {
+  const keys = Object.keys(cache.years);
+  if (keys.length <= MAX_ITEM_YEARS) {
+    return cache;
+  }
+
+  const kept = keys.slice(-MAX_ITEM_YEARS);
+  const years: Record<string, number> = {};
+  for (const key of kept) {
+    years[key] = cache.years[key]!;
+  }
+  consola.info(`Year cache pruned: ${keys.length} → ${kept.length} entries.`);
+  return { ...cache, years };
+}
+
 export function stateKey(shelfType: string, itemUuid: string): string {
   return `${shelfType}:${itemUuid}`;
 }
