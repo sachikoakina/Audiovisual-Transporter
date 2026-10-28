@@ -100,6 +100,24 @@ type SyncContext = {
   accountId: number;
   /** `${mediaType}:${id}` seen this run, to dedupe across shelves/categories. */
   seen: Set<string>;
+  /**
+   * Display titles this run actually examined, written into `PathReport.scannedIds`.
+   *
+   * The review list keys ⑤'s entries by title (its log line carries no id), so that is the
+   * identity this set has to carry. It is filled before the per-item gates: an item skipped
+   * because its category has no TMDB counterpart was still looked at, and its review entry is
+   * therefore allowed to age out. An item behind `SYNC_MAX_ITEMS`, behind `NEODB_MAX_PAGES` or
+   * after an abort never gets here — which is exactly how the list distinguishes "fixed" from
+   * "never reached".
+   *
+   * 本轮真正检查过的展示标题，写进 `PathReport.scannedIds`。
+   *
+   * 名单给 ⑤ 的条目按标题建 key（日志行不带 id），这里因此也按标题记。写入点在逐条闸门之前：
+   * 分类没有 TMDB 对应而被跳过的条目，仍然是「看过」的，其次日可以正常老化。被 `SYNC_MAX_ITEMS`、
+   * `NEODB_MAX_PAGES` 挡在外面或在 abort 之后的条目永远不会进来 —— 名单正是靠这一点区分
+   * 「修好了」与「根本没走到」。
+   */
+  scanned: Set<string>;
   counters: SyncCounters;
   state: SyncState;
   stateDirty: boolean;
@@ -213,6 +231,7 @@ export default async function runNeodbToTmdb(
     auth,
     accountId: account.id,
     seen: new Set<string>(),
+    scanned: new Set<string>(),
     counters: newSyncCounters(),
     // Read through the *resolved* mode: a full run must not consult (or update) the store, even
     // when `SYNC_INCREMENTAL` happens to be on in the environment.
@@ -281,6 +300,10 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   report.unresolved = c.unmatched;
   report.failed = c.failed;
   report.capped = ctx.capped;
+  // Sorted so the report is byte-stable for the same walk, which keeps the artifact diffable and
+  // makes a coverage regression visible as a real difference rather than a reshuffle.
+  // 排序让同一次遍历产出字节稳定的报告：artifact 可对比，覆盖范围的变化才是真的变化，而不是顺序抖动。
+  report.scannedIds = [...ctx.scanned].sort();
   report.unresolvedTitles = [...ctx.unmatchedTitles];
   report.failedItems = [...ctx.failedItems];
   report.skippedItems = [...ctx.skippedItems];
@@ -390,6 +413,12 @@ async function syncMark(
     consola.warn('Mark without a catalog item; skipping.');
     return;
   }
+
+  // Coverage is recorded here, before every per-item gate: the gates below decide whether the
+  // item needs writing, not whether it was examined. See `SyncContext.scanned`.
+  // 扫描集合在这里登记，位于所有逐条闸门之前：下面的闸门决定「要不要写」，不决定「有没有看」。
+  // 见 `SyncContext.scanned`。
+  ctx.scanned.add(label);
 
   // 1) Resolve the mapping for this shelf state.
   const shelfType =

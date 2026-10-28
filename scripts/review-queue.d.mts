@@ -1,6 +1,6 @@
 /**
- * Hand-written types for the two exports `scripts/review-queue.mjs` offers to tests.
- * 手写类型：`scripts/review-queue.mjs` 提供给测试的那两个导出。
+ * Hand-written types for the exports `scripts/review-queue.mjs` offers to tests.
+ * 手写类型：`scripts/review-queue.mjs` 提供给测试的那些导出。
  *
  * The script stays plain ESM — it runs on a bare `node` in CI, with no build step — so its types
  * are declared here rather than inferred. Only what the tests touch is declared; the rest of the
@@ -14,10 +14,17 @@ export type RunReportPath = {
   // is not part of this contract, so it stays optional — a test can build the minimum.
   // `runReportLines` 真正读的四个字段。`PathReport` 的其余部分随文件同行，但不属于这份契约，
   // 因此保持可选 —— 测试可以只构造最小值。
-  failed: number;
-  skipped: number;
-  unresolved: number;
+  failed?: number;
+  skipped?: number;
+  unresolved?: number;
   scanned?: number;
+  // Coverage: which identities the run examined, and whether a cap/abort cut it short. Optional
+  // because an older report predates the field — the queue treats that as empty coverage.
+  // 覆盖信息：本轮检查过哪些身份、是否被截断或中止。旧报表没有这个字段，因此可选 —— 名单会把
+  // 缺失当作空覆盖处理。
+  scannedIds?: string[];
+  capped?: boolean;
+  aborted?: boolean;
   written?: number;
   unchanged?: number;
 };
@@ -47,6 +54,21 @@ export type ReviewItem = {
   seenCount?: number;
 };
 
+/** Per-path coverage built from the run report. / 由运行报表折算出的逐链路覆盖信息。 */
+export type Coverage = {
+  ids: Set<string>;
+  complete: boolean;
+  unresolved: number;
+};
+
+export type MergeResult = {
+  items: ReviewItem[];
+  added: ReviewItem[];
+  removed: ReviewItem[];
+  degraded: string;
+  uncovered: ReviewItem[];
+};
+
 export type ParsedLogs = {
   items: ReviewItem[];
   unattributable: number;
@@ -63,9 +85,20 @@ export function render(input: {
   runStartedAt: string;
   runUrl?: string;
   unattributable?: number;
+  uncovered?: number;
+  coverageAvailable?: boolean;
 }): string;
 
 export function readRunReport(dir: string): RunReport | null;
+
+export function coverageFromReport(report: RunReport | null): Map<string, Coverage>;
+
+export function merge(
+  previous: ReadonlyArray<ReviewItem>,
+  observed: ReadonlyArray<ReviewItem>,
+  runStartedAt: string,
+  coverage?: Map<string, Coverage> | null,
+): MergeResult;
 
 export function runReportLines(
   report: RunReport | null,

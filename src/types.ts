@@ -475,6 +475,25 @@ export type PathReport = {
   /** Shown in the summary, e.g. `Bangumi → NeoDB`. */
   label: string;
   scanned: number;
+  /**
+   * Identities of the items this run actually examined — the same strings the review list uses
+   * as the identity part of an entry's key: the Douban link for ①②③, the Bangumi subject URL
+   * (plus the display title, for the title-keyed failure lines) for ④, and the display title for
+   * ⑤. Empty when the path stopped before examining anything.
+   *
+   * This is what separates "fixed" from "never looked at". A capped, paginated or aborted run
+   * simply contains fewer identities, so the review list can freeze the entries it never reached
+   * instead of deleting them. Without it, an incremental run that only walks the first 200 items
+   * looks exactly like a run in which every reachable item was repaired.
+   *
+   * 本轮真正检查过的条目身份 —— 与待核对名单 key 的身份段同形：①②③ 用豆瓣链接，④ 用
+   * Bangumi 条目 URL（另加标题，供按标题建 key 的失败行），⑤ 用展示标题。未检查任何条目时为空。
+   *
+   * 它正是「修好了」与「根本没看」的分界。被配额截断、分页上限或凭据中止的一轮，集合里自然
+   * 少一些身份，名单因此可以冻结没走到的条目，而不是把它们删掉。没有它时，一轮只走前 200 条
+   * 的增量运行，和一轮「所有能到的条目都已修好」的运行在日志上完全一样。
+   */
+  scannedIds: string[];
   written: number;
   unchanged: number;
   skipped: number;
@@ -526,6 +545,7 @@ export function newPathReport(label: string): PathReport {
   return {
     label,
     scanned: 0,
+    scannedIds: [],
     written: 0,
     unchanged: 0,
     skipped: 0,

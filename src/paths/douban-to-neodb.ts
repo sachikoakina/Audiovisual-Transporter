@@ -87,9 +87,19 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
   );
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
+  // Category-excluded items were examined and found out of scope; that decision does not depend
+  // on the loop below, so they are recorded up front. The rest join the set when the loop actually
+  // reaches them — an abort must not mark the untouched tail as "looked at".
+  // 被分类白名单剔除的条目已经看过、结论是「不在范围内」，这个结论不依赖下面的循环，因此先记下。
+  // 其余条目在循环真正轮到时才加入集合 —— 中途 abort 不能把后面没跑的条目记成「已检查」。
+  const kept = new Set(filtered.map((item) => item.link));
+  const scanned = new Set(
+    feeds.filter((item) => !kept.has(item.link)).map((item) => item.link),
+  );
 
   consola.start('Going to sync to NeoDB...');
   for (const item of filtered) {
+    scanned.add(item.link);
     try {
       const outcome = await syncFeedItemToNeodb(item);
       report[outcome] += 1;
@@ -125,6 +135,7 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
     }
     await neodbThrottle();
   }
+  report.scannedIds = [...scanned].sort();
   consola.success('NeoDB synced ✨');
 
   printPathSummary(report);

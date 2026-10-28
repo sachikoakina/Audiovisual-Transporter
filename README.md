@@ -694,13 +694,27 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### 留档
 
-| 变量                 | 默认                      | 说明                                                                                                                                             |
-| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json`   | **四条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍打印计数与清单）                |
-| `SYNC_SUMMARY_FILE`  | `.cache/sync-summary.md`  | 每轮结束渲染的 Markdown 摘要落在这里，覆盖写、不追加。CI 里由一个 `if: always()` 的步骤贴进 `$GITHUB_STEP_SUMMARY`，因此失败的运行也有摘要       |
-| `SYNC_REPORT_FILE`   | `.cache/sync-report.json` | 同一轮的**机器可读**版本（`version` + 每条链路的完整 `PathReport`）。`sync.yml` 以 `sync-report-<run_id>` 上传，待核对名单用它对照自己的日志解析 |
+| 变量                 | 默认                      | 说明                                                                                                                                                                     |
+| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SYNC_UNMATCHED_LOG` | `.cache/unmatched.json`   | **四条链路共用**的未匹配条目留档位置。按 `source::id` upsert，记录 `firstSeenAt`/`lastSeenAt`。留空则关闭留档（仍打印计数与清单）                                        |
+| `SYNC_SUMMARY_FILE`  | `.cache/sync-summary.md`  | 每轮结束渲染的 Markdown 摘要落在这里，覆盖写、不追加。CI 里由一个 `if: always()` 的步骤贴进 `$GITHUB_STEP_SUMMARY`，因此失败的运行也有摘要                               |
+| `SYNC_REPORT_FILE`   | `.cache/sync-report.json` | 同一轮的**机器可读**版本（`version` + 每条链路的完整 `PathReport`）。`sync.yml` 以 `sync-report-<run_id>` 上传，待核对名单用它决定哪些条目被本轮扫描到、可以进入淘汰计数 |
 
 > 这是**相对路径**，按进程的工作目录解析：`npm run sync` 下就是仓库根，落到 `<仓库>/.cache/unmatched.json`；在 CI 里则是 runner 上的 `$GITHUB_WORKSPACE/.cache/`，作业一结束随虚拟机销毁。日志里打印的是**解析后的绝对路径**；作业摘要只在**本地**打印绝对路径，CI 里只给条目数与体积并说明文件随 runner 销毁（那边给绝对路径等于指向一台已经不存在的机器）。两种情况下文件不在都明写 `not present`。所以「找不到文件」时的第一步是核对那条路径属于哪台机器。`.cache` 在 `.gitignore` 里，`git status` 与 GitHub Desktop 都看不到它。②③④⑤ 会写，① 不写（它的失败与未配置分类走 Notion 侧的明细）。
+
+### 待核对名单：按扫描集合淘汰
+
+`.cache/unmatched.json` 不跨轮存在，跨轮维护的是 `review-state` artifact 里的待核对名单。条目仍从控制台日志解析，但**是否移除由 `sync-report.json` 的扫描集合决定**：
+
+| 本轮状态                                        | 名单动作                                        |
+| ----------------------------------------------- | ----------------------------------------------- |
+| 在 `PathReport.scannedIds` 里，且日志里再次报告 | 更新 `lastSeenAt`，`missedRuns` 清零            |
+| 在扫描集合里，但日志里没再出现                  | `missedRuns + 1`；**连续两轮**如此才移除        |
+| 不在扫描集合里                                  | **冻结**：保留条目，`missedRuns` 清零，不计缺席 |
+
+扫描集合是每条链路真正检查过的条目身份：① 是豆瓣链接与 `config:<分类>`，②③ 是豆瓣链接，④ 是 Bangumi 条目 URL（另加标题），⑤ 是展示标题。被 `SYNC_MAX_ITEMS`（默认 200）、`NEODB_MAX_PAGES`（默认 10）截断、因 401 中止、或整条链路没运行的条目不会进入集合，因此**不会因为「本轮没打印」而被误删**。没有 `sync-report.json` 时一条都不淘汰；旧版本产出的报表没有这个字段，同样按空集合处理。
+
+代价：真正的修复要连续两轮被扫描到才会从名单消失；⑤ 的身份仍是标题，改标题会留下旧条目（不再误删），需要人工清理。
 
 ### NeoDB → TMDB
 

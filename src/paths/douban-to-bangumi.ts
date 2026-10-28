@@ -104,11 +104,23 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
   );
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
+  // Douban links cover the `标题[链接]` entries (unresolved + most failure lines);
+  // `syncFeedItemToBangumi` adds the `bangumi:<id>` identity once a subject is resolved.
+  // Category-excluded items are recorded up front, since their verdict does not depend on the
+  // loop; the rest join the set only when reached, so an abort cannot over-cover the tail.
+  // 豆瓣链接覆盖 `标题[链接]` 形态的条目（未匹配与多数失败行）；`syncFeedItemToBangumi` 在
+  // subject 解析成功后补上 `bangumi:<id>`。被分类白名单剔除的条目先记下，结论不依赖循环；
+  // 其余条目只在真正轮到时加入，abort 因此不会把尾部误记成已检查。
+  const kept = new Set(filtered.map((item) => item.link));
+  const scanned = new Set(
+    feeds.filter((item) => !kept.has(item.link)).map((item) => item.link),
+  );
 
   consola.start('Going to sync Douban → Bangumi...');
   for (const item of filtered) {
+    scanned.add(item.link);
     try {
-      const outcome = await syncFeedItemToBangumi(item, me.username);
+      const outcome = await syncFeedItemToBangumi(item, me.username, scanned);
       report[outcome] += 1;
       if (outcome === 'unresolved') {
         recordUnresolved(item, report);
@@ -160,6 +172,7 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
     }
     await bangumiThrottle();
   }
+  report.scannedIds = [...scanned].sort();
   consola.success('Bangumi synced ✨');
 
   printPathSummary(report);
@@ -203,6 +216,11 @@ function recordUnresolved(item: FeedItem, report: PathReport): void {
 async function syncFeedItemToBangumi(
   item: FeedItem,
   username: string,
+  /**
+   * Identities examined this run, including `bangumi:<id>` for every resolved subject.
+   * 本轮检查过的身份，包含每个解析成功的 subject 的 `bangumi:<id>`。
+   */
+  scanned: Set<string>,
 ): Promise<ItemSyncOutcome> {
   const label = `${item.title || item.id}[${item.link}]`;
   consola.info('Douban → Bangumi: ', label);
@@ -214,6 +232,15 @@ async function syncFeedItemToBangumi(
     consola.warn('No Bangumi match, skip: ', label);
     return 'unresolved';
   }
+
+  // The guard below is the one review entry on this path whose key is not the Douban link: its
+  // log line names `subject/N`, and the parser derives `bangumi:N` from it. Record that identity
+  // for every resolved subject — not only when the guard fires — so an entry created by an older
+  // guard run can still age out after the Bangumi status changes.
+  // 下面那条守卫是本链路唯一不按豆瓣链接建 key 的条目：日志行只给 `subject/N`，解析器据此得到
+  // `bangumi:N`。只要 subject 解析成功就记下这个身份 —— 不只在守卫触发时记，这样更早一轮留下的
+  // 守卫条目在 Bangumi 状态改变后仍能正常老化。
+  scanned.add(`bangumi:${subjectId}`);
 
   const desiredType = NEODB_TO_BANGUMI_COLLECTION[item.status];
   const desiredRate = doubanStarsToTenPoint(item.rating);

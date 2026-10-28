@@ -353,7 +353,7 @@
 
 ### CI 中的作业摘要
 
-由 `src/sync-report.ts` 先写进 `SYNC_SUMMARY_FILE`（默认 `.cache/sync-summary.md`），再由 `sync.yml` 里一个 `if: always()` 的步骤贴到 `$GITHUB_STEP_SUMMARY`。**同一时刻**还会写出 `SYNC_REPORT_FILE`（默认 `.cache/sync-report.json`）：同一批 `PathReport` 的 JSON 版本，由 `sync.yml` 以 `sync-report-<run_id>` 上传为 artifact，保留 7 天。两份文件都在确定退出码之前写出，因此失败的那一轮同样会留下它们。运行页顶部会出现一块 **Markdown 面板**，顺序固定为：
+由 `src/sync-report.ts` 先写进 `SYNC_SUMMARY_FILE`（默认 `.cache/sync-summary.md`），再由 `sync.yml` 里一个 `if: always()` 的步骤贴到 `$GITHUB_STEP_SUMMARY`。**同一时刻**还会写出 `SYNC_REPORT_FILE`（默认 `.cache/sync-report.json`）：同一批 `PathReport` 的 JSON 版本，由 `sync.yml` 以 `sync-report-<run_id>` 上传为 artifact，保留 7 天。每条 `PathReport` 还带 `scannedIds`：本轮真正检查过的条目身份（① 豆瓣链接与 `config:<分类>`、②③ 豆瓣链接、④ Bangumi URL 与标题、⑤ 展示标题），待核对名单据此区分「已修好」与「没走到」。两份文件都在确定退出码之前写出，因此失败的那一轮同样会留下它们。运行页顶部会出现一块 **Markdown 面板**，顺序固定为：
 
 1. 一行极简的六字段中文说明（含义）；
 2. 一段计数关系说明（谁是谁的划分、哪个链路例外）；
@@ -497,6 +497,8 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 > **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。
 >
 > `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④）、`no-tmdb-match`（⑤）。
+>
+> 每条链路还会把本轮检查过的条目身份写进 `PathReport.scannedIds`。待核对名单的淘汰规则依赖它：只有身份在集合里、且日志里不再出现的条目才计入缺席；被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断或链路未运行的部分不会进入集合，名单因此冻结而不是误删。
 
 ---
 

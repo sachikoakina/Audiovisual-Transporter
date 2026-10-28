@@ -99,6 +99,17 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
   );
   report.scanned = feeds.length;
   report.skipped = feeds.length - filtered.length;
+  // Item failures are keyed by the Douban link; the one config-level entry ("no data source")
+  // is keyed by `config:<category>`. Both are identities this run can vouch for. Category-excluded
+  // items are recorded up front; attempted items join per category, so a mid-run throw cannot
+  // over-cover a category that was never reached.
+  // 条目级失败按豆瓣链接建 key；唯一的配置级条目（「没有数据源」）按 `config:<category>` 建 key。
+  // 两者都是本轮可以担保的身份。被分类白名单剔除的条目先记下；要尝试的条目按分类加入，中途抛错
+  // 不会把尚未走到的分类记成已检查。
+  const kept = new Set(filtered.map((item) => item.link));
+  const scanned = new Set(
+    feeds.filter((item) => !kept.has(item.link)).map((item) => item.link),
+  );
 
   const feedsByCategory: Partial<Record<ItemCategory, FeedItem[]>> = filtered.reduce(
     (acc, feed) => {
@@ -113,6 +124,10 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
 
   for (const category in feedsByCategory) {
     const categorizedFeeds = feedsByCategory[category as ItemCategory] as FeedItem[];
+    for (const item of categorizedFeeds) {
+      scanned.add(item.link);
+    }
+    scanned.add(`config:${category}`);
     try {
       const outcome = await syncCategoryToNotion(categorizedFeeds, category as ItemCategory);
       // `scanned` is NOT added here on purpose: it is already `feeds.length` (set above), and the
@@ -161,6 +176,7 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
   // once, in one format, and its count can be checked against `report.failed`.
   // 逐条失败清单原本在这里以 `标题: 链接` 的形式单打一节。现在它随其余链路的 failed 明细一起
   // 交给 `printPathSummary`：同一次失败只报一次、只用一种格式，且条数可以与 `report.failed` 对账。
+  report.scannedIds = [...scanned].sort();
   printPathSummary(report);
   return report;
 }

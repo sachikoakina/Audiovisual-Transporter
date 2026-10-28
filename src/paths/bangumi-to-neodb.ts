@@ -158,6 +158,14 @@ export default async function syncBangumiToNeodb(
     ? subjectTypes
     : [undefined];
 
+  // Two identities per collection on purpose: `unresolved` is keyed by the Bangumi URL (its log
+  // line is `标题[链接]`), while `item-threw` and `platform-mismatch` are keyed by the title (their
+  // lines carry no link). Recording both is what lets each entry age out independently.
+  // 每个收藏刻意记两个身份：`unresolved` 按 Bangumi 链接建 key（日志行是 `标题[链接]`），而
+  // `item-threw` 与 `platform-mismatch` 按标题建 key（日志行不带链接）。两个都记，两类条目才能
+  // 各自独立老化。
+  const scanned = new Set<string>();
+
   for (const subjectType of typePasses) {
     // One cursor per pass: a full sync can run several, and each has its own offset.
     // 一趟一个游标：一次全量可能跑多趟，每趟有自己的 offset。
@@ -208,6 +216,8 @@ export default async function syncBangumiToNeodb(
 
       for (const collection of page.data) {
         counters.scanned += 1;
+        scanned.add(bangumiSubjectUrl(collection.subject_id));
+        scanned.add(collectionTitle(collection));
         // One bad item must never abort the batch.
         try {
           const outcome = await syncCollectionToNeodb(collection, mangaPlatformCheck);
@@ -305,6 +315,7 @@ export default async function syncBangumiToNeodb(
   }
 
   report.scanned = counters.scanned;
+  report.scannedIds = [...scanned].sort();
   report.written = counters.written;
   report.unchanged = counters.unchanged;
   report.skipped = counters.skippedPlatform;

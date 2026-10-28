@@ -38,7 +38,7 @@ import path from 'node:path';
  */
 const MIN_ROUNDS = { unresolved: 1, skipped: 1, failed: 2 };
 
-/** Removal needs two consecutive absences, so one flaky run cannot delete anything. / 移除需要连续两轮缺席，避免一次抖动就删掉条目。 */
+/** Removal needs two consecutive absences the run could actually observe, so one flaky run cannot delete anything. / 移除需要连续两轮「本轮确实看过」的缺席，避免一次抖动就删掉条目。 */
 const MISSES_BEFORE_REMOVAL = 2;
 
 const KIND_ORDER = ['unresolved', 'failed', 'skipped'];
@@ -69,6 +69,17 @@ const SOURCE_LABELS = new Map([
 ]);
 
 const SOURCE_ORDER = [...SOURCE_LABELS.keys()];
+
+/**
+ * Display label → path slug. `PathReport.label` and `SOURCE_LABELS` carry byte-identical strings
+ * (that is what makes one grep line up the console log, the job summary and this list), so the
+ * run report can be joined to the list without a second mapping table.
+ * 显示名 → 链路 slug。`PathReport.label` 与 `SOURCE_LABELS` 逐字相同（这正是「一次 grep 就能把
+ * 控制台日志、作业摘要与这份名单对齐」的依据），因此运行报表不需要第二张映射表就能接到名单上。
+ */
+const SOURCE_BY_LABEL = new Map(
+  [...SOURCE_LABELS.entries()].map(([source, label]) => [label, source]),
+);
 
 /**
  * GFM task marker — the "have I dealt with it" box.
@@ -448,24 +459,99 @@ function loadState(file) {
 }
 
 /**
+ * The identity part of an entry's key — the same string `scannedIds` records for that item.
+ *
+ * `makeKey` builds `${source}::${url || id || 'title:' + title}`, and ⑤ is the one path whose
+ * identity is a bare title, so the `title:` marker has to come off before comparing against the
+ * run report (which stores the title, not this list's key syntax).
+ * 条目 key 的身份段 —— 与 `scannedIds` 为同一条目记录的字符串相同。
+ *
+ * `makeKey` 拼的是 `${source}::${url || id || 'title:' + title}`，而 ⑤ 是唯一以纯标题为身份的
+ * 链路，因此与运行报表比较前要去掉 `title:` 标记（报表存的是标题，不是本名单的 key 语法）。
+ */
+function scannedIdOf(entry) {
+  const key = String(entry.key ?? '');
+  const prefix = `${entry.source}::`;
+  if (!key.startsWith(prefix)) {
+    return '';
+  }
+  const rest = key.slice(prefix.length);
+  return rest.startsWith('title:') ? rest.slice('title:'.length) : rest;
+}
+
+/**
+ * Turn one run report into per-source coverage: which identities the run actually examined.
+ *
+ * A source with no entry in the report (the path is disabled, or the report is missing) yields
+ * no coverage at all, and `merge` then freezes its entries instead of sweeping them. That is the
+ * safe direction: "I did not look" must never be recorded as "it is gone".
+ * 把一份运行报表折算成按链路划分的覆盖集合：本轮真正检查过哪些身份。
+ *
+ * 报表里没有某条链路（链路未启用，或报表缺失）时，该链路没有覆盖信息，`merge` 会冻结它的条目
+ * 而不是淘汰它们。方向必须是安全的：「我没看」绝不能被记成「它没了」。
+ */
+export function coverageFromReport(report) {
+  const coverage = new Map();
+  for (const path of report?.paths ?? []) {
+    const source = SOURCE_BY_LABEL.get(path.label);
+    if (!source) {
+      continue; // Aggregate reports (e.g. `Douban RSS`) are not review-list sources. / 汇总报表不是名单来源。
+    }
+    coverage.set(source, {
+      ids: new Set(
+        (Array.isArray(path.scannedIds) ? path.scannedIds : []).map((id) => String(id)),
+      ),
+      complete: !path.capped && !path.aborted,
+      // Used only to tell a genuine "everything is fixed" round (report says 0 unresolved) from
+      // a parser break (report counted some, the log yielded none).
+      // 只用来区分真正的「全部修好」（报表计 0 条未匹配）与解析器失效（报表计了，日志却没解析到）。
+      unresolved: Number(path.unresolved) || 0,
+    });
+  }
+  return coverage;
+}
+
+/**
  * Merge this run's observations into the carried-over list.
  * 把本轮的观测合并进沿用的名单。
  *
- * @returns {{ items: Array, added: Array, removed: Array, degraded: string }}
+ * Removal now has two conditions, not one: the entry must have been **examined** this run (its
+ * identity is in the path's `scannedIds`) and must not have been reported again. A run that was
+ * capped, paginated short or aborted simply examined fewer items, so the entries it never reached
+ * are frozen rather than deleted. Without `coverage` (no run report) nothing is swept at all.
+ * 淘汰现在有两个条件，而不是一个：条目本轮**被检查过**（身份在该链路的 `scannedIds` 里），且没有
+ * 被再次报告。被配额截断、分页不足或中途中止的一轮，只是检查得少一些，没走到的条目因此被冻结
+ * 而不是删除。没有 `coverage`（没有运行报表）时，一条都不淘汰。
+ *
+ * `missedRuns` keeps its old meaning — two consecutive misses — but an uncovered round resets it,
+ * because the streak is only meaningful while every round in it actually looked at the item.
+ * `missedRuns` 的「连续两轮」语义不变，但未覆盖的一轮会把它清零：只有这一串轮次真的都看过该条目，
+ * 「连续」才有意义。
+ *
+ * @param {Map<string, {ids: Set<string>, complete: boolean, unresolved: number}> | null} coverage
+ * @returns {{ items: Array, added: Array, removed: Array, degraded: string, uncovered: Array }}
  */
-export function merge(previous, observed, runStartedAt) {
+export function merge(previous, observed, runStartedAt, coverage = null) {
   const observedByKey = new Map(observed.map((item) => [item.key, item]));
   const previousByKey = new Map(previous.map((item) => [item.key, item]));
   const added = [];
   const removed = [];
+  const uncovered = [];
   const items = [];
 
-  // A run that parsed nothing while the last snapshot had entries is far more likely
-  // to be a parser break than a sudden fix of everything. Keep the list, say so.
-  // 上一份快照有条目而本轮一条都没解析到，更可能是解析器坏了而不是问题全修好了。保留名单，
-  // 并明确说出来。
+  // A run that parsed nothing while the last snapshot had entries is usually a parser break.
+  // With a run report we can tell the two cases apart: if the report counted unresolved items,
+  // the log should have carried them, so freeze; if it counted none, the silence is genuine and
+  // the covered entries are allowed to age out. Without a report, coverage is empty anyway and
+  // every absence is frozen — no need to guess.
+  // 上一份快照有条目而本轮一条都没解析到，通常是解析器失效。有运行报表时两者可以区分：报表计了
+  // 未匹配条目，日志就该有它们，冻结；报表计 0 条，沉默是真的，被覆盖的条目可以正常老化。没有
+  // 报表时覆盖集合本来就是空的、所有缺席都会被冻结 —— 不必猜。
+  const reportedUnresolved = coverage
+    ? [...coverage.values()].reduce((sum, item) => sum + (item.unresolved || 0), 0)
+    : 0;
   const degraded =
-    observed.length === 0 && previous.length > 0
+    observed.length === 0 && previous.length > 0 && reportedUnresolved > 0
       ? 'parsed nothing this run while the previous snapshot is non-empty — sweep skipped'
       : '';
 
@@ -486,6 +572,18 @@ export function merge(previous, observed, runStartedAt) {
       items.push(entry); // Freeze: no miss is counted. / 冻结：不计缺席。
       continue;
     }
+
+    // The entry is absent from this run's log. That only means "fixed" if the run actually
+    // examined the item; otherwise the run simply never got to it (cap, pagination, abort).
+    // 条目没出现在本轮日志里。只有本轮真的检查过它，这才能读成「修好了」；否则只是没走到
+    // （配额、分页、中止）。
+    const sourceCoverage = coverage?.get(entry.source);
+    if (!sourceCoverage || !sourceCoverage.ids.has(scannedIdOf(entry))) {
+      uncovered.push(entry);
+      items.push({ ...entry, missedRuns: 0 });
+      continue;
+    }
+
     const missedRuns = (entry.missedRuns || 0) + 1;
     if (missedRuns >= MISSES_BEFORE_REMOVAL) {
       removed.push(entry);
@@ -509,7 +607,7 @@ export function merge(previous, observed, runStartedAt) {
     items.push(fresh);
   }
 
-  return { items, added, removed, degraded };
+  return { items, added, removed, degraded, uncovered };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -638,6 +736,8 @@ export function render({
   runStartedAt,
   runUrl,
   unattributable,
+  uncovered = 0,
+  coverageAvailable = true,
 }) {
   const now = runStartedAt;
   const live = listed(items);
@@ -668,6 +768,23 @@ export function render({
     );
     out.push('');
   }
+  // Coverage is the second half of the same promise: a capped/paginated run must not look like a
+  // run that fixed everything. The notice is deliberately placed next to `degraded` — both say
+  // "this round could not see everything", and a reader should meet them together.
+  // 覆盖范围是同一个承诺的另一半：被截断的一轮不能看起来像「全都修好了」。这条提示刻意放在
+  // `degraded` 旁边 —— 两者都在说「本轮没看全」，读者应该在同一处遇到它们。
+  if (!coverageAvailable) {
+    out.push(
+      '> 本轮没有运行报表（`sync-report.json`），无法确认哪些条目被扫描到；名单只更新、不移除。',
+    );
+    out.push('');
+  } else if (uncovered > 0) {
+    out.push(
+      `> 本轮有 **${uncovered}** 条不在扫描集合里（配额截断、分页上限或链路未运行），` +
+        '已保留、不计缺席。',
+    );
+    out.push('');
+  }
   if (unattributable > 0) {
     out.push(
       `> 另有 **${unattributable}** 处日志证明有条目被跳过或失败，但无法归属到具体条目或链路（如 ` +
@@ -689,7 +806,7 @@ export function render({
     pushGroupedBySource(out, fresh, (item) => diffLine(item));
   }
   if (removed.length) {
-    out.push('## 本轮移除（已连续两轮未出现）');
+    out.push('## 本轮移除（连续两轮被扫描到且未再出现）');
     out.push('');
     pushGroupedBySource(out, removed, (item) => diffLine(item, { strike: true }));
   }
@@ -766,7 +883,10 @@ export function render({
   out.push('---');
   out.push('');
   out.push(
-    '采集自本轮 `sync` 的控制台日志，**只包含同步过程打印过的条目**。' +
+    '条目来自本轮 `sync` 的控制台日志，**只包含同步过程打印过的条目**；是否移除由 ' +
+      '`sync-report.json` 的**扫描集合**（`PathReport.scannedIds`）决定 —— 只有本轮确实检查过、' +
+      '且日志里不再出现的条目才计入缺席。被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断、' +
+      '或链路未运行的部分会冻结在原处。' +
       '类别白名单过滤、增量命中、重复跳过属于设计行为，不采集；' +
       'reason 被多条链路共用（如 `category-not-allowed`）时不做猜测，只计入上面的「无法归属」计数。',
   );
@@ -775,21 +895,23 @@ export function render({
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// The run's own report — a cross-check, not a second source of truth
-// 本轮运行自己的报表 —— 用来对账，而不是第二个真源
+// The run's own report — the coverage oracle, and a cross-check on the parser
+// 本轮运行自己的报表 —— 覆盖范围的依据，同时给解析器对账
 //
-// The list is still built from logs, on purpose: a log line is what a human can also read, and
-// swapping the parser out in one step would change what the list contains without anyone being
-// able to say which change caused it. What the JSON buys is the opposite of a silent gap: if the
-// run counted 3 `failed` and the parser only recognised 1, that difference is now printed.
-// 名单仍然由日志构建，这是刻意的：日志行也是人能读的东西，而一次性替掉解析器会让名单内容变化，
-// 却没人能说清是哪处改动造成的。JSON 买到的是「缺口不再无声」：如果本轮计了 3 条 `failed`
-// 而解析器只认出 1 条，这个差值现在会被打印出来。
+// The list is still built from logs: a log line is what a human can also read, and swapping the
+// parser out in one step would change what the list contains without anyone being able to say
+// which change caused it. What the JSON adds is the fact a log cannot carry — **which items were
+// examined at all**. A missing log line is ambiguous; a `scannedIds` hit is not. If the run
+// counted 3 `failed` and the parser only recognised 1, that difference is still printed.
+// 名单仍然由日志构建：日志行也是人能读的东西，而一次性替掉解析器会让名单内容变化，却没人能
+// 说清是哪处改动造成的。JSON 补上的正是日志承载不了的事实 —— **哪些条目真的被检查过**。
+// 缺一行日志是有歧义的；`scannedIds` 命中则没有歧义。若本轮计了 3 条 `failed` 而解析器只认出
+// 1 条，这个差值仍然会被打印。
 
 /**
  * Find the run report under `dir`, wherever the artifact was unzipped.
  * @param {string} dir
- * @returns {{paths: Array<{label: string, failed: number, skipped: number, unresolved: number, scanned: number}>} | null}
+ * @returns {{paths: Array<{label: string, failed: number, skipped: number, unresolved: number, scanned: number, scannedIds?: string[], capped?: boolean, aborted?: boolean}>} | null}
  * 在 `dir` 下找到运行报表，不管 artifact 被解压到哪一层。
  */
 export function readRunReport(dir) {
@@ -900,7 +1022,17 @@ function main() {
 
   const { items: observed, unattributable } = parseLogs(logsDir);
   const previous = loadState(stateFile);
-  const { items, added, removed, degraded } = merge(previous, observed, runStartedAt);
+  // Read the report *before* the merge: it now decides which absences may be counted, not just
+  // whether the parsed `failed` count adds up.
+  // 在合并之前读报表：它现在决定哪些缺席可以计数，而不只是给 `failed` 的对账当旁证。
+  const report = readRunReport(reportDir);
+  const coverage = coverageFromReport(report);
+  const { items, added, removed, degraded, uncovered } = merge(
+    previous,
+    observed,
+    runStartedAt,
+    coverage,
+  );
 
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(
@@ -909,7 +1041,6 @@ function main() {
     'utf8',
   );
 
-  const report = readRunReport(reportDir);
   const summary = [
     render({
       items,
@@ -919,6 +1050,8 @@ function main() {
       runStartedAt,
       runUrl,
       unattributable,
+      uncovered: uncovered.length,
+      coverageAvailable: report !== null,
     }),
     ...runReportLines(report, observed),
   ].join('\n');
@@ -934,8 +1067,20 @@ function main() {
         kept: items.length,
         added: added.length,
         removed: removed.length,
+        uncovered: uncovered.length,
         unattributable,
         degraded,
+        // Why the sweep did or did not happen, in one place. `complete: false` means at least one
+        // path was capped or aborted, which is expected on a normal incremental run — the point
+        // is that it is now recorded instead of being inferred from a shrinking list.
+        // 淘汰为什么发生或没发生，集中在这里。`complete: false` 表示至少一条链路被截断或中止，
+        // 这在正常增量运行里是常态 —— 重点是它现在被记录下来，而不是靠名单变短去反推。
+        coverage: report
+          ? {
+              sources: coverage.size,
+              complete: [...coverage.values()].every((item) => item.complete),
+            }
+          : null,
         runReport: report ? { paths: report.paths.length } : null,
       },
       null,
