@@ -91,18 +91,3 @@ project-root/
 ├── scripts/
 │   └── verify-tmdb-mapping.ts     # [MODIFY] dropped 映射断言改为 not skipped / 加入 watchlist / 不写评分；幂等块拆为「不在 watchlist → 只写 watchlist、不写评分」与「已在 watchlist → shouldWrite=false」，并保留「不删除已有评分」的断言
 ├── README.md                      # [MODIFY] 状态对照表、链路⑤状态映射表、⑤冲突判定与仲裁规则、边界表、SYNC_SHELF_TYPES 默认值与说明、以及 verify:all 断言计数全部同步
-├── docs/
-│   ├── reference.md               # [MODIFY] reason 表 shelf-not-mapped 行改为「防御性兜底：当前四种书架都有映射，正常不会出现」
-│   └── decisions.md               # [MODIFY] 按惯例追加「## 13. dropped 归入 watchlist（2026-10-29）」，记录取舍与代价（弃看与想看/在看在 TMDB 上无法区分）
-└── .env.example                   # [MODIFY] SYNC_SHELF_TYPES 注释：默认值改为 wishlist,progress,complete,dropped，删掉「dropped 会被映射跳过」的旧说明
-```
-
-## Key Code Structures
-
-```ts
-// src/rules/tmdb-mapping.ts —— dropped 的目标返回值（与 progress 同形）
-case 'dropped':
-  return {
-    skip: false,
-    // TMDB 没有「弃看」态：与 progress 一样按「还想看」处理，且不触碰评分。
-    // 弃看与在看/想看因此无法
