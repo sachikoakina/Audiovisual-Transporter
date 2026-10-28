@@ -105,10 +105,4 @@ case 'dropped':
   return {
     skip: false,
     // TMDB 没有「弃看」态：与 progress 一样按「还想看」处理，且不触碰评分。
-    // 弃看与在看/想看因此无法区分，这是刻意的取舍。
-    watchlist: true,
-    rating: null,
-    reason: '弃看 → TMDB 无该状态，归入 watchlist',
-  };
-```
-
+    // 弃看与在看/想看因此无法
