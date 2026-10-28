@@ -427,10 +427,12 @@ async function syncMark(
 
   if (plan.skip) {
     ctx.counters.skippedShelf += 1;
-    // The shelf itself has no TMDB meaning (e.g. `dropped`), so nothing is read or written. This
-    // is the skip most likely to be mistaken for a bug, hence the detail.
-    // 该状态在 TMDB 没有对应含义（例如 `dropped`），因此既不读也不写。这是最容易被误当成
-    // bug 的一种跳过，所以要点名。
+    // Defensive fallback: every shelf type currently maps (`dropped` now joins the watchlist like
+    // `progress`), so a real run should never land here. It is kept so that a future shelf state
+    // TMDB cannot hold still gets named instead of silently disappearing into `skipped`.
+    // 防御性兜底：当前每种书架状态都有映射（`dropped` 现在与 `progress` 一样加入 watchlist），
+    // 实际运行不应走到这里。保留它是为了将来出现 TMDB 装不下的书架状态时仍能点名，而不是
+    // 无声地消失在 `skipped` 里。
     ctx.skippedItems.push({ title: label, url: '', reason: 'shelf-not-mapped' });
     consola.debug(`${label}: ${plan.reason}`);
     return;
@@ -440,7 +442,11 @@ async function syncMark(
   const category = String(item.category ?? '');
   if (NEODB_CATEGORIES_WITHOUT_TMDB.has(category)) {
     ctx.counters.skippedCategory += 1;
-    ctx.skippedItems.push({ title: label, url: '', reason: `no-tmdb-category: ${category}` });
+    ctx.skippedItems.push({
+      title: label,
+      url: '',
+      reason: `no-tmdb-category: ${category}`,
+    });
     consola.debug(`Category "${category}" has no TMDB counterpart; skip ${label}.`);
     return;
   }
@@ -467,7 +473,11 @@ async function syncMark(
     // that reason (see `rules/review-detail.ts`).
     // 正常增量运行的绝大多数条目落在这里 —— 每轮数百条。记下来是为了让计数可解释，而清单一
     // 行折叠也正是为此（见 `rules/review-detail.ts`）。
-    ctx.skippedItems.push({ title: label, url: '', reason: 'unchanged-since-last-run' });
+    ctx.skippedItems.push({
+      title: label,
+      url: '',
+      reason: 'unchanged-since-last-run',
+    });
     consola.debug(`Unchanged since last run; skip ${label}.`);
     return;
   }
@@ -523,7 +533,11 @@ async function syncMark(
     // the `skipped` total never contains an unexplained item.
     // 同一个 TMDB 条目被走到两次（它同时在两个书架上）。按构造是无害的，点名是为了让
     // `skipped` 总数里不出现无法解释的条目。
-    ctx.skippedItems.push({ title: label, url: '', reason: `duplicate-in-run: ${identity}` });
+    ctx.skippedItems.push({
+      title: label,
+      url: '',
+      reason: `duplicate-in-run: ${identity}`,
+    });
     return;
   }
   ctx.seen.add(identity);

@@ -37,18 +37,26 @@ import {
 import {
   extractBangumiIdFromNeodb,
   fetchNeodbItemByUrl,
+  getNeodbItemDetail,
 } from '../clients/neodb-catalog';
 import {
   bangumiPrivate,
+  bangumiSubjectYear,
   bangumiToken,
   bangumiThrottle,
+  exactBangumiCandidates,
   getBangumiCollection,
   getBangumiMe,
-  pickExactBangumiMatch,
+  getBangumiSubject,
+  isBangumiYearFilterType,
+  pickExactBangumiMatchByYear,
   searchBangumiSubjects,
   upsertBangumiCollection,
+  type BangumiSubject,
 } from '../clients/bangumi';
+import { neodbThrottle } from '../clients/neodb-http';
 import { doubanStarsToTenPoint } from '../rules/douban';
+import { extractNeodbYear } from '../rules/tmdb-mapping';
 import {
   filterDoubanFeedsByCategory,
   syncConfig,
@@ -63,16 +71,40 @@ dotenv.config();
 const LABEL = 'Douban → Bangumi';
 
 /**
+ * Years the two sides may differ by before a candidate is rejected. One year absorbs the usual
+ * region/database drift; anything wider is a different work far more often than a data quirk.
+ * 两侧年份允许多大差值。1 年用于吸收常见的地区/数据库差异；再大就更可能是不同作品。
+ */
+const BANGUMI_YEAR_TOLERANCE = 1;
+
+/**
+ * Run-local lookups for the year soft filter. `null` is cached too: a missing year costs one
+ * request per run, not one per attempt, and a failed read is never retried as if it were a gap.
+ * 年份软过滤的单轮查表。`null` 也会缓存：缺年份每轮只花一次请求，而不是每次尝试都重查；读取
+ * 失败也不会被当成「真的没有」反复重试。
+ */
+type YearCache = {
+  /** NeoDB uuid → year (or null). / NeoDB uuid → 年份（或 null）。 */
+  neodb: Map<string, number | null>;
+  /** Bangumi subject id → year (or null). / Bangumi subject id → 年份（或 null）。 */
+  bangumi: Map<number, number | null>;
+};
+
+/**
  * Sync Douban RSS feed items to Bangumi collections.
- * Matching: NeoDB external_resources first, then exact title search.
+ * Matching: NeoDB external_resources first, then exact title search. The title fallback compares
+ * years for anime (2) and real-action (6) only, and only when both sides carry one.
  *
  * 把豆瓣 RSS 条目同步到 Bangumi 收藏。
- * 匹配顺序：先看 NeoDB 的 external_resources，再做精确标题搜索。
+ * 匹配顺序：先看 NeoDB 的 external_resources，再做精确标题搜索。标题 fallback 只对动画（2）与
+ * 真人（6）比较年份，且只在两侧都有年份时比较。
  *
  * @returns The path's report; `aborted` when the path could not run.
  *   本条链路的报告；无法运行时 `aborted` 为真。
  */
-export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<PathReport> {
+export default async function syncDoubanToBangumi(
+  feeds: FeedItem[],
+): Promise<PathReport> {
   const report = newPathReport(LABEL);
 
   if (!bangumiToken) {
@@ -116,11 +148,15 @@ export default async function syncDoubanToBangumi(feeds: FeedItem[]): Promise<Pa
     feeds.filter((item) => !kept.has(item.link)).map((item) => item.link),
   );
 
+  // Shared across every item in this run: a year is immutable, so a uuid/id hit is always safe.
+  // 本轮所有条目共用：年份不可变，uuid/id 命中永远安全。
+  const years: YearCache = { neodb: new Map(), bangumi: new Map() };
+
   consola.start('Going to sync Douban → Bangumi...');
   for (const item of filtered) {
     scanned.add(item.link);
     try {
-      const outcome = await syncFeedItemToBangumi(item, me.username, scanned);
+      const outcome = await syncFeedItemToBangumi(item, me.username, scanned, years);
       report[outcome] += 1;
       if (outcome === 'unresolved') {
         recordUnresolved(item, report);
@@ -221,12 +257,14 @@ async function syncFeedItemToBangumi(
    * 本轮检查过的身份，包含每个解析成功的 subject 的 `bangumi:<id>`。
    */
   scanned: Set<string>,
+  /** Run-local year lookups shared by every title-search attempt. / 本轮共享的年份查表。 */
+  years: YearCache,
 ): Promise<ItemSyncOutcome> {
   const label = `${item.title || item.id}[${item.link}]`;
   consola.info('Douban → Bangumi: ', label);
 
   const neodbItem = await fetchNeodbItemByUrl(item.link);
-  const subjectId = await resolveBangumiSubjectId(item, neodbItem);
+  const subjectId = await resolveBangumiSubjectId(item, neodbItem, years);
 
   if (!subjectId) {
     consola.warn('No Bangumi match, skip: ', label);
@@ -300,6 +338,7 @@ async function syncFeedItemToBangumi(
 async function resolveBangumiSubjectId(
   item: FeedItem,
   neodbItem: NeodbItem | null,
+  years: YearCache,
 ): Promise<number | null> {
   if (neodbItem) {
     const fromNeodb = extractBangumiIdFromNeodb(neodbItem);
@@ -320,8 +359,40 @@ async function resolveBangumiSubjectId(
   }
 
   const types = CATEGORY_TO_BANGUMI_TYPES[item.category];
+  // Only anime (2) / real-action (6) get the year soft filter. Book / music / game keep the old
+  // first-exact-title behaviour; Drama already returned above.
+  // 只有动画（2）/ 真人（6）启用年份软过滤。书籍 / 音乐 / 游戏保持原来的「第一个精确同名」；
+  // 话剧在上面已经返回。
+  const yearGateEnabled = types?.some((type) => isBangumiYearFilterType(type)) ?? false;
+
+  // Resolved at most once per item, and only when there is an exact candidate to compare. A
+  // missing source year makes the selector return the first candidate without touching the
+  // candidate-year resolver, so this stays a zero-request path.
+  // 每个条目最多解析一次，且只在确实存在精确同名候选时才解析。源年份缺失时，选择器会直接返回
+  // 第一个候选、不调用候选年份解析器，因此这条路径保持零额外请求。
+  let expectedYear: Promise<number | null> | null = null;
+  const getExpectedYear = (): Promise<number | null> => {
+    if (!yearGateEnabled) {
+      return Promise.resolve(null);
+    }
+    expectedYear ??= resolveNeodbYear(neodbItem, years);
+    return expectedYear;
+  };
+
+  const pick = async (candidates: BangumiSubject[]): Promise<BangumiSubject | null> => {
+    if (!candidates.length) {
+      return null;
+    }
+    return pickExactBangumiMatchByYear(
+      candidates,
+      await getExpectedYear(),
+      BANGUMI_YEAR_TOLERANCE,
+      (candidate) => resolveBangumiCandidateYear(candidate, years),
+    );
+  };
+
   const results = await searchBangumiSubjects(keyword, types);
-  const exact = pickExactBangumiMatch(results, keyword);
+  const exact = await pick(exactBangumiCandidates(results, keyword));
   if (exact) {
     consola.info('Matched Bangumi via exact title search: ', exact.id);
     return exact.id;
@@ -329,13 +400,13 @@ async function resolveBangumiSubjectId(
 
   // Also try FeedItem.title if NeoDB title differed
   if (item.title && item.title !== keyword) {
-    const again = pickExactBangumiMatch(results, item.title);
+    const again = await pick(exactBangumiCandidates(results, item.title));
     if (again) {
       consola.info('Matched Bangumi via FeedItem title: ', again.id);
       return again.id;
     }
     const secondSearch = await searchBangumiSubjects(item.title, types);
-    const secondExact = pickExactBangumiMatch(secondSearch, item.title);
+    const secondExact = await pick(exactBangumiCandidates(secondSearch, item.title));
     if (secondExact) {
       consola.info('Matched Bangumi via second title search: ', secondExact.id);
       return secondExact.id;
@@ -343,4 +414,69 @@ async function resolveBangumiSubjectId(
   }
 
   return null;
+}
+
+/**
+ * NeoDB's release year for the source item, cheapest source first: the inline `year` / `pub_year`
+ * (some catalog responses carry them), the run cache, then the item's own `api_url`.
+ *
+ * A failure here is not an item failure: the year filter is an extra tie-breaker, so an
+ * unreadable year simply means "do not filter". Caching `null` keeps that one request per run.
+ * 源条目的 NeoDB 发行年份，从最便宜的开始：内联 `year` / `pub_year`（部分目录响应会带）、
+ * 本轮缓存、最后才是条目自己的 `api_url`。
+ *
+ * 这里失败不算条目失败：年份过滤只是额外的裁决证据，读不到年份只意味着「不过滤」。缓存 `null`
+ * 让这次请求一轮最多发生一次。
+ */
+async function resolveNeodbYear(
+  neodbItem: NeodbItem | null,
+  years: YearCache,
+): Promise<number | null> {
+  if (!neodbItem) {
+    return null;
+  }
+
+  const inline = extractNeodbYear(neodbItem);
+  if (inline != null) {
+    return inline;
+  }
+  if (years.neodb.has(neodbItem.uuid)) {
+    return years.neodb.get(neodbItem.uuid) ?? null;
+  }
+  if (!neodbItem.api_url) {
+    years.neodb.set(neodbItem.uuid, null);
+    return null;
+  }
+
+  await neodbThrottle();
+  const detail = await getNeodbItemDetail(neodbItem.api_url);
+  const year = detail ? (extractNeodbYear(detail) ?? null) : null;
+  years.neodb.set(neodbItem.uuid, year);
+  return year;
+}
+
+/**
+ * Bangumi's release year for one candidate. Search results often carry `air_year` / `air_date`;
+ * only a miss pays for the full subject. Any read failure yields `null`, which the selector treats
+ * as "pass" — never as "reject".
+ * 一个候选的 Bangumi 发行年份。搜索结果通常已带 `air_year` / `air_date`，只有缺失时才去取完整
+ * 条目。任何读取失败都返回 `null`，选择器会把它当作「放行」——绝不当作「拒绝」。
+ */
+async function resolveBangumiCandidateYear(
+  candidate: BangumiSubject,
+  years: YearCache,
+): Promise<number | null> {
+  const inline = bangumiSubjectYear(candidate);
+  if (inline != null) {
+    return inline;
+  }
+  if (years.bangumi.has(candidate.id)) {
+    return years.bangumi.get(candidate.id) ?? null;
+  }
+
+  await bangumiThrottle();
+  const detail = await getBangumiSubject(candidate.id);
+  const year = detail.status === 'found' ? bangumiSubjectYear(detail.value) : null;
+  years.bangumi.set(candidate.id, year);
+  return year;
 }

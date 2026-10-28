@@ -406,17 +406,22 @@ export const unmatchedLogFile =
 
 /**
  * Shelves processed by default.
- * `dropped` is deliberately absent — the mapping skips it, so including it
- * would only waste requests. It can still be listed explicitly; it simply
- * resolves to "no TMDB operation".
  *
- * 默认处理的书架。刻意不含 `dropped` —— 映射表会跳过它，纳入它只会浪费请求。
- * 仍然可以显式列出它，只是最终解析为「不产生任何 TMDB 操作」。
+ * `dropped` is included and listed last: it maps to the watchlist exactly like `progress`, so
+ * leaving it out would mean a shelf the mapping can handle is never read. Last place matters for
+ * capped runs — the first three shelves finish before dropped items can eat into `SYNC_MAX_ITEMS`.
+ *
+ * 默认处理的书架。
+ *
+ * `dropped` 在列，且排在最后：它与 `progress` 一样映射到 watchlist，排除它等于让一个映射
+ * 得了的书架永远不被读取。放在最后是为受上限约束的运行考虑 —— 前三个书架先跑完，dropped
+ * 条目才可能吃进 `SYNC_MAX_ITEMS`。
  */
 const DEFAULT_TMDB_SHELF_TYPES: readonly ShelfType[] = [
   'wishlist',
   'progress',
   'complete',
+  'dropped',
 ];
 
 function envInt(name: string, defaultValue: number, min = 0): number {

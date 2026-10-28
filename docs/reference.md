@@ -98,6 +98,19 @@
 | `GET /v0/users/{u}/collections` 的 `subject_type` | 省略即返回**全部类型**；本项目按类别白名单折算成具体取值（`anime→2`、`book/manga→1`、`music→3`、`game→4`、`real→6`） |
 | `ep_status` 的适用范围                            | 官方 API 说明「只能用于修改**书籍**条目进度」——这正是游戏/影视不写进度的依据                                         |
 | `collection.type` 取值                            | `1` 想看 / `2` 看过 / `3` 在看 / `4` 搁置 / `5` 抛弃                                                                 |
+| 年份字段                                          | 搜索返回的 `SlimSubject` 带 `air_year` / `air_date`；完整条目带 `date`。三者都按**可选**处理                         |
+
+**链路③ 的年份软过滤**：精确同名可能有多个候选（典型是原版与翻拍），此时用年份做一次软过滤。触发条件与放行规则：
+
+- 只在请求类型包含 **2（动画）/ 6（真人）** 时启用；书籍 / 音乐 / 游戏（1/3/4）保持原来的「第一个精确同名」，话剧在搜索之前就已返回；
+- 源年份：NeoDB 条目的内联 `year` / `pub_year`，缺失才按需请求其 `api_url` 详情；一轮内按 uuid 缓存，`null` 也缓存；
+- 候选年份：搜索结果的 `air_year` / `air_date`，缺失才按需读取完整条目的 `date`；按 subject id 缓存，`null` 也缓存；
+- 双方都有年份且差值 **> 1 年** → 排除该候选、继续看下一个；全部被排除才返回 `null`，落进既有的 `No Bangumi match, skip`；
+- **任一侧缺年份 → 放行**；详情读取失败也按缺年份处理，不让「读不到」变成「必然未匹配」；
+- 源年份缺失时完全退回「第一个精确同名」，**连候选详情都不请求** —— 缺数据的那一侧不产生额外流量；
+- `external_resources` 精确命中的第 1 步不经过它，正常外链路径因此零额外请求。
+
+被排除的候选只打印一行 `Bangumi candidate rejected by year: subject/<id> (<候选年>) vs expected <源年> ±1`；它**不是**新的留档 reason，`unmatched.json`、待核对名单与任何写入目标端的形态都不随之改变。
 
 ### TMDB 侧
 
@@ -485,7 +498,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 |                    | failed  | `bangumi-item-threw: <错误>`     | 单条处理抛错（预料之外的异常），不影响其余条目                                                              |
 | ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                                                               |
 |                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析）或 NeoDB 拒绝标记写入，不影响其余条目                                              |
-| ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 该书架状态在 TMDB 没有对应（例如 `dropped`）                                                                |
+| ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 防御性兜底：当前四种书架都有映射（`dropped` 也加入 watchlist），正常不会出现                                |
 |                    | skipped | `no-tmdb-category: <分类>`       | 分类 TMDB 装不了（游戏等），零请求                                                                          |
 |                    | skipped | `unmapped-category: <分类>`      | 分类不在映射表里（新出现的分类）                                                                            |
 |                    | skipped | `unchanged-since-last-run`       | 增量指纹命中；正常增量运行的主体，通常数百条                                                                |

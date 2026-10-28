@@ -68,10 +68,10 @@ flowchart LR
 | 看过 / 读过 / 玩过 / 听过 | Complete | `complete`         | 2 看过                  | 有评分 → 写评分 + 移出 watchlist；无评分 → 加入 watchlist |
 | 在看 / 在读 / 在玩 / 在听 | Progress | `progress`         | 3 在看                  | 加入 watchlist（TMDB 无「在看」态）                       |
 | 想看 / 想读 / 想玩 / 想听 | Wishlist | `wishlist`         | 1 想看                  | 加入 watchlist                                            |
-| （豆瓣没有）              | Dropped  | `dropped`          | 5 抛弃                  | **跳过**，不做任何操作                                    |
+| （豆瓣没有）              | Dropped  | `dropped`          | 5 抛弃                  | 加入 watchlist（与「在看」相同；TMDB 无「弃看」态）       |
 | （豆瓣没有）              | —        | —                  | 4 搁置                  | 反向映射时归入 `progress`（NeoDB 无搁置态）               |
 
-> 豆瓣没有「弃看」状态，所以链路②**不会写入** `dropped`；Bangumi 的第 4、5 类**只会由反向链路④产生**。
+> 豆瓣没有「弃看」状态，所以链路②**不会写入** `dropped`；Bangumi 的第 4、5 类**只会由反向链路④产生**。链路⑤ 读到 `dropped` 时按「还想看」处理——加入 TMDB watchlist，不写评分。
 
 ### 关键数字
 
@@ -79,7 +79,7 @@ flowchart LR
 | --------------------- | ------------------ | ------------------------------------------------------------- |
 | 同步链路              | **5 条**           | 全部**单向、幂等**；①②③ 同源（豆瓣 RSS），④⑤ 独立             |
 | `src/` 文件           | **28 个**          | `clients/` 9 · `rules/` 7 · `paths/` 5 · 顶层 7               |
-| 离线断言              | **320 条 + 19 例** | `npm run verify:all`（vitest 与四个校验脚本），不需网络与凭据 |
+| 离线断言              | **328 条 + 62 例** | `npm run verify:all`（vitest 与四个校验脚本），不需网络与凭据 |
 | 环境变量              | **52 个**          | 用户可配置；另有 2 个 CI 注入变量。名称属于对外接口，不改名   |
 | `process.exit()`      | **0 处**           | 无实际调用；失败一律走 `PathReport` → 退出码                  |
 | 硬编码 `neodb.social` | **1 处**           | 仅 `sync-config.ts` 的默认值；全部请求走 `NEODB_BASE_URL`     |
@@ -142,7 +142,7 @@ cp .env.example .env      # Windows: copy .env.example .env
 ### 4. 本地验证
 
 ```bash
-npm run verify:all           # 离线自测：19 个路径测试 + 320 条断言，不联网
+npm run verify:all           # 离线自测：62 个 vitest 用例 + 328 条断言，不联网
 SYNC_DRY_RUN=1 npm run sync  # 空跑：只打印计划，不写任何数据
 npm run sync                 # 正式同步全部链路
 ```
@@ -282,8 +282,10 @@ flowchart TD
     B -->|否| D{"类别是话剧 drama？"}
     D -->|是| E["unresolved<br/>（Bangumi 无话剧类型）"]
     D -->|否| F["searchBangumiSubjects 标题搜索<br/>限定 subject_type（电影同时试动画 / 真人）"]
-    F --> G{"pickExactBangumiMatch<br/>归一化后标题完全相等？"}
-    G -->|是| C
+    F --> G{"归一化后标题完全相等？<br/>（枚举全部候选）"}
+    G -->|是| K["按候选顺序做年份软过滤<br/>仅类型 2/6；缺年份放行"]
+    K -->|有候选通过| C
+    K -->|全部被排除| J
     G -->|否| H{"NeoDB 标题 ≠ 豆瓣标题？"}
     H -->|是| I["先用豆瓣标题在同一批结果里再挑；<br/>仍不中则以豆瓣标题重新搜索一次"]
     H -->|否| J["unresolved + 写留档"]
@@ -291,6 +293,13 @@ flowchart TD
 ```
 
 > 第二级**只认精确匹配**：搜索结果与候选关键词归一化后必须完全相等。换标题重搜只会发生在一级落空、且 NeoDB 标题与豆瓣条目标题确实不同的时候。
+
+**年份软过滤（仅动画 / 真人）**：精确同名可能有多个候选，例如原版与翻拍。对 Bangumi 类型 2（动画）/ 6（真人）且双方都能取得年份的候选，只接受年份差 ≤ 1 的那个；差值更大就跳过、继续看下一个，全部被排除才落到 `unresolved`。
+
+- 源年份：NeoDB 条目的内联 `year` / `pub_year`，缺失时按需请求 `api_url` 详情；
+- 候选年份：搜索结果的 `air_year` / `air_date`，缺失时按需请求完整条目的 `date`；
+- **任一侧缺年份 → 放行**，不因缺数据拒绝；读取失败也按缺年份处理；
+- 书籍 / 音乐 / 游戏（类型 1/3/4）完全不启用；`external_resources` 精确命中的第 1 步也不经过它。
 
 **类别限制**：话剧（drama）在 Bangumi 没有对应类型，只有 NeoDB 上已存在 Bangumi 链接时才会同步。
 
@@ -377,13 +386,13 @@ flowchart TD
 
 **状态映射规则**（权威定义在 `src/rules/tmdb-mapping.ts` 的 `resolveTmdbOperations()`，改行为只改这里）
 
-| NeoDB 状态      | 条件               | TMDB 操作                           | TMDB 能否承载                           |
-| --------------- | ------------------ | ----------------------------------- | --------------------------------------- |
-| `wishlist` 想看 | —                  | 加入 watchlist                      | ✅ 完整承载                             |
-| `progress` 在看 | —                  | 加入 watchlist（TMDB 无「在看」态） | ⚠️ 与「想看」无法区分                   |
-| `complete` 看过 | `rating_grade > 0` | **写入评分** ＋ **移出 watchlist**  | ✅ 评分是 TMDB 唯一能表达「看过」的方式 |
-| `complete` 看过 | 无评分             | 加入 watchlist                      | ⚠️ 无评分时退化为与「想看」相同         |
-| `dropped` 弃看  | —                  | **跳过**，不做任何操作              | —（TMDB 无对应状态，**不当作想看**）    |
+| NeoDB 状态      | 条件               | TMDB 操作                           | TMDB 能否承载                            |
+| --------------- | ------------------ | ----------------------------------- | ---------------------------------------- |
+| `wishlist` 想看 | —                  | 加入 watchlist                      | ✅ 完整承载                              |
+| `progress` 在看 | —                  | 加入 watchlist（TMDB 无「在看」态） | ⚠️ 与「想看」无法区分                    |
+| `complete` 看过 | `rating_grade > 0` | **写入评分** ＋ **移出 watchlist**  | ✅ 评分是 TMDB 唯一能表达「看过」的方式  |
+| `complete` 看过 | 无评分             | 加入 watchlist                      | ⚠️ 无评分时退化为与「想看」相同          |
+| `dropped` 弃看  | —                  | 加入 watchlist                      | ⚠️ TMDB 无「弃看」态，与「想看」无法区分 |
 
 **执行顺序固定为「先写评分 → 再调整 watchlist」**。因为 TMDB 的 `add-rating` 本身会隐式把条目移出 watchlist；先评分、后显式移除，最终状态就不依赖这个未写进官方文档的行为。
 
@@ -503,13 +512,12 @@ flowchart TD
 
 **冲突判定**：写前必读 TMDB 实时 `account_states`，依次过闸门——
 
-1. `dropped` → 跳过；
-2. 分类无对应 / 未知 → 跳过（零请求）；
-3. 增量指纹相同 → 跳过（零请求）；
-4. 解析不到目标 → `unresolved`；
-5. 本轮重复目标 → 跳过；
-6. 与实时状态无差异 → `unchanged`；
-7. 才写。
+1. 分类无对应 / 未知 → 跳过（零请求）；
+2. 增量指纹相同 → 跳过（零请求）；
+3. 解析不到目标 → `unresolved`；
+4. 本轮重复目标 → 跳过；
+5. 与实时状态无差异 → `unchanged`；
+6. 才写。
 
 **仲裁规则**
 
@@ -518,13 +526,13 @@ flowchart TD
   - `overwrite` / `neodb_prefer`：用 NeoDB 覆盖；
   - `plan.rating === null` 时既不 POST 也不 DELETE，**永不删除评分**；
 - `watchlist`：无档位，永远按映射：`true` → 加入，`false` → 移除；
-- `dropped` 不产生任何动作，**不从 watchlist 移除**；
+- `dropped` 与 `progress` 相同：加入 watchlist，且不写评分（既不 POST 也不 DELETE）；
 - `complete` 且无评分 → 加入 watchlist；
 - 写顺序固定：**先评分，后 watchlist**。
 
 **档位注意**：`neodb_prefer` 在 TMDB 链路上等同 `overwrite`（`resolveRatingProfile` 把两者都归为 `overwrite`），命名复用，极易误配。
 
-**一句话**：实时差分逐字段写；评分默认保留 TMDB，只有 `overwrite/neodb_prefer` 才用 NeoDB 覆盖；watchlist 永远跟映射；永不删评分，`dropped` 不清 watchlist。
+**一句话**：实时差分逐字段写；评分默认保留 TMDB，只有 `overwrite/neodb_prefer` 才用 NeoDB 覆盖；watchlist 永远跟映射；永不删评分，`dropped` 与「在看」一样留在 watchlist。
 
 ### 跨链路仲裁
 
@@ -562,7 +570,7 @@ flowchart TD
 | 3   | `private` 不参与比对                | 改 `BANGUMI_PRIVATE` 无法单独生效                                                         | ③    |
 | 4   | 可见性隐式单向覆盖                  | 改 `NEODB_VISIBILITY` 会引发全量改写                                                      | ②④   |
 | 5   | 永不删除 TMDB 评分                  | NeoDB 撤销评分不传播                                                                      | ⑤    |
-| 6   | `dropped` 不清理 watchlist          | 弃看条目会留在待看列表                                                                    | ⑤    |
+| 6   | `dropped` 无法与「想看」区分        | 弃看条目会被加入 watchlist（不移出、不写评分）                                            | ⑤    |
 | 7   | 增量指纹不含 visibility 且不读 TMDB | 增量模式无法纠正 TMDB 手工改动                                                            | ⑤    |
 | 8   | 读失败被当成「无记录」              | 网络抖动退化为创建式覆盖                                                                  | ②③   |
 | 9   | ② 更新仍发送 `created_time`         | 标记日期被推向 RSS 时间                                                                   | ②    |
@@ -600,7 +608,7 @@ flowchart TD
 
 | 机制               | 作用                                                                 |
 | ------------------ | -------------------------------------------------------------------- |
-| `SYNC_SHELF_TYPES` | 决定跑哪几个书架；`dropped` 通常排除以省请求（写了也是空操作）       |
+| `SYNC_SHELF_TYPES` | 决定跑哪几个书架；默认四类全跑，`dropped` 排最后以免挤占其他书架     |
 | `NEODB_MAX_PAGES`  | 每个书架最多翻几页。翻到上限会打警告说「还有剩余」                   |
 | `SYNC_MAX_ITEMS`   | **跨书架、跨类别的总熔断**，按**真正进入 TMDB 的条数**计，达到即停止 |
 
@@ -718,17 +726,17 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 
 ### NeoDB → TMDB
 
-| 变量                    | 默认                           | CI 差异               | 说明                                                               |
-| ----------------------- | ------------------------------ | --------------------- | ------------------------------------------------------------------ |
-| `NEODB_TMDB_FULL_SYNC`  | `0`                            | 手动 `full_sync` 覆盖 | 全量：取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，强制关闭增量      |
-| `SYNC_SHELF_TYPES`      | `wishlist,progress,complete`   | —                     | 处理哪些书架。`dropped` 默认排除                                   |
-| `SYNC_DRY_RUN`          | `0`                            | —                     | `1` = 只计算并打印计划，不写数据（全量模式下同样生效）             |
-| `SYNC_MAX_ITEMS`        | `200`                          | —                     | 单次运行处理上限（熔断保护），按进入 TMDB 的条数计；`0` 会回落 200 |
-| `SYNC_RATING_PROFILE`   | `tmdb_prefer`                  | —                     | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖      |
-| `SYNC_YEAR_TOLERANCE`   | `1`                            | —                     | 标题匹配时允许的年份差；NeoDB 侧年份取不到时**不进标题搜索**       |
-| `SYNC_INCREMENTAL`      | `1`                            | **`0`**               | 跳过内容指纹未变的条目；全量模式强制关                             |
-| `SYNC_STATE_FILE`       | `.cache/sync-state.json`       | —                     | 增量状态文件位置                                                   |
-| `NEODB_ITEM_YEAR_CACHE` | `.cache/neodb-item-years.json` | **每次运行清空**      | ⑤ 的 `uuid → 年份` 缓存；CI 不跨轮保留，纯缓存，随时可删           |
+| 变量                    | 默认                                 | CI 差异               | 说明                                                               |
+| ----------------------- | ------------------------------------ | --------------------- | ------------------------------------------------------------------ |
+| `NEODB_TMDB_FULL_SYNC`  | `0`                                  | 手动 `full_sync` 覆盖 | 全量：取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，强制关闭增量      |
+| `SYNC_SHELF_TYPES`      | `wishlist,progress,complete,dropped` | —                     | 处理哪些书架。`dropped` 与 `progress` 同义：加入 watchlist         |
+| `SYNC_DRY_RUN`          | `0`                                  | —                     | `1` = 只计算并打印计划，不写数据（全量模式下同样生效）             |
+| `SYNC_MAX_ITEMS`        | `200`                                | —                     | 单次运行处理上限（熔断保护），按进入 TMDB 的条数计；`0` 会回落 200 |
+| `SYNC_RATING_PROFILE`   | `tmdb_prefer`                        | —                     | 评分冲突：`tmdb_prefer` 保留 TMDB / `overwrite` 用 NeoDB 覆盖      |
+| `SYNC_YEAR_TOLERANCE`   | `1`                                  | —                     | 标题匹配时允许的年份差；NeoDB 侧年份取不到时**不进标题搜索**       |
+| `SYNC_INCREMENTAL`      | `1`                                  | **`0`**               | 跳过内容指纹未变的条目；全量模式强制关                             |
+| `SYNC_STATE_FILE`       | `.cache/sync-state.json`             | —                     | 增量状态文件位置                                                   |
+| `NEODB_ITEM_YEAR_CACHE` | `.cache/neodb-item-years.json`       | **每次运行清空**      | ⑤ 的 `uuid → 年份` 缓存；CI 不跨轮保留，纯缓存，随时可删           |
 
 > `NEODB_TMDB_FULL_SYNC=1` 时，`SYNC_MAX_ITEMS` 与 `NEODB_MAX_PAGES` **被忽略**、`SYNC_INCREMENTAL` **强制关闭**（启动行会打印 `fullSync=on` 与 `maxItems=∞, maxPages=∞`，可据此确认是否生效）；`SYNC_DRY_RUN`、书架与分类不受影响。
 
@@ -742,7 +750,7 @@ npm run sync:neodb-tmdb-full                  # 2) 实跑全量（workflow 手�
 npm run sync                  # 全部启用链路
 npm run sync:bangumi-full     # 只跑链路④，且全量
 npm run sync:neodb-tmdb-full  # 只跑链路⑤，且全量
-npm run verify:all            # 离线（19 个路径测试 + 320 条断言）
+npm run verify:all            # 离线（62 个 vitest 用例 + 328 条断言）
 npm run typecheck             # tsc --noEmit
 npm run lint / lint:fix       # ESLint
 npm run format / format:check # Prettier

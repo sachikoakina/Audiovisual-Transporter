@@ -73,6 +73,22 @@ export type BangumiSubject = {
   name_cn: string;
   /** TV, Web, 漫画, 小说, ... — present on full subject, not SlimSubject */
   platform?: string;
+  /**
+   * Release/air date, as different endpoints name it. Search (`SlimSubject`) carries
+   * `air_year` / `air_date`; the full subject (`getBangumiSubject`) carries `date`.
+   *
+   * All optional on purpose: a missing date must never be a reason to reject a candidate. The
+   * year filter is a tie-breaker for exact-title collisions, not a completeness requirement.
+   *
+   * 发行/放送日期，不同端点命名不同：搜索（`SlimSubject`）带 `air_year` / `air_date`，完整条目
+   * （`getBangumiSubject`）带 `date`。
+   *
+   * 全部可选是刻意的：缺日期绝不能成为拒绝候选的理由。年份过滤只是精确同名冲突的补充证据，
+   * 不是完整性要求。
+   */
+  air_year?: number;
+  air_date?: string;
+  date?: string;
 };
 
 export type BangumiCollection = {
@@ -274,23 +290,145 @@ export async function searchBangumiSubjects(
 }
 
 /**
- * Find an exact title match (name or name_cn) among search results.
+ * Find every exact title match (name or name_cn), in response order.
+ *
+ * `pickExactBangumiMatch` used to return only the first one. The year filter needs the rest:
+ * rejecting the first candidate is only useful if the next one can still be considered.
+ * 找出所有精确同名的候选（name 或 name_cn），保持响应顺序。
+ *
+ * `pickExactBangumiMatch` 原先只返回第一个。年份过滤需要完整的候选列表：排除第一个之后，
+ * 后面的候选仍然要被考虑。
+ */
+export function exactBangumiCandidates(
+  subjects: BangumiSubject[],
+  title: string,
+): BangumiSubject[] {
+  const normalized = title.trim().toLowerCase();
+  if (!normalized) {
+    return [];
+  }
+  return subjects.filter(
+    (s) =>
+      s.name?.trim().toLowerCase() === normalized ||
+      s.name_cn?.trim().toLowerCase() === normalized,
+  );
+}
+
+/** Parse a year out of `air_year` (number/string) or a `YYYY-MM-DD` / `YYYY` date string. / 从 `air_year` 或日期字符串中解析四位年份。 */
+function parseBangumiYear(raw: unknown): number | null {
+  if (typeof raw === 'number') {
+    return Number.isInteger(raw) && raw > 0 ? raw : null;
+  }
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const match = raw.trim().match(/^(\d{4})/);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * The release year a Bangumi subject can be dated by, or `null` when it carries none.
+ * `air_year` wins because it is already a year; `air_date` / `date` are the two date spellings.
+ * 用来给 Bangumi 条目定年的年份；没有则返回 `null`。`air_year` 本身就是年份，优先取；
+ * `air_date` / `date` 是两种日期写法。
+ */
+export function bangumiSubjectYear(subject: BangumiSubject): number | null {
+  return (
+    parseBangumiYear(subject.air_year) ??
+    parseBangumiYear(subject.air_date) ??
+    parseBangumiYear(subject.date)
+  );
+}
+
+/**
+ * Only anime (2) and real-action (6) participate in the year soft filter. Books, music and games
+ * are never filtered: their release years follow different conventions and a mismatch there is
+ * more likely a data-shape problem than evidence of a different work.
+ * 只有动画（2）与真人（6）参与年份软过滤。书籍、音乐、游戏不参与：它们的发行年口径不同，
+ * 年份对不上更可能是数据形态问题，而不是「不是同一部作品」的证据。
+ */
+export function isBangumiYearFilterType(type: BangumiSubjectType): boolean {
+  return type === 2 || type === 6;
+}
+
+/**
+ * Pick the first exact-title candidate that survives the year soft filter.
+ *
+ * The rule is deliberately three-valued:
+ *   - source year unknown → the filter does not run at all (returns the first candidate)
+ *   - candidate year unknown → that candidate passes; missing data is not evidence
+ *   - both known → keep only when |candidate − source| <= tolerance
+ *
+ * A candidate rejected here is skipped, not fatal: the next exact-title candidate is tried, and
+ * `null` is returned only when every candidate was rejected. That `null` flows into the existing
+ * `No Bangumi match, skip` line, which is exactly where a human can see the collision.
+ * 选择第一个通过年份软过滤的精确同名候选。
+ *
+ * 规则刻意是三态的：
+ *   - 源年份未知 → 过滤完全不运行（返回第一个候选）
+ *   - 候选年份未知 → 该候选通过；缺数据不是证据
+ *   - 双方都已知 → 只有 |候选 − 源| <= 容差 才保留
+ *
+ * 这里排除的候选只是被跳过，不是致命错误：继续尝试下一个精确同名候选，只有全部被排除才返回
+ * `null`。这个 `null` 会流入既有的 `No Bangumi match, skip`，让人能在日志里看到这次同名冲突。
+ *
+ * @param resolveYear Injected so the caller can lazily fetch a missing date from the full subject
+ *   endpoint; tests pass a plain function. / 由调用方注入，以便对缺失日期按需读取完整条目；
+ *   测试可以直接传普通函数。
+ */
+export async function pickExactBangumiMatchByYear(
+  candidates: BangumiSubject[],
+  expectedYear: number | null,
+  tolerance: number,
+  resolveYear: (
+    subject: BangumiSubject,
+  ) => Promise<number | null> | number | null = bangumiSubjectYear,
+): Promise<BangumiSubject | null> {
+  if (!candidates.length) {
+    return null;
+  }
+  // No source year: no comparison, no extra requests, exactly the pre-existing behaviour.
+  // 没有源年份：不比较、不额外请求，完全保持原有行为。
+  if (expectedYear == null) {
+    return candidates[0];
+  }
+
+  const allowedDrift = Math.max(0, tolerance);
+  for (const candidate of candidates) {
+    // Defensive: the search is already filtered by type, but a caller that passes a mixed list
+    // must not have its books/music/games rejected by a year rule that was never meant for them.
+    // 防御性判断：搜索已按类型过滤；但即使调用方传入混合列表，书/音乐/游戏也不该被这条
+    // 本不适用于它们的年份规则排除。
+    if (!isBangumiYearFilterType(candidate.type)) {
+      return candidate;
+    }
+
+    const year = await resolveYear(candidate);
+    if (year == null) {
+      return candidate;
+    }
+    if (Math.abs(year - expectedYear) <= allowedDrift) {
+      return candidate;
+    }
+    consola.info(
+      'Bangumi candidate rejected by year: ',
+      `subject/${candidate.id} (${year}) vs expected ${expectedYear} ±${allowedDrift}`,
+    );
+  }
+  return null;
+}
+
+/**
+ * Find the first exact title match (name or name_cn) among search results.
+ *
+ * Kept as-is for callers that do not need the year filter.
+ * 找出第一个精确同名（name 或 name_cn）的搜索结果；保留给不需要年份过滤的调用方。
  */
 export function pickExactBangumiMatch(
   subjects: BangumiSubject[],
   title: string,
 ): BangumiSubject | null {
-  const normalized = title.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-  return (
-    subjects.find(
-      (s) =>
-        s.name?.trim().toLowerCase() === normalized ||
-        s.name_cn?.trim().toLowerCase() === normalized,
-    ) || null
-  );
+  return exactBangumiCandidates(subjects, title)[0] ?? null;
 }
 
 /**

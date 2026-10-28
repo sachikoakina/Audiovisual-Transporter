@@ -17,9 +17,9 @@
  *  | progress   | add to watchlist (TMDB has no "in progress" state)          |
  *  | complete   | rating_grade > 0 → set rating, remove from watchlist        |
  *  |            | otherwise        → add to watchlist                        |
- *  | dropped    | skip — do nothing on TMDB                                   |
+ *  | dropped    | add to watchlist (TMDB has no "dropped" state)              |
  *
- *  Two consequences worth knowing:
+ *  Three consequences worth knowing:
  *
  *  1. `progress` adds to the watchlist rather than removing it. TMDB cannot
  *     express "in progress", so an in-progress item is treated as still-to-watch.
@@ -31,7 +31,13 @@
  *     unrated item ends up looking like "want to watch". It is what the
  *     mapping specifies; it is called out here so it is never a surprise.
  *
- *  两个值得知道的后果：
+ *  3. `dropped` behaves exactly like `progress` / `wishlist`: it is added to the
+ *     watchlist and never rated. TMDB has no "abandoned" state, and deleting the
+ *     item would lose the fact that it exists at all — so it stays as something
+ *     still to watch. The cost is that a dropped item is indistinguishable from
+ *     "want to watch"; that is the accepted trade-off, not an oversight.
+ *
+ *  三个值得知道的后果：
  *
  *  1. `progress` 是加入 watchlist，而不是移出。TMDB 无法表达「在看」，因此「在看」
  *     的条目被当作「还想看」处理。
@@ -40,6 +46,10 @@
  *     最接近的表达方式 —— 因此无评分的已看条目无法表达「已看」，只能退化为加入
  *     watchlist。也就是说「看过但没评分」的条目最终看起来像「想看」。这是映射表
  *     明确规定的行为；写在这里，是为了让它永远不会成为意外。
+ *
+ *  3. `dropped` 与 `progress` / `wishlist` 完全一致：加入 watchlist，且从不写评分。
+ *     TMDB 没有「弃看」态，删除条目又会丢掉「它存在过」这一事实，因此只能按「还想看」
+ *     处理。代价是弃看条目与「想看」无法区分；这是明确接受的取舍，不是疏漏。
  * ═══════════════════════════════════════════════════════════════════════════
  */
 import type {
@@ -232,7 +242,17 @@ export function toShelfType(value: string): ShelfType | null {
 
 /** The TMDB operations a shelf state resolves to. / 一个书架状态解析出的 TMDB 操作。 */
 export type TmdbOperationPlan = {
-  /** true = perform no TMDB operation at all. / true = 完全不产生 TMDB 操作。 */
+  /**
+   * true = perform no TMDB operation at all.
+   *
+   * No current shelf type resolves to true: `wishlist` / `progress` / `dropped` add to the
+   * watchlist, and `complete` either rates or adds. The field is kept as the defensive answer
+   * for a shelf state TMDB cannot hold, so `neodb-to-tmdb.ts` still has one place to name it.
+   *
+   * true = 完全不产生 TMDB 操作。当前没有任何书架状态会解析为 true：`wishlist` / `progress` /
+   * `dropped` 都加入 watchlist，`complete` 要么写评分、要么加入。保留这个字段，是为了让
+   * 将来出现 TMDB 装不下的书架状态时，`neodb-to-tmdb.ts` 仍有一处可以点名。
+   */
   skip: boolean;
   /** true = add to watchlist, false = remove from watchlist, null = leave alone. / true = 加入 watchlist，false = 移出 watchlist，null = 保持不动。 */
   watchlist: boolean | null;
@@ -304,10 +324,15 @@ export function resolveTmdbOperations(
 
     case 'dropped':
       return {
-        skip: true,
-        watchlist: null,
+        skip: false,
+        // Same as progress: TMDB cannot express "abandoned", so the item stays
+        // on the watchlist. The rating is left alone — dropped says nothing about
+        // having watched it.
+        // 与「在看」相同：TMDB 无法表达「弃看」，所以条目仍然留在 watchlist。评分不动——
+        // 「弃看」并不表示看过。
+        watchlist: true,
         rating: null,
-        reason: '弃看 → 跳过，不产生任何 TMDB 操作（不当作想看）',
+        reason: '弃看 → TMDB 无该状态，归入 watchlist',
       };
   }
 }

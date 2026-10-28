@@ -110,11 +110,14 @@ section('THE MAPPING — shelf_type → TMDB operations');
 }
 
 {
-  // dropped → skip entirely
+  // dropped → add to watchlist, exactly like progress
   const plan = resolveTmdbOperations('dropped', 9);
-  check('dropped: is skipped', plan.skip === true);
-  check('dropped: touches no watchlist', plan.watchlist === null);
-  check('dropped: writes no rating', plan.rating === null);
+  check('dropped: is not skipped', plan.skip === false);
+  check('dropped: adds to watchlist', plan.watchlist === true);
+  check(
+    'dropped: writes no rating even when the mark carries one',
+    plan.rating === null,
+  );
 }
 
 {
@@ -227,16 +230,28 @@ section('idempotency — no redundant writes');
 }
 
 {
-  // dropped never produces writes, whatever TMDB currently holds
+  // dropped, not on the watchlist yet → one add, and the existing rating is untouched
+  const plan = resolveTmdbOperations('dropped', 7);
+  const patch = planTmdbWrites(
+    states({ rated: { value: 7 }, watchlist: false }),
+    plan,
+    'tmdb_prefer',
+  );
+  check('dropped adds to the watchlist', patch.setWatchlist === true);
+  check('dropped does not clear the rating', patch.setRating === null);
+  check('dropped only writes the watchlist', patch.shouldWrite === true);
+}
+
+{
+  // dropped, already on the watchlist → nothing to do
   const plan = resolveTmdbOperations('dropped', 7);
   const patch = planTmdbWrites(
     states({ rated: { value: 7 }, watchlist: true }),
     plan,
     'tmdb_prefer',
   );
-  check('dropped writes nothing', patch.shouldWrite === false);
-  check('dropped does not clear the rating', patch.setRating === null);
-  check('dropped does not touch the watchlist', patch.setWatchlist === null);
+  check('dropped already watchlisted issues no writes', patch.shouldWrite === false);
+  check('dropped already watchlisted touches no rating', patch.setRating === null);
 }
 
 // ───────────────────────────────────────────────────────────────────────────

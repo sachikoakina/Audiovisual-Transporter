@@ -103,3 +103,13 @@
 **为什么年份告警只查已知值**：这里能用的年份只有书架载荷（通常为空）或缓存。为本轮约 2 000 条带外链的条目去取目录年份，会让本链路 NeoDB 流量大致翻倍，换来的却是一个**从不改变写入内容**的诊断。真正能拦住写入的是类型闸门；告警是给数据异常留的痕迹，不是防线。
 
 **配套**：`isLinkTypeCompatible` 放在 `rules/tmdb-mapping.ts`（零 I/O），由 `verify:rules` 的三条断言锁住；`getTmdbById` 顺带返回 `year`（复用 `tmdbResultYear`），使告警不需要第二次请求。
+
+## 13. `dropped` 归入 watchlist，不再跳过（2026-10-29 立）
+
+**决策**：⑤ 把 NeoDB 的 `dropped` 与 `progress` / `wishlist` 同等处理 —— 加入 TMDB watchlist，不写评分；`dropped` 同时进入 `SYNC_SHELF_TYPES` 的默认值，排在最后。
+
+**为什么**：TMDB 没有「弃看」态。原来的「跳过」让弃看条目在 TMDB 上完全不可见：既表达不了「不看了」，也丢掉了「这部作品存在过」的事实。加入 watchlist 至少保留后者，并且让映射表少一个特例 —— `dropped` 与「在看」本就同属「不在进行中、也未完成」。
+
+**代价与取舍**：弃看条目与「想看 / 在看」在 TMDB 上无法区分，会留在待看列表；这是明确接受的取舍，写进 README 的边界表，而不是当成 bug。默认多读一个书架、多一轮请求；`dropped` 排在默认列表最后，前三个书架先消耗 `SYNC_MAX_ITEMS`，因此不会挤掉它们。
+
+**配套**：`shelf-not-mapped` 的跳过分支与 `skippedShelf` 计数保留为兜底 —— 当前四种书架都有映射，正常不会命中；`verify-tmdb-mapping` 锁住「加入 watchlist、不写评分、已加入时不重复写」。
