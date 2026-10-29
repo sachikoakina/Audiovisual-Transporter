@@ -204,13 +204,13 @@ function main(): void {
   const requiredSections = [
     '快速开始',
     '五条链路',
-    '架构',
-    '结果契约',
     '配置',
-    '排错',
+    '目录结构',
+    '同步规则',
+    '结果与退出码',
     '已知限制',
     '开发',
-    '文档地图',
+    '文档',
     'License',
   ];
   const missingSections = requiredSections.filter(

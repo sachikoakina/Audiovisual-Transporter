@@ -8,7 +8,7 @@
  *      report named `Douban RSS` — the run CONTINUES, so a Douban outage still lets
  *      Bangumi→NeoDB and NeoDB→TMDB do their work. Recording it as a report (not a side flag)
  *      is what keeps the closing summary and the exit code derived from the same value — see
- *      `docs/decisions.md` §8 for the incident that made this a rule.
+ *      `docs/reference.md`（设计取舍）for why the two must share one source.
  *   3. `SYNC_DOUBAN_REQUIRED=0` marks that report `tolerated`: still printed, still listed in the
  *      job summary as `TOLERATED`, but excluded from the exit code.
  *   4. Bangumi→NeoDB runs next, then NeoDB→TMDB.

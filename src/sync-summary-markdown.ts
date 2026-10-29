@@ -99,7 +99,7 @@ function describeReviewLog(configured: string): string {
     // SYNC_UNMATCHED_LOG。即便如此也不给路径。
     return inActions
       ? `Full entries: ${scale} recorded this run. The list that survives is the ` +
-          '待核对名单 artifact (`docs/review-queue.md`).'
+          '待核对名单 artifact (`docs/reference.md`).'
       : `Full entries: \`${absolute}\` (${scale})`;
   } catch {
     // No guessing about which environment this is: `inActions` already knows.

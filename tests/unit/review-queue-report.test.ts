@@ -2,10 +2,10 @@
  * The cross-check between the run's JSON report and the log parser.
  * 运行报表与日志解析之间的对账。
  *
- * The list itself is built from logs — that is deliberate, and `docs/review-queue.md` says why.
+ * The list itself is built from logs — that is deliberate, and `docs/reference.md` says why.
  * What this file pins is the *other* half: when the run counted more failures than the parser
  * recognised, the summary has to say so, and say it in the direction that points at the parser.
- * 名单本身由日志构建 —— 这是刻意的，理由在 `docs/review-queue.md`。这里钉的是另一半：当本轮
+ * 名单本身由日志构建 —— 这是刻意的，理由在 `docs/reference.md`。这里钉的是另一半：当本轮
  * 计出的失败多于解析器认出的条数时，摘要必须说出来，而且方向要指向解析器。
  */
 import { describe, expect, it } from 'vitest';

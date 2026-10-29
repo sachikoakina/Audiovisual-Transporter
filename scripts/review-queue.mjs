@@ -5,8 +5,8 @@
  * 把一轮 `sync` 的控制台日志变成一份去重、增量维护的待核对名单，用 90 天的 Actions
  * artifact 跨轮携带。
  *
- * Design constraints (see docs/review-queue.md for the rationale):
- * 设计约束（理由见 docs/review-queue.md）：
+ * Design constraints (see the review queue section of docs/reference.md):
+ * 设计约束（理由见 docs/reference.md 的「待核对名单」）：
  *
  *   1. It reads logs only. `src/` is untouched, so it cannot invent facts that the
  *      sync did not already print.
