@@ -42,6 +42,15 @@ type EmojiRequest = Extract<CreatePageParameters['icon'], { type?: 'emoji' }>['e
 dotenv.config();
 
 /**
+ * Fixed pause between page creates. Notion's published limit is an average of ~3 requests per
+ * second, so one request per second is the conservative reading of it. A constant on purpose, not
+ * an env var: the limit belongs to Notion, not to whoever runs the sync.
+ * 每建一页之间的固定停顿。Notion 公开的限制是平均每秒约 3 次请求，因此每秒一次是对它保守的读法。
+ * 刻意做成常量而非环境变量：这条限制属于 Notion，不属于运维。
+ */
+const NOTION_INSERT_INTERVAL_MS = 1000;
+
+/**
  * Path ① — Douban RSS → Notion.
  * 链路① —— 豆瓣 RSS → Notion。
  *
@@ -60,16 +69,9 @@ dotenv.config();
  * @param feeds - Feed items to sync. 待同步的条目。
  * @returns The path's report. 本条链路的报告。
  */
-/**
- * Fixed pause between page creates. Notion's published limit is an average of ~3 requests per
- * second, so one request per second is the conservative reading of it. A constant on purpose, not
- * an env var: the limit belongs to Notion, not to whoever runs the sync.
- * 每建一页之间的固定停顿。Notion 公开的限制是平均每秒约 3 次请求，因此每秒一次是对它保守的读法。
- * 刻意做成常量而非环境变量：这条限制属于 Notion，不属于运维。
- */
-const NOTION_INSERT_INTERVAL_MS = 1000;
-
-export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<PathReport> {
+export default async function syncDoubanToNotion(
+  feeds: FeedItem[],
+): Promise<PathReport> {
   const report = newPathReport('Douban → Notion');
 
   // ① was the last path with no credential gate at all: `clients/notion.ts` builds the SDK client
@@ -129,7 +131,10 @@ export default async function syncDoubanToNotion(feeds: FeedItem[]): Promise<Pat
     }
     scanned.add(`config:${category}`);
     try {
-      const outcome = await syncCategoryToNotion(categorizedFeeds, category as ItemCategory);
+      const outcome = await syncCategoryToNotion(
+        categorizedFeeds,
+        category as ItemCategory,
+      );
       // `scanned` is NOT added here on purpose: it is already `feeds.length` (set above), and the
       // categories partition `filtered`, so their `outcome.scanned` sums to `filtered.length` —
       // a subset of `feeds.length`. Adding both double-counted, which the self-check caught as

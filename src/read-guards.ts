@@ -1,7 +1,9 @@
 /**
  * Turning a `ReadResult` into a value or an exception — the one place that decides what a failed
- * read means for the path that issued it.
+ * read means for the path that issued it. Shared infrastructure, not one of the five sync paths,
+ * hence `src/` rather than `src/paths/`.
  * 把 `ReadResult` 翻成「值或异常」—— 这里是唯一决定「一次读取失败对该链路意味着什么」的地方。
+ * 它是共享基础设施而不是五条链路之一，因此放在 `src/` 而不是 `src/paths/`。
  *
  * Why an exception rather than another return value: the bug this replaces was a *returned* flag
  * that a caller forgot to check (`markNeodbItem` in ④, fixed in `611f3f3`). A throw cannot be
@@ -11,7 +13,7 @@
  * （④ 的 `markNeodbItem`，已在 `611f3f3` 修掉）。抛错无法被忽略 —— 没人接就当场崩掉，
  * 而对「目标端不肯告诉我现状」来说，这正是正确的失败形态。
  */
-import type { ReadResult, ReadScope } from '../types';
+import type { ReadResult, ReadScope } from './types';
 
 /** The whole path cannot continue: the credentials are dead, not the item. / 整条链路走不下去：坏的是凭据，不是条目。 */
 export class PathAbortedError extends Error {

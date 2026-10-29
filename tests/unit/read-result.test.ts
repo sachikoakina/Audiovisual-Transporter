@@ -17,7 +17,7 @@ import {
   PathAbortedError,
   readOptionalOrThrow,
   readValueOrThrow,
-} from '../../src/paths/read';
+} from '../../src/read-guards';
 
 describe('classifyReadFailure', () => {
   it('treats 404 as "nothing there" by default, the only answer a create may rest on', () => {

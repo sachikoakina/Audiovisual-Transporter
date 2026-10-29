@@ -58,9 +58,18 @@ import {
   syncConfig,
   unmatchedLogFile,
 } from '../sync-config';
-import { readFullSyncCursor, upsertReviewEntry, writeFullSyncCursor } from '../utils';
+import {
+  itemLabel,
+  readFullSyncCursor,
+  upsertReviewEntry,
+  writeFullSyncCursor,
+} from '../utils';
 import { printPathSummary } from '../sync-report';
-import { PathAbortedError, readOptionalOrThrow, readValueOrThrow } from './read';
+import {
+  PathAbortedError,
+  readOptionalOrThrow,
+  readValueOrThrow,
+} from '../read-guards';
 
 dotenv.config();
 
@@ -117,6 +126,7 @@ export default async function syncBangumiToNeodb(
       'Bangumi → NeoDB needs both BANGUMI_ACCESS_TOKEN and NEODB_API_TOKEN; skip.',
     );
     report.aborted = true;
+    printPathSummary(report);
     return report;
   }
 
@@ -124,6 +134,7 @@ export default async function syncBangumiToNeodb(
   if (!me?.username) {
     consola.error('Cannot resolve Bangumi username; skip Bangumi → NeoDB');
     report.aborted = true;
+    printPathSummary(report);
     return report;
   }
 
@@ -368,7 +379,7 @@ async function syncCollectionToNeodb(
 ): Promise<CollectionOutcome> {
   const url = bangumiSubjectUrl(collection.subject_id);
   const title = collectionTitle(collection);
-  consola.info('Bangumi → NeoDB: ', `${title}[${url}]`);
+  consola.info('Bangumi → NeoDB: ', itemLabel(title, url));
 
   if (
     mangaPlatformCheck &&
@@ -386,11 +397,11 @@ async function syncCollectionToNeodb(
     // The title leads and the URL follows, instead of the URL alone. The review list has to name
     // the entry it is asking about, and a bare `bgm.tv/subject/N` is only an address — the list
     // could show the reader a link and nothing to recognise it by. `标题[链接]` is also the shape
-    // ② (`feedLabel`) and ③ already print, so one `splitLabel` reads all three.
+    // ② (`itemLabel`) and ③ already print, so one `splitLabel` reads all three.
     // 标题在前、链接在后，而不是只打链接。名单必须能说出它在问哪一条，而光秃秃的
     // `bgm.tv/subject/N` 只是个地址 —— 读者只会看到一个认不出来的链接。`标题[链接]` 也正是
-    // ②（`feedLabel`）与 ③ 已有的形状，一个 `splitLabel` 就能读这三条。
-    consola.warn('NeoDB could not resolve Bangumi URL, skip: ', `${title}[${url}]`);
+    // ②（`itemLabel`）与 ③ 已有的形状，一个 `splitLabel` 就能读这三条。
+    consola.warn('NeoDB could not resolve Bangumi URL, skip: ', itemLabel(title, url));
     return 'unresolved';
   }
 

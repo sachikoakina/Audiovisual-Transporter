@@ -33,7 +33,7 @@ export type NeodbMarkSource = {
 };
 
 /** The merged result, plus why it was or was not scheduled. / 合并结果，以及它被排入或未排入的原因。 */
-export type MergedNeodbMark = {
+type MergedNeodbMark = {
   shelfType: string;
   ratingGrade: number;
   comment: string;

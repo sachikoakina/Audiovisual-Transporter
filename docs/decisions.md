@@ -2,11 +2,11 @@
 
 这里记的是**为什么这样做**，而不是**怎么做**——后者在代码注释里。每条决策都写明当时的替代方案与被否掉的原因，目的是让下一个改这块的人先看见约束，再动手。
 
-背景与逐条审阅过程见 [`refactor-review.md`](./refactor-review.md)；本文只留结论。
+背景与逐条审阅过程见 [`history/refactor-review-2026-10.md`](./history/refactor-review-2026-10.md)（历史快照，事实已过时）；本文只留结论。
 
 ## 1. 读取失败用异常，不用返回值（2026-10-25）
 
-**决策**：目标端读取有 `found` / `absent` / `error` 三种结果（`ReadResult<T>`），前两者由 `paths/read.ts` 翻成「值 / `null`」，`error` 翻成异常：`auth` 抛 `PathAbortedError`（整条链路停），其余抛 `ItemReadError`（只这一条失败）。
+**决策**：目标端读取有 `found` / `absent` / `error` 三种结果（`ReadResult<T>`），前两者由 `src/read-guards.ts` 翻成「值 / `null`」，`error` 翻成异常：`auth` 抛 `PathAbortedError`（整条链路停），其余抛 `ItemReadError`（只这一条失败）。
 
 **为什么不是再返回一个布尔值**：上一个 bug 就是「返回值被忘记检查」——`bangumi-to-neodb.ts` 里 `await markNeodbItem(...)` 之后无条件 `markWritten = true`，于是 NeoDB 的拒绝被记成成功，退出码、明细、待核对名单三处同时失明。抛出的东西不会被忽略；没人接就当场崩，对「目标端不肯告诉我现状」来说这是正确的失败形态。
 

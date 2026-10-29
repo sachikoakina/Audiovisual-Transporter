@@ -23,13 +23,17 @@ export enum ItemCategory {
   Drama = 'drama',
 }
 
-// follow the schema value of Neodb
-export enum ItemStatus {
-  Wishlist = 'wishlist',
-  Progress = 'progress',
-  Complete = 'complete',
-  Dropped = 'dropped',
-}
+// Follow the schema value of NeoDB. A const object, not an enum: the same four values also back
+// `SHELF_TYPES`, and an enum would be a second declaration of the same vocabulary.
+// 跟随 NeoDB 的 schema 值。用 const 对象而不是 enum：同样四个值还要支撑 `SHELF_TYPES`，
+// enum 会让同一套词汇出现第二份声明。
+export const ItemStatus = {
+  Wishlist: 'wishlist',
+  Progress: 'progress',
+  Complete: 'complete',
+  Dropped: 'dropped',
+} as const;
+export type ItemStatus = (typeof ItemStatus)[keyof typeof ItemStatus];
 
 /**
  * A raw `rss-parser` entry. The index signature is `unknown`, not `any`: everything this repo
@@ -181,28 +185,18 @@ export type FailedItem = {
 // ───────────────────────────────────────────────────────────────────────────
 
 /** `{type}` path variable of GET /api/me/shelf/{type}. Verified: all four exist. */
-export type ShelfType = 'wishlist' | 'progress' | 'complete' | 'dropped';
-
-export const SHELF_TYPES: readonly ShelfType[] = [
-  'wishlist',
-  'progress',
-  'complete',
-  'dropped',
+export const SHELF_TYPES = [
+  ItemStatus.Wishlist,
+  ItemStatus.Progress,
+  ItemStatus.Complete,
+  ItemStatus.Dropped,
 ] as const;
+
+export type ShelfType = (typeof SHELF_TYPES)[number];
 
 /** `category` query parameter of GET /api/me/shelf/{type}. */
 export type NeodbCategory =
   'book' | 'movie' | 'tv' | 'music' | 'game' | 'podcast' | 'performance';
-
-export const NEODB_CATEGORIES: readonly NeodbCategory[] = [
-  'book',
-  'movie',
-  'tv',
-  'music',
-  'game',
-  'podcast',
-  'performance',
-] as const;
 
 /**
  * ItemSchema — the catalog object, inlined as `mark.item` on the shelf API.

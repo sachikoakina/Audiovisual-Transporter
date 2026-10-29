@@ -63,8 +63,8 @@ import {
   unmatchedLogFile,
 } from '../sync-config';
 import { printPathSummary } from '../sync-report';
-import { upsertReviewEntry } from '../utils';
-import { PathAbortedError, failureReason, readOptionalOrThrow } from './read';
+import { itemLabel, upsertReviewEntry } from '../utils';
+import { PathAbortedError, failureReason, readOptionalOrThrow } from '../read-guards';
 
 dotenv.config();
 
@@ -260,7 +260,7 @@ async function syncFeedItemToBangumi(
   /** Run-local year lookups shared by every title-search attempt. / 本轮共享的年份查表。 */
   years: YearCache,
 ): Promise<ItemSyncOutcome> {
-  const label = `${item.title || item.id}[${item.link}]`;
+  const label = itemLabel(item.title || item.id, item.link);
   consola.info('Douban → Bangumi: ', label);
 
   const neodbItem = await fetchNeodbItemByUrl(item.link);

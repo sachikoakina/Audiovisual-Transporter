@@ -75,7 +75,7 @@ import {
   type ItemYearCache,
   type SyncState,
 } from '../utils';
-import { PathAbortedError, readValueOrThrow } from './read';
+import { PathAbortedError, readValueOrThrow } from '../read-guards';
 import {
   newPathReport,
   newSyncCounters,
@@ -200,12 +200,14 @@ export default async function runNeodbToTmdb(
       consola.error(problem);
     }
     report.aborted = true;
+    printPathSummary(report);
     return report;
   }
 
   const me = await getNeodbMe();
   if (!(await verifyNeodbToken())) {
     report.aborted = true;
+    printPathSummary(report);
     return report;
   }
   consola.info(`NeoDB account: ${me?.username ?? '(unknown)'}`);

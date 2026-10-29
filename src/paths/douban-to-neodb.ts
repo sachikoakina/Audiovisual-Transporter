@@ -26,19 +26,15 @@ import type { FeedItem, ItemStatus, ItemSyncOutcome, PathReport } from '../types
 import { newPathReport } from '../types';
 import { fetchNeodbItemByUrl } from '../clients/neodb-catalog';
 import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
-import {
-  getNeodbMark,
-  markNeodbItem,
-  verifyNeodbToken,
-} from '../clients/neodb-shelf';
+import { getNeodbMark, markNeodbItem, verifyNeodbToken } from '../clients/neodb-shelf';
 import {
   filterDoubanFeedsByCategory,
   syncConfig,
   unmatchedLogFile,
 } from '../sync-config';
 import { printPathSummary } from '../sync-report';
-import { PathAbortedError, failureReason, readOptionalOrThrow } from './read';
-import { upsertReviewEntry } from '../utils';
+import { PathAbortedError, failureReason, readOptionalOrThrow } from '../read-guards';
+import { itemLabel, upsertReviewEntry } from '../utils';
 
 dotenv.config();
 
@@ -52,7 +48,9 @@ const LABEL = 'Douban → NeoDB';
  * @returns The path's report; `aborted` when the path could not run.
  *   本条链路的报告；无法运行时 `aborted` 为真。
  */
-export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<PathReport> {
+export default async function syncDoubanToNeodb(
+  feeds: FeedItem[],
+): Promise<PathReport> {
   const report = newPathReport(LABEL);
 
   if (!neodbToken) {
@@ -129,7 +127,7 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
       // recognises Bangumi → NeoDB, and it routes on that string alone.
       // 刻意不用 `Item failed, continuing:` —— 名单靠那句话认出 Bangumi → NeoDB，它只认这个字符串。
       consola.error(
-        `Douban → NeoDB item threw, continuing: ${feedLabel(item)} —`,
+        `Douban → NeoDB item threw, continuing: ${itemLabel(item.title || item.id, item.link)} —`,
         error instanceof Error ? error.message : error,
       );
     }
@@ -140,11 +138,6 @@ export default async function syncDoubanToNeodb(feeds: FeedItem[]): Promise<Path
 
   printPathSummary(report);
   return report;
-}
-
-/** `标题[链接]` — the same shape the other paths use, and enough to find the item by search. */
-function feedLabel(item: FeedItem): string {
-  return `${item.title || item.id}[${item.link}]`;
 }
 
 /**
@@ -241,7 +234,7 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
     // NeoDB 目录里没有对应条目。这是数据缺口而非错误 —— 不应让 CI 变红。
     // 每条打一行，形状与 ③ 的 `No Bangumi match, skip:`、⑤ 的 `No TMDB match; skip` 一致：
     // 待核对名单正是从这些行里长出来的，只计数不点名的链路，条目会整个从名单里消失。
-    consola.warn('No NeoDB match, skip: ', feedLabel(item));
+    consola.warn('No NeoDB match, skip: ', itemLabel(item.title || item.id, item.link));
     return 'unresolved';
   }
 
@@ -251,10 +244,7 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
   // A failed read throws: this item is left untouched and counted, instead of being mistaken for
   // "not marked yet" and created over.
   // 读取失败会抛出：这一条原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
-  const mark = readOptionalOrThrow(
-    await getNeodbMark(neodbItem.uuid),
-    'NeoDB mark',
-  );
+  const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
   const sourceGrade = doubanStarsToTenPoint(item.rating);
 
   if (!mark) {

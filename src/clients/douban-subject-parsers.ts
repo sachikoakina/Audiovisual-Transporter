@@ -37,7 +37,7 @@ const INFO_SELECTOR = '#info span.pl';
  * by fixtures rather than "corrected" by guesswork.
  * 这两处判定都无法离线对着线上页面验证；应当用 fixture 冻结，而不是靠猜去「纠正」。
  */
-export const DOUBAN_IMAGE_MARKERS = {
+const DOUBAN_IMAGE_MARKERS = {
   REAL_POSTER: '点击看更多海报',
   PLACEHOLDER_COVER: '点击上传封面图片',
 } as const;
@@ -73,7 +73,8 @@ export function buildMovieItem(doc: Document) {
         .join(' / ')
     : '';
   const screenwritersPl = infoPl.filter((i) => i.textContent === '编剧');
-  const writerLinks = screenwritersPl[0]?.nextElementSibling?.querySelectorAll('span a');
+  const writerLinks =
+    screenwritersPl[0]?.nextElementSibling?.querySelectorAll('span a');
   const screenwriters = writerLinks
     ? [...writerLinks]
         .slice(0, 5)

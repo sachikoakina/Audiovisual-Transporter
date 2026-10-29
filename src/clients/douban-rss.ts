@@ -188,23 +188,6 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
 }
 
 /**
- * Decode the category, subject id and status out of one feed entry's title and link.
- * 从单条 feed 的标题与链接中解出分类、条目 id 与状态。
- *
- * Pure and dependency-free, which is why it is the natural first target for offline assertions.
- * 纯函数且无依赖，因此它是离线断言最自然的首选目标。
- *
- * A `看*` status is ambiguous by design: Douban uses it for both films and stage dramas, so the
- * link host decides — `movie.douban.com` is a film, anything else is treated as a stage drama.
- * `看*` 状态天然有二义性：豆瓣用它同时表示电影与舞台剧，因此由链接域名决定 ——
- * `movie.douban.com` 视为电影，其余视为舞台剧。
- *
- * @param title - Feed entry title, e.g. `看过 海边的曼彻斯特`. 条目标题，如 `看过 海边的曼彻斯特`。
- * @param link - Feed entry link. 条目链接。
- * @returns The decoded info, or `undefined` when the title carries no recognizable status.
- *   解出的信息；标题中状态不可识别时返回 `undefined`。
- */
-/**
  * One row per (status vocabulary, category, link shape). The four `if/else` branches this
  * replaces were identical apart from those three things, and the COPY is what made the film /
  * stage-drama split easy to get wrong: `看过` is one vocabulary pointing at two categories.
@@ -246,6 +229,23 @@ const ITEM_RULES: ReadonlyArray<{
   },
 ];
 
+/**
+ * Decode the category, subject id and status out of one feed entry's title and link.
+ * 从单条 feed 的标题与链接中解出分类、条目 id 与状态。
+ *
+ * Pure and dependency-free, which is why it is the natural first target for offline assertions.
+ * 纯函数且无依赖，因此它是离线断言最自然的首选目标。
+ *
+ * A `看*` status is ambiguous by design: Douban uses it for both films and stage dramas, so the
+ * link host decides — `movie.douban.com` is a film, anything else is treated as a stage drama.
+ * `看*` 状态天然有二义性：豆瓣用它同时表示电影与舞台剧，因此由链接域名决定 ——
+ * `movie.douban.com` 视为电影，其余视为舞台剧。
+ *
+ * @param title - Feed entry title, e.g. `看过 海边的曼彻斯特`. 条目标题，如 `看过 海边的曼彻斯特`。
+ * @param link - Feed entry link. 条目链接。
+ * @returns The decoded info, or `undefined` when the title carries no recognizable status.
+ *   解出的信息；标题中状态不可识别时返回 `undefined`。
+ */
 export function extractItemInfo(title: string, link: string): ItemInfo | undefined {
   const m = title.match(ANY_STATUS_PREFIX)?.[1];
 

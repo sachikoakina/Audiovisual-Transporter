@@ -419,19 +419,6 @@ export async function pickExactBangumiMatchByYear(
 }
 
 /**
- * Find the first exact title match (name or name_cn) among search results.
- *
- * Kept as-is for callers that do not need the year filter.
- * 找出第一个精确同名（name 或 name_cn）的搜索结果；保留给不需要年份过滤的调用方。
- */
-export function pickExactBangumiMatch(
-  subjects: BangumiSubject[],
-  title: string,
-): BangumiSubject | null {
-  return exactBangumiCandidates(subjects, title)[0] ?? null;
-}
-
-/**
  * List a user's collections, one page at a time.
  * 分页列出某个用户的收藏。
  *

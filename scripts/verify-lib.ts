@@ -1,6 +1,6 @@
 /*
- * The assertion harness the four `verify-*` scripts share.
- * 四个 `verify-*` 脚本共用的断言脚手架。
+ * The assertion harness the `verify-*` scripts share.
+ * `verify-*` 脚本共用的断言脚手架。
  *
  * It existed four times, once per script, and had already drifted: two of them printed failures to
  * stderr and two to stdout, one had a `detail` argument the others lacked. That drift is the

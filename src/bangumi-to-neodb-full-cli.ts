@@ -2,7 +2,7 @@ import { consola } from 'consola';
 import syncBangumiToNeodb from './paths/bangumi-to-neodb';
 import { syncConfig } from './sync-config';
 import { printOverallSummary } from './sync-report';
-import { pathHasFailed } from './types';
+import { newPathReport, pathHasFailed } from './types';
 
 /**
  * Full sync of all Bangumi collections to NeoDB.
@@ -21,15 +21,34 @@ import { pathHasFailed } from './types';
  */
 async function main(): Promise<void> {
   if (!syncConfig.bangumiNeodb) {
-    consola.warn('SYNC_BANGUMI_NEODB is off; skip full sync.');
+    // Same policy as the NeoDB → TMDB full entry: running a full import with the path switched off
+    // is a misconfiguration, not a no-op. A green exit code would read as "the import ran and found
+    // nothing".
+    // 与 NeoDB → TMDB 全量入口同一策略：开关关闭时跑全量导入属于配置错误，不是「什么都不用做」。
+    // 退出码 0 会被读成「导入跑过了，只是没有新数据」。
+    consola.error(
+      'SYNC_BANGUMI_NEODB is off — the Bangumi → NeoDB full entry would do nothing. Set SYNC_BANGUMI_NEODB=1.',
+    );
+    process.exitCode = 1;
     return;
   }
   consola.start('Starting Bangumi → NeoDB full sync...');
 
-  const report = await syncBangumiToNeodb(true);
-  printOverallSummary([report]);
+  try {
+    const report = await syncBangumiToNeodb(true);
+    printOverallSummary([report]);
 
-  if (pathHasFailed(report)) {
+    if (pathHasFailed(report)) {
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    // Keep the invariant that a summary is always printed, even when the path throws before it can
+    // build one: report the failure as `aborted`, then set the exit code.
+    // 保持「汇总总会打印」的不变量：即使链路在产出报告之前就抛出，也以 `aborted` 上报并定退出码。
+    consola.error('Bangumi → NeoDB full sync failed: ', error);
+    const aborted = newPathReport('Bangumi → NeoDB');
+    aborted.aborted = true;
+    printOverallSummary([aborted]);
     process.exitCode = 1;
   }
 }

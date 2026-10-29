@@ -41,7 +41,6 @@ vi.mock('../../src/clients/bangumi', () => ({
   getBangumiSubject: async () => ({ status: 'found', value: { platform: '漫画' } }),
   listBangumiCollections: (...args: unknown[]) => listBangumiCollections(...args),
   searchBangumiSubjects: async () => [],
-  pickExactBangumiMatch: () => null,
   upsertBangumiCollection: async () => true,
   bangumiPrivate: false,
 }));

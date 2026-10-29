@@ -391,7 +391,7 @@
 
 **路径**：`SYNC_UNMATCHED_LOG`，默认 `.cache/unmatched.json`。这是**相对路径**，按**进程的工作目录**解析 —— `npm run sync` 的工作目录是仓库根，所以本地默认落在 `<仓库>/.cache/unmatched.json`；用 `npm --prefix`、IDE 任务、或从别的目录直接调 `tsx src/index.ts` 时，它落在**那个目录**下的 `.cache/`。
 
-**四条链路会写它**：② Douban → NeoDB（`no-neodb-match`）、③ Douban → Bangumi（`no-bangumi-match`）、④ Bangumi → NeoDB（`neodb-unresolved`）、⑤ NeoDB → TMDB（`no-tmdb-match`）。① 不写（它的未配置分类与写入失败走 Notion 侧的明细与 `skipped`），因此「汇总里没有 `Full entries` 那一行」不代表出错。
+**四条链路会写它**：② Douban → NeoDB（`no-neodb-match`）、③ Douban → Bangumi（`no-bangumi-match`）、④ Bangumi → NeoDB（`neodb-unresolved`）、⑤ NeoDB → TMDB（`no-tmdb-match` / `no-neodb-year` / `no-neodb-year-fetch-failed`）。① 不写（它的未配置分类与写入失败走 Notion 侧的明细与 `skipped`），因此「汇总里没有 `Full entries` 那一行」不代表出错。
 
 **日志里现在打印的是解析后的绝对路径**，形如：
 
@@ -509,7 +509,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 > **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。
 >
-> `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④）、`no-tmdb-match`（⑤）。
+> `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④），以及 ⑤ 的三种 —— `no-tmdb-match`（搜过了，没有）、`no-neodb-year`（没年份，根本没搜）、`no-neodb-year-fetch-failed`（取年份失败）。
 >
 > 每条链路还会把本轮检查过的条目身份写进 `PathReport.scannedIds`。待核对名单的淘汰规则依赖它：只有身份在集合里、且日志里不再出现的条目才计入缺席；被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断或链路未运行的部分不会进入集合，名单因此冻结而不是误删。
 
@@ -559,7 +559,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 **读失败一律不写**（2026-10-25 起）。上面所有比对的基准都来自一次读取，而读取有三种结果：`found` / `absent` / `error`。只有 `absent`（目标端明确回答「这里什么都没有」）才会进入新建或写入分支；`error` 一律**不写**，该条计入 `failed` 并在明细里点名（`neodb-read-failed` / `bangumi-read-failed` / `item-threw` / `tmdb-item-threw`）。凭据类错误（401 / 403）再进一步：整条链路标 `aborted`、退出码非零，而不是逐条刷失败。
 
-在这条规则之前，读取失败与「空记录」是同一个 `null`：一次 500 就足以让 `tmdb_prefer` 失效、把用户在 TMDB 上手设的评分覆盖掉。代码层面由 `ReadResult<T>`（`src/types.ts`）与 `paths/read.ts` 强制，`planTmdbWrites` / `extractTmdbRating` 的参数也不再接受 `null`。
+在这条规则之前，读取失败与「空记录」是同一个 `null`：一次 500 就足以让 `tmdb_prefer` 失效、把用户在 TMDB 上手设的评分覆盖掉。代码层面由 `ReadResult<T>`（`src/types.ts`）与 `src/read-guards.ts` 强制，`planTmdbWrites` / `extractTmdbRating` 的参数也不再接受 `null`。
 
 > `plan === null` 的字段（如日志中的 `rating untouched`）表示**映射上就不该动这个字段**，此时既不 POST 也不 DELETE——**绝不删除**用户手动在 TMDB 设的评分。这是刻意的保护。
 

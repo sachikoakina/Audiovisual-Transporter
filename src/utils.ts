@@ -81,7 +81,7 @@ function writeJsonAtomic(file: string, value: unknown): void {
   fs.renameSync(tmp, file);
 }
 
-export function emptyState(): SyncState {
+function emptyState(): SyncState {
   return { version: STATE_VERSION, updatedAt: new Date().toISOString(), synced: {} };
 }
 
@@ -158,7 +158,6 @@ function pruneState(state: SyncState): SyncState {
   return { ...state, synced };
 }
 
-/** Build the state key for one shelf item. / 生成一个书架条目在状态文件里的键。 */
 /**
  * Where a full ④ walk got to, so a run killed by the job timeout continues instead of restarting.
  * ④ 全量走到了哪里 —— 让被作业超时杀掉的运行继续，而不是从零重来。
@@ -180,7 +179,7 @@ export type FullSyncCursor = {
   offsets: Record<string, number>;
 };
 
-export function emptyFullSyncCursor(): FullSyncCursor {
+function emptyFullSyncCursor(): FullSyncCursor {
   return { version: 1, updatedAt: '', offsets: {} };
 }
 
@@ -248,7 +247,7 @@ const ITEM_YEAR_VERSION = 1;
 /** Keep the cache file bounded; the oldest insertions are dropped first. / 限制缓存文件大小，优先丢弃最早插入的。 */
 const MAX_ITEM_YEARS = 20000;
 
-export function emptyItemYearCache(): ItemYearCache {
+function emptyItemYearCache(): ItemYearCache {
   return { version: ITEM_YEAR_VERSION, updatedAt: '', years: {} };
 }
 
@@ -318,8 +317,14 @@ function pruneItemYears(cache: ItemYearCache): ItemYearCache {
   return { ...cache, years };
 }
 
+/** Build the state key for one shelf item. / 生成一个书架条目在状态文件里的键。 */
 export function stateKey(shelfType: string, itemUuid: string): string {
   return `${shelfType}:${itemUuid}`;
+}
+
+/** `标题[链接]` — the one shape `review-queue.mjs` parses. / 待核对名单解析的唯一形状。 */
+export function itemLabel(title: string, url: string): string {
+  return `${title}[${url}]`;
 }
 
 /**

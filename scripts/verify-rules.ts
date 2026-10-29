@@ -50,7 +50,7 @@ import {
   PathAbortedError,
   readOptionalOrThrow,
   readValueOrThrow,
-} from '../src/paths/read';
+} from '../src/read-guards';
 import { normalizeTitleKey, pickExactTmdbMatch } from '../src/rules/tmdb-matching';
 import {
   NEODB_CATEGORIES_WITHOUT_TMDB,
@@ -1054,11 +1054,11 @@ check(
   classifyReadFailure(null) === 'item',
 );
 
-// `paths/read.ts` is where that classification turns into control flow. These assertions matter
-// because the whole point is *which* exception comes out: `auth` must stop the path, everything
-// else must merely fail one item.
-// `paths/read.ts` 是把归类变成控制流的地方。这几条要钉的是**抛出哪一个**异常：`auth` 必须让整条
-// 链路停下，其余只失败一条。
+// `src/read-guards.ts` is where that classification turns into control flow. These assertions
+// matter because the whole point is *which* exception comes out: `auth` must stop the path,
+// everything else must merely fail one item.
+// `src/read-guards.ts` 是把归类变成控制流的地方。这几条要钉的是**抛出哪一个**异常：`auth` 必须让
+// 整条链路停下，其余只失败一条。
 function caughtThrow(run: () => unknown): unknown {
   try {
     run();

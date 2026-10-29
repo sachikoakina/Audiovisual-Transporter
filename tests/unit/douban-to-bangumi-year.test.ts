@@ -13,7 +13,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   bangumiSubjectYear,
   exactBangumiCandidates,
-  pickExactBangumiMatch,
   pickExactBangumiMatchByYear,
   type BangumiSubject,
 } from '../../src/clients/bangumi';
@@ -65,14 +64,6 @@ describe('exactBangumiCandidates', () => {
 
     expect(exactBangumiCandidates([candidate], ' dune ')).toEqual([candidate]);
     expect(exactBangumiCandidates([candidate], '   ')).toEqual([]);
-  });
-
-  it('keeps pickExactBangumiMatch returning the first candidate', () => {
-    const first = subject({ id: 1 });
-    const second = subject({ id: 2 });
-
-    expect(pickExactBangumiMatch([first, second], '沙丘')).toBe(first);
-    expect(pickExactBangumiMatch([], '沙丘')).toBeNull();
   });
 });
 

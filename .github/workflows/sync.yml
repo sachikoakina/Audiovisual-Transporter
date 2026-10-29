@@ -127,7 +127,7 @@ jobs:
       TMDB_REQUEST_DELAY_MS: ${{ vars.TMDB_REQUEST_DELAY_MS || '300' }}
       TMDB_BASE_URL: ${{ vars.TMDB_BASE_URL || 'https://api.themoviedb.org/3' }}
       TMDB_INCLUDE_ADULT: ${{ vars.TMDB_INCLUDE_ADULT || 'false' }}
-      SYNC_SHELF_TYPES: ${{ vars.SYNC_SHELF_TYPES || 'wishlist,progress,complete' }}
+      SYNC_SHELF_TYPES: ${{ vars.SYNC_SHELF_TYPES || 'wishlist,progress,complete,dropped' }}
       SYNC_CATEGORIES: ${{ vars.SYNC_CATEGORIES || 'movie,tv' }}
       SYNC_RATING_PROFILE: ${{ vars.SYNC_RATING_PROFILE || 'tmdb_prefer' }}
       SYNC_YEAR_TOLERANCE: ${{ vars.SYNC_YEAR_TOLERANCE || '1' }}

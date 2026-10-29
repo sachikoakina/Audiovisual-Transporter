@@ -297,7 +297,11 @@ export async function getTmdbAccountStates(
 export async function findTmdbByImdbId(imdbId: string): Promise<TmdbTarget[]> {
   try {
     const data = (await tmdb(`find/${imdbId}`, {
-      searchParams: { ...apiKeyParams(), external_source: 'imdb_id', language: 'en-US' },
+      searchParams: {
+        ...apiKeyParams(),
+        external_source: 'imdb_id',
+        language: 'en-US',
+      },
     }).json()) as Record<string, TmdbSearchResult[] | undefined>;
 
     const targets: TmdbTarget[] = [];

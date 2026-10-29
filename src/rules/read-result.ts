@@ -10,7 +10,7 @@
  */
 import type { ReadScope } from '../types';
 
-export type ReadFailureKind = 'absent' | ReadScope;
+type ReadFailureKind = 'absent' | ReadScope;
 
 /**
  * @param status The HTTP status code, or `null` when there was no response at all (DNS, timeout).

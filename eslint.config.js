@@ -8,12 +8,10 @@ export default tseslint.config(
   eslintConfigPrettier,
   {
     // `scripts/` is linted now, not excluded: the review list is parsed by one of those files, so
-    // a typo in it is a data-loss bug, not a style issue. `archive/` and `userscript/` stay out —
-    // both are documented as out of service (see `archive/README.md` and README's tree).
+    // a typo in it is a data-loss bug, not a style issue.
     // `scripts/` 现在纳入 lint 而不是排除：待核对名单由其中一个文件解析，因此那里的笔误是数据
-    // 丢失级别的 bug，不是风格问题。`archive/` 与 `userscript/` 保持排除 —— 两者都在文档里声明
-    // 了不再参与（见 `archive/README.md` 与 README 的目录树）。
-    ignores: ['node_modules/', 'archive/', 'userscript/'],
+    // 丢失级别的 bug，不是风格问题。
+    ignores: ['node_modules/'],
   },
   {
     files: ['**/*.ts'],

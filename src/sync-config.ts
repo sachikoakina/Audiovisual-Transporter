@@ -181,10 +181,6 @@ function formatAllowlist<T extends string>(allowlist: CategoryAllowlist<T>): str
 }
 
 /**
- * Which sync paths to run. Defaults match a NeoDB + Bangumi setup (Notion off).
- * 要运行哪些同步链路。默认值对应「NeoDB + Bangumi」的组合（Notion 关闭）。
- */
-/**
  * Where a full Bangumi → NeoDB walk leaves its cursor. Only full runs read it — see the note in
  * `paths/bangumi-to-neodb.ts` on why a capped cron run must start from the head every time.
  * Bangumi → NeoDB 全量遍历的游标落点。只有全量读它 —— 为何常规 cron 必须每次从头部开始，

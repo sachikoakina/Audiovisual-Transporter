@@ -52,12 +52,13 @@
  *     处理。代价是弃看条目与「想看」无法区分；这是明确接受的取舍，不是疏漏。
  * ═══════════════════════════════════════════════════════════════════════════
  */
-import type {
-  NeodbCategory,
-  NeodbItem,
-  ShelfType,
-  TmdbAccountStates,
-  TmdbMediaType,
+import {
+  SHELF_TYPES,
+  type NeodbCategory,
+  type NeodbItem,
+  type ShelfType,
+  type TmdbAccountStates,
+  type TmdbMediaType,
 } from '../types';
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -116,7 +117,6 @@ export function neodbGradeToTmdbRating(
   return Math.min(Math.max(snapped, 0.5), 10);
 }
 
-/** Read an existing TMDB rating defensively (`rated` may be `false`). / 防御性地读取 TMDB 现有评分（`rated` 可能是 `false`）。 */
 /**
  * The rating already on TMDB, or `null` when there is none.
  * TMDB 上已有的评分；没有则 `null`。
@@ -224,15 +224,9 @@ export function collectTitles(item: NeodbItem): string[] {
 
 /** Normalise a shelf_type value coming from the API. / 规范化 API 返回的 shelf_type 取值。 */
 export function toShelfType(value: string): ShelfType | null {
-  switch (value) {
-    case 'wishlist':
-    case 'progress':
-    case 'complete':
-    case 'dropped':
-      return value;
-    default:
-      return null;
-  }
+  return (SHELF_TYPES as readonly string[]).includes(value)
+    ? (value as ShelfType)
+    : null;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
