@@ -213,8 +213,8 @@ flowchart TB
 
 ### 留档与待核对名单
 
-- ②③④⑤ 把未匹配条目 upsert 到 `SYNC_UNMATCHED_LOG`（默认 `.cache/unmatched.json`），
-  按 `source::id` 保留 `firstSeenAt` / `lastSeenAt`；① 不写。
+- ②③④⑤ 把未匹配条目 upsert 到 `SYNC_UNMATCHED_LOG`（默认 `.cache/unmatched.json`，CI 中置空），
+  按 `source::id` 保留 `firstSeenAt` / `lastSeenAt`；① 不写。跨轮留存只靠待核对名单 artifact。
 - ⑤ 的 reason 有三种：`no-tmdb-match`（搜过没有）、`no-neodb-year`（没年份，没搜）、
   `no-neodb-year-fetch-failed`（取年份失败）。
 - 跨轮名单由 `scripts/review-queue.mjs` 从日志解析，并用 `sync-report.json` 的

@@ -63,31 +63,26 @@ export function stateLabel(report: PathReport): string {
 }
 
 /**
- * Say what the review log holds — the entry count and size, and (only where the path is usable)
- * where it is.
+ * Say what the review log holds — the entry count and size, and, where the path can actually be
+ * opened, where it is.
  *
  * The log line used to print the *configured* string (`.cache/unmatched.json` — relative), which
- * says nothing about where the file went and cannot be opened by clicking it. Printing the
- * resolved absolute path fixes that locally.
+ * says nothing about where the file went and cannot be opened by clicking it. The resolved absolute
+ * path fixes that locally.
  *
- * It does **not** fix it in Actions: the path there resolves under `$GITHUB_WORKSPACE` on a runner
- * whose disk is discarded when the job ends, so the absolute path is a dead pointer — precise,
- * verifiable-looking, and impossible to follow. Printing it would spend the reader's trust on
- * nothing. In CI the useful facts are the ones that survive the VM: *how many* entries were
- * recorded and *how large* the file was. So the path is printed only outside Actions, and the CI
- * form names the relative location plus the place the list does survive (the review queue
- * artifact).
+ * It does not apply in Actions: CI does not write this file at all (`sync.yml` leaves
+ * `SYNC_UNMATCHED_LOG` empty), because nothing can outlive the runner. The durable list is the
+ * 待核对名单 artifact, so the CI form names the count and that artifact — never a path the reader
+ * could be tempted to open.
  *
- * 说明留档里有什么 —— 条目数与体积，以及（仅在路径真的可用时）它在哪。
+ * 说明留档里有什么 —— 条目数与体积，以及（仅在路径真的能打开时）它在哪。
  *
  * 过去这里打印的是**配置里的那个字符串**（`.cache/unmatched.json`，相对路径），既说明不了文件
  * 落在哪、也点不开。本地打印解析后的绝对路径正好解决这一点。
  *
- * 但在 Actions 里它解决不了：那里的路径解析到 `$GITHUB_WORKSPACE` 下，而 runner 的磁盘在作业
- * 结束时随虚拟机丢弃，绝对路径因此是个死指针 —— 精确、看起来可核对、却无从打开。打印它等于白
- * 花读者的信任。CI 里真正经得起虚拟机销毁的事实是：**记录了多少条**、文件**多大**。因此绝对
- * 路径只在非 Actions 环境打印，CI 形态只给相对位置，并指向真正能留存下来的地方（待核对名单
- * artifact）。
+ * CI 不适用：那里根本不写这个文件（`sync.yml` 把 `SYNC_UNMATCHED_LOG` 置空），因为没有任何东西
+ * 能活过 runner。能长期留存的是待核对名单 artifact，因此 CI 形态只给条目数与那个 artifact ——
+ * 绝不给一个读者会想去打开的路径。
  */
 function describeReviewLog(configured: string): string {
   const absolute = path.resolve(configured);
@@ -98,15 +93,12 @@ function describeReviewLog(configured: string): string {
     // One decimal: a 3.4 KiB file and a 340 KiB file deserve different first reactions.
     // 保留一位小数：3.4 KiB 与 340 KiB 值得不同的第一反应。
     const scale = `${count} entries, ${(size / 1024).toFixed(1)} KiB`;
-    // Relative to the workspace, so an absolute `SYNC_UNMATCHED_LOG` cannot smuggle a
-    // `/home/runner/...` path back into the summary. Normally this reproduces the default
-    // `.cache/unmatched.json` verbatim.
-    // 相对工作目录，免得有人把 `SYNC_UNMATCHED_LOG` 配成绝对路径时又把 `/home/runner/...` 带回
-    // 摘要里。默认配置下这个值就是 `.cache/unmatched.json` 本身。
-    const shown = path.relative(process.cwd(), absolute) || configured;
+    // CI-only override: the file is normally not written there, so reaching this branch means
+    // someone set SYNC_UNMATCHED_LOG on purpose. Even then, no path is offered.
+    // 仅为 CI 里的显式覆盖：那里通常不写该文件，走到这个分支说明有人刻意设了
+    // SYNC_UNMATCHED_LOG。即便如此也不给路径。
     return inActions
-      ? `Full entries: ${scale} recorded at \`${shown}\` on the runner — its disk is ` +
-          'discarded with the VM, so this is not downloadable. The list that survives is the ' +
+      ? `Full entries: ${scale} recorded this run. The list that survives is the ` +
           '待核对名单 artifact (`docs/review-queue.md`).'
       : `Full entries: \`${absolute}\` (${scale})`;
   } catch {

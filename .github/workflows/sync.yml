@@ -138,7 +138,12 @@ jobs:
       # idempotency, which is safe and only costs extra read requests.
       SYNC_INCREMENTAL: ${{ vars.SYNC_INCREMENTAL || '0' }}
       SYNC_STATE_FILE: ${{ vars.SYNC_STATE_FILE || '.cache/sync-state.json' }}
-      SYNC_UNMATCHED_LOG: ${{ vars.SYNC_UNMATCHED_LOG || '.cache/unmatched.json' }}
+      # Empty by default: the unmatched log cannot outlive the runner, and nothing uploads it. The
+      # durable record is the 待核对名单 artifact built by review-queue.yml, so CI must neither
+      # write this file nor point at it as if it were retrievable.
+      # 默认置空：未匹配留档无法活过 runner，也没有任何步骤上传它。能长期留存的是
+      # review-queue.yml 产出的待核对名单 artifact，因此 CI 既不写这个文件，也不把它当成可取的路径。
+      SYNC_UNMATCHED_LOG: ${{ vars.SYNC_UNMATCHED_LOG || '' }}
 
     steps:
       - uses: actions/checkout@v6

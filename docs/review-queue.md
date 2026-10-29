@@ -17,7 +17,7 @@
 
 ## 2. 为什么是这个形状（以及它付出的代价）
 
-`sync` 结束前，runner 里能代表「这一轮发生了什么」的有两样东西：**控制台日志**（打印过哪些条目）和 `sync-report.json`（每条链路完整检查过哪些条目，即 `PathReport.scannedIds`）。结构化留档文件 `.cache/unmatched.json` 仍不跨轮存在、也不会被上传，因此名单的**条目内容**来自日志；**是否允许淘汰**来自报表的扫描集合 —— 缺一行日志有歧义，扫描集合命中没有。
+`sync` 结束前，runner 里能代表「这一轮发生了什么」的有两样东西：**控制台日志**（打印过哪些条目）和 `sync-report.json`（每条链路完整检查过哪些条目，即 `PathReport.scannedIds`）。结构化留档文件 `.cache/unmatched.json` 在 CI 中根本不写（无法活过 runner，也没有步骤上传它），因此名单的**条目内容**来自日志；**是否允许淘汰**来自报表的扫描集合 —— 缺一行日志有歧义，扫描集合命中没有。
 
 这不是设计缺陷，是约束的直接后果。想清楚它的边界，比假装覆盖完整更有用：
 
@@ -37,7 +37,7 @@
 
 两条已知截断：`printPathSummary` 的标题清单上限 20（`src/sync-report.ts:25`），主要影响 ④；⑤ 的标签是 `display_title`（`src/paths/neodb-to-tmdb.ts:382`），所以它只能靠标题建 key——**改标题会让它看起来像新条目**。这一条在 ③ 不存在，因为 ③ 的标签带豆瓣链接。
 
-> **2026-10-28 之后，⑤ 的 `unresolved` 有三种来源，名单只看见一种。** 控制台仍然是同一句 `No TMDB match; skip X.`（名单按它采、`verify-log-contract` 锁着它），区别在留档 `.cache/unmatched.json` 的 `reason`：`no-tmdb-match`（搜过了，TMDB 没有）、`no-neodb-year`（NeoDB 侧没有年份，所以**根本没搜**）、`no-neodb-year-fetch-failed`（取年份的请求失败）。这样一条「没被搜过的条目」不会伪装成「搜过而没找到」，但代价是**名单上看不出这个区别** —— 要看就得读留档或把日志级别开到 `debug`。判据见 [`decisions.md`](./decisions.md) §11。
+> **2026-10-28 之后，⑤ 的 `unresolved` 有三种来源，名单只看见一种。** 控制台仍然是同一句 `No TMDB match; skip X.`（名单按它采、`verify-log-contract` 锁着它），区别在留档 `.cache/unmatched.json` 的 `reason`：`no-tmdb-match`（搜过了，TMDB 没有）、`no-neodb-year`（NeoDB 侧没有年份，所以**根本没搜**）、`no-neodb-year-fetch-failed`（取年份的请求失败）。这样一条「没被搜过的条目」不会伪装成「搜过而没找到」，但代价是**名单上看不出这个区别** —— 本地可以读留档，CI 里没有这个文件，只能把日志级别开到 `debug`。判据见 [`decisions.md`](./decisions.md) §11。
 
 ## 3. 名单结构
 

@@ -393,27 +393,22 @@
 
 **四条链路会写它**：② Douban → NeoDB（`no-neodb-match`）、③ Douban → Bangumi（`no-bangumi-match`）、④ Bangumi → NeoDB（`neodb-unresolved`）、⑤ NeoDB → TMDB（`no-tmdb-match` / `no-neodb-year` / `no-neodb-year-fetch-failed`）。① 不写（它的未配置分类与写入失败走 Notion 侧的明细与 `skipped`），因此「汇总里没有 `Full entries` 那一行」不代表出错。
 
-**日志里现在打印的是解析后的绝对路径**，形如：
+**本地日志里打印的是解析后的绝对路径**，形如：
 
 ```
 [warn] 6 unmatched item(s) written to D://项目路径//.cache//unmatched.json.
 ```
 
-作业摘要里的对应行还会带上真实条目数与体积，但**绝对路径只在本地给出**：
+作业摘要里的对应行还会带上真实条目数与体积，同样只在本地给路径：
 
 ```text
 # 本地：路径可点开
 Full entries: `D:\项目路径\.cache\unmatched.json` (6 entries, 3.4 KiB)
-
-# CI：路径指向一台作业结束即销毁的 runner，所以不给绝对路径
-Full entries: 6 entries, 3.4 KiB recorded at `.cache/unmatched.json` on the runner — its disk is
-discarded with the VM, so this is not downloadable. The list that survives is the 待核对名单
-artifact (`docs/review-queue.md`).
 ```
 
 文件不在时两种环境都明写 `**not present**`（本地额外补一句「本应在此」的绝对路径），而不是照样指向一个不存在的路径。
 
-**在 CI 里它必然"找不到"**：路径相对 `$GITHUB_WORKSPACE` 解析，即 runner 上的 `/home/runner/work/<repo>/<repo>/.cache/unmatched.json`。runner 是一次性虚拟机，作业结束即销毁，`sync.yml` 也没有上传它。所以看到 Actions 日志里的这个路径后到本机磁盘上找，是找不到的 —— 这是设计行为，不是文件的 bug。正因如此，作业摘要现在**在 CI 里不打印绝对路径**（只给条目数、体积与相对位置），本地才打印。需要跨轮留存时走 `docs/review-queue.md` 里的 artifact 方案。
+**CI 不写这个文件**：`sync.yml` 把 `SYNC_UNMATCHED_LOG` 默认置空，因为 runner 是一次性虚拟机、作业结束即销毁，而没有任何步骤上传它。因此 CI 的日志与作业摘要都不会出现该文件的路径，只报条目数，并指向真正能跨轮留存的待核对名单 artifact（`docs/review-queue.md`）。需要跨轮留存时只走那条路。
 
 **确认实际位置的办法**（都在**运行同一个目录**下执行）：
 
@@ -473,7 +468,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 >
 > 之所以不是纯追加：同几条冷门条目每轮都会失败，追加只会让文件变大而不增加信息；而且早先的条目**完全没有时间戳**，两条一模一样的记录无法判断哪条更新——那种「历史」是不可用的。
 >
-> 该文件在 CI 中每轮都是全新的（runner 临时），所以去重只对**本地连续运行**有意义。`.cache` 已被 `.gitignore` 排除，**不会**进仓库。
+> 该文件在 CI 中不写（`SYNC_UNMATCHED_LOG` 默认置空），所以去重只对**本地连续运行**有意义。`.cache` 已被 `.gitignore` 排除，**不会**进仓库。
 
 ### failed / skipped 明细的 reason 取值
 

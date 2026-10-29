@@ -210,17 +210,17 @@ function printUnresolved(report: PathReport): void {
     consola.warn(`  … and ${rest} more`);
   }
   if (report.reviewLog) {
-    // Same wording in every path that leaves something for review, so a single grep finds all of
-    // them. The absolute path stays here even in CI: this line *is* the log, it is quoted in the
-    // job's own transcript, and "the file was written during this run" is exactly what the path
-    // proves. The job summary drops it in CI for the opposite reason — there the path is offered
-    // as something to open. See `describeReviewLog`.
-    // 凡是留下待核对条目的链路都用同一句话，一次 grep 就能全找出来。即使在 CI 里这里也保留绝对
-    // 路径：这一行本来就写在日志里、会被作业自己的转录引住，而「这轮确实写过这个文件」正是路径
-    // 能证明的事。作业摘要恰恰相反 —— 在那边路径是「给人去打开」的东西，所以 CI 里不打印。
-    // 见 `describeReviewLog`。
+    // One sentence in every path that leaves something for review, so a single grep finds all of
+    // them. The absolute path is offered only where it can be opened: CI normally writes no such
+    // file (`sync.yml` leaves SYNC_UNMATCHED_LOG empty), so a configured value there is an override
+    // and still gets no path.
+    // 凡是留下待核对条目的链路都用同一句话，一次 grep 就能全找出来。绝对路径只在真能打开时给出：
+    // CI 通常不写这个文件（`sync.yml` 把 SYNC_UNMATCHED_LOG 置空），因此那里即便有值属于显式
+    // 覆盖，也同样不给路径。
     consola.warn(
-      `${report.unresolved} unmatched item(s) written to ${path.resolve(report.reviewLog)}.`,
+      inActions
+        ? `${report.unresolved} unmatched item(s) recorded for review.`
+        : `${report.unresolved} unmatched item(s) written to ${path.resolve(report.reviewLog)}.`,
     );
   }
 
@@ -228,9 +228,7 @@ function printUnresolved(report: PathReport): void {
 
   ciAnnotation(
     'notice',
-    `${report.label}: ${report.unresolved} unresolved item(s); see ${
-      report.reviewLog || 'the review log'
-    }.`,
+    `${report.label}: ${report.unresolved} unresolved item(s); the durable list is the 待核对名单 artifact.`,
   );
 }
 
