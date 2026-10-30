@@ -27,6 +27,20 @@ export type RunReportPath = {
   aborted?: boolean;
   written?: number;
   unchanged?: number;
+  // Detail entries the queue uses to fill in type/state when the log line lacked them. Optional:
+  // an older report does not carry them.
+  // 名单用来补齐类型/状态的明细；旧报表没有这些字段，因此可选。
+  unresolvedItems?: ReviewDetail[];
+  failedItems?: ReviewDetail[];
+  skippedItems?: ReviewDetail[];
+};
+
+export type ReviewDetail = {
+  title?: string;
+  url?: string;
+  reason?: string;
+  category?: string;
+  shelf?: string;
 };
 
 export type RunReport = { version: number; paths: RunReportPath[] };
@@ -48,6 +62,10 @@ export type ReviewItem = {
   title: string;
   url: string;
   id: string;
+  // Normalised vocabulary; a parsed line always carries a fallback (`other` / `unknown`).
+  // 收敛后的词汇；解析出的条目总会有兜底值（`other` / `unknown`）。
+  category?: string;
+  shelf?: string;
   firstSeenAt?: string;
   lastSeenAt?: string;
   missedRuns?: number;

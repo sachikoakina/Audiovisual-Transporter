@@ -32,6 +32,11 @@ import {
   syncConfig,
   unmatchedLogFile,
 } from '../sync-config';
+import {
+  normalizeReviewCategory,
+  normalizeReviewShelf,
+  reviewMetaSuffix,
+} from '../rules/review-vocab';
 import { printPathSummary } from '../sync-report';
 import { PathAbortedError, failureReason, readOptionalOrThrow } from '../read-guards';
 import { itemLabel, upsertReviewEntry } from '../utils';
@@ -80,6 +85,8 @@ export default async function syncDoubanToNeodb(
         title: item.title || item.id,
         url: item.link,
         reason: 'category-not-allowed',
+        category: normalizeReviewCategory(item.category),
+        shelf: normalizeReviewShelf(item.status),
       });
     },
   );
@@ -162,6 +169,13 @@ function recordOutcome(
   if (outcome === 'unresolved') {
     const title = item.title || item.id;
     report.unresolvedTitles.push(title);
+    report.unresolvedItems.push({
+      title,
+      url: item.link,
+      reason: 'no-neodb-match',
+      category: normalizeReviewCategory(item.category),
+      shelf: normalizeReviewShelf(item.status),
+    });
 
     // Written to the same review log the other three paths use. Without it this path's data gaps
     // existed only in a summary that a CI run throws away — the review list reads logs, and
@@ -196,12 +210,16 @@ function recordOutcome(
       title: item.title || item.id,
       url: item.link,
       reason: 'neodb-mark-rejected',
+      category: normalizeReviewCategory(item.category),
+      shelf: normalizeReviewShelf(item.status),
     });
   } else if (outcome === 'skipped') {
     report.skippedItems.push({
       title: item.title || item.id,
       url: item.link,
       reason: 'guard-target-status',
+      category: normalizeReviewCategory(item.category),
+      shelf: normalizeReviewShelf(item.status),
     });
   }
 }
@@ -234,7 +252,10 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
     // NeoDB 目录里没有对应条目。这是数据缺口而非错误 —— 不应让 CI 变红。
     // 每条打一行，形状与 ③ 的 `No Bangumi match, skip:`、⑤ 的 `No TMDB match; skip` 一致：
     // 待核对名单正是从这些行里长出来的，只计数不点名的链路，条目会整个从名单里消失。
-    consola.warn('No NeoDB match, skip: ', itemLabel(item.title || item.id, item.link));
+    consola.warn(
+      'No NeoDB match, skip: ',
+      `${itemLabel(item.title || item.id, item.link)} ${reviewMetaSuffix(item.category, item.status)}`,
+    );
     return 'unresolved';
   }
 

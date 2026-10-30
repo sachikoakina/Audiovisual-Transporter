@@ -56,6 +56,11 @@ import {
 } from '../clients/bangumi';
 import { neodbThrottle } from '../clients/neodb-http';
 import { doubanStarsToTenPoint } from '../rules/douban';
+import {
+  normalizeReviewCategory,
+  normalizeReviewShelf,
+  reviewMetaSuffix,
+} from '../rules/review-vocab';
 import { extractNeodbYear } from '../rules/tmdb-mapping';
 import {
   filterDoubanFeedsByCategory,
@@ -131,6 +136,8 @@ export default async function syncDoubanToBangumi(
         title: item.title || item.id,
         url: item.link,
         reason: 'category-not-allowed',
+        category: normalizeReviewCategory(item.category),
+        shelf: normalizeReviewShelf(item.status),
       });
     },
   );
@@ -169,12 +176,16 @@ export default async function syncDoubanToBangumi(
           title: item.title || item.id,
           url: item.link,
           reason: 'guard-bangumi-status',
+          category: normalizeReviewCategory(item.category),
+          shelf: normalizeReviewShelf(item.status),
         });
       } else if (outcome === 'failed') {
         report.failedItems.push({
           title: item.title || item.id,
           url: item.link,
           reason: 'bangumi-write-rejected',
+          category: normalizeReviewCategory(item.category),
+          shelf: normalizeReviewShelf(item.status),
         });
       }
     } catch (error) {
@@ -197,6 +208,8 @@ export default async function syncDoubanToBangumi(
         title: item.title || item.id,
         url: item.link,
         reason: failureReason(error, 'bangumi-read-failed', 'bangumi-item-threw'),
+        category: normalizeReviewCategory(item.category),
+        shelf: normalizeReviewShelf(item.status),
       });
       // Deliberately not `Item failed, continuing:` — that sentence is how the review list
       // recognises Bangumi → NeoDB, and it routes on that string alone.
@@ -226,7 +239,15 @@ export default async function syncDoubanToBangumi(
  * 链路此前从未填充它；同时 notice 指向的留档日志也从未被本链路写过。
  */
 function recordUnresolved(item: FeedItem, report: PathReport): void {
-  report.unresolvedTitles.push(item.title || item.id);
+  const title = item.title || item.id;
+  report.unresolvedTitles.push(title);
+  report.unresolvedItems.push({
+    title,
+    url: item.link,
+    reason: 'no-bangumi-match',
+    category: normalizeReviewCategory(item.category),
+    shelf: normalizeReviewShelf(item.status),
+  });
 
   const written = upsertReviewEntry(unmatchedLogFile, {
     source: 'douban→bangumi',
@@ -267,7 +288,10 @@ async function syncFeedItemToBangumi(
   const subjectId = await resolveBangumiSubjectId(item, neodbItem, years);
 
   if (!subjectId) {
-    consola.warn('No Bangumi match, skip: ', label);
+    consola.warn(
+      'No Bangumi match, skip: ',
+      `${label} ${reviewMetaSuffix(item.category, item.status)}`,
+    );
     return 'unresolved';
   }
 

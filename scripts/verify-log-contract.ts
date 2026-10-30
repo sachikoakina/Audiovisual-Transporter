@@ -168,4 +168,29 @@ for (const sentinel of SENTINELS) {
   check(`something in src/ still prints "${sentinel.trim()}"`, inSrc);
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+section('Metadata suffix / 元数据后缀');
+
+// The queue reads `{category|shelf}` from the line; the five paths must print it. Without this,
+// a renamed helper silently drops every entry back to `other` / `unknown`.
+// 名单从行里读 `{category|shelf}`，五条链路必须打印它。缺了这条检查，一次改名就会让所有条目静默
+// 退回 `other` / `unknown`。
+// ① has no per-item unresolved line (its data gaps are configuration, not a missing catalogue
+// entry), so it has no suffix to print. The other four do.
+// ① 没有逐条未匹配行（它的缺口是配置，而不是目录里没有条目），因此没有后缀可打；其余四条有。
+for (const [source, file] of Object.entries(PATH_FILES)) {
+  if (source === 'douban→notion') {
+    continue;
+  }
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  check(
+    `${source} prints the {category|shelf} suffix`,
+    text.includes('reviewMetaSuffix'),
+  );
+}
+check(
+  'the queue parses the suffix before splitting the label',
+  queueSource.includes('META_PATTERN') && queueSource.includes('splitMeta('),
+);
+
 summary();

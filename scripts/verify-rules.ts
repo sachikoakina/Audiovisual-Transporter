@@ -43,6 +43,11 @@ import {
   resolveBangumiCollectionWrite,
 } from '../src/rules/bangumi-neodb';
 import { mergeNeodbMark } from '../src/rules/neodb-mark-merge';
+import {
+  normalizeReviewCategory,
+  normalizeReviewShelf,
+  reviewMetaSuffix,
+} from '../src/rules/review-vocab';
 import { classifyReadFailure } from '../src/rules/read-result';
 import { extractItemInfo } from '../src/clients/douban-rss';
 import {
@@ -1095,5 +1100,48 @@ check(
 );
 
 // ───────────────────────────────────────────────────────────────────────────
+
+// ───────────────────────────────────────────────────────────────────────────
+// Review vocabulary
+// 名单词汇
+// ───────────────────────────────────────────────────────────────────────────
+
+section('Review vocabulary / 名单词汇');
+
+check(
+  'Bangumi subject types map to book / anime / music / game / tv',
+  normalizeReviewCategory(1) === 'book' &&
+    normalizeReviewCategory(2) === 'anime' &&
+    normalizeReviewCategory(3) === 'music' &&
+    normalizeReviewCategory(4) === 'game' &&
+    normalizeReviewCategory(6) === 'tv',
+);
+check(
+  'Douban drama becomes performance, not a fourth kind of movie',
+  normalizeReviewCategory('drama') === 'performance',
+);
+check(
+  'an unknown category falls back to other instead of dropping the entry',
+  normalizeReviewCategory('something-new') === 'other' &&
+    normalizeReviewCategory(undefined) === 'other',
+);
+check(
+  'Bangumi collection types map to wishlist / complete / progress / on_hold / dropped',
+  normalizeReviewShelf(1) === 'wishlist' &&
+    normalizeReviewShelf(2) === 'complete' &&
+    normalizeReviewShelf(3) === 'progress' &&
+    normalizeReviewShelf(4) === 'on_hold' &&
+    normalizeReviewShelf(5) === 'dropped',
+);
+check(
+  'an unknown shelf falls back to unknown',
+  normalizeReviewShelf('watched') === 'unknown' &&
+    normalizeReviewShelf(undefined) === 'unknown',
+);
+check(
+  'the log suffix is `{category|shelf}`',
+  reviewMetaSuffix('book', 'wishlist') === '{book|wishlist}' &&
+    reviewMetaSuffix('???', '???') === '{other|unknown}',
+);
 
 summary();

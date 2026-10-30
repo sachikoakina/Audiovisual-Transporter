@@ -452,6 +452,20 @@ export type ReviewDetail = {
    * 为什么被计入，用与磁盘留档日志同一套 slug，使日志行与 JSON 记录可以用同一次 grep 对上。
    */
   reason: string;
+  /**
+   * Item type, normalised to the review vocabulary (`movie` / `tv` / `book` …). Optional because
+   * an entry can be created without one — a summary-level failure, or an older report. The queue
+   * folds a missing value into `other` rather than dropping the entry.
+   * 条目类型，已收敛到名单词汇。可缺省：汇总级失败或旧报表本来就没有类型；名单会把它归入
+   * `other`，而不是丢掉条目。
+   */
+  category?: string;
+  /**
+   * The user's state on the source, normalised to `wishlist` / `progress` / `complete` /
+   * `on_hold` / `dropped`. Optional for the same reason as `category`; missing becomes `unknown`.
+   * 源端的用户状态，已收敛到固定词汇。与 `category` 同理可缺省；缺失时归入 `unknown`。
+   */
+  shelf?: string;
 };
 
 /**
@@ -520,6 +534,14 @@ export type PathReport = {
   /** Titles needing a human look, in encounter order. */
   unresolvedTitles: string[];
   /**
+   * The same unresolved entries as data, with link, reason, type and state. `unresolvedTitles`
+   * stays for the console listing; this is what the review queue groups by. A path that can only
+   * name a title leaves the other fields empty rather than inventing them.
+   * 与 `unresolvedTitles` 同一批条目，但带链接、reason、类型与状态。`unresolvedTitles` 保留给
+   * 控制台清单；这里才是名单分组用的数据。只能点名的链路会让其余字段留空，而不是编造。
+   */
+  unresolvedItems: ReviewDetail[];
+  /**
    * One entry per `failed`, in encounter order. Same length as `failed` — if a path cannot name
    * what it counted, it must not invent a name, and the listing will report the shortfall.
    * 与 `failed` 一一对应、按出现顺序排列。长度等于 `failed`；若某条链路无法点名，就不许编造
@@ -550,6 +572,7 @@ export function newPathReport(label: string): PathReport {
     dryRun: false,
     tolerated: false,
     unresolvedTitles: [],
+    unresolvedItems: [],
     failedItems: [],
     skippedItems: [],
     reviewLog: '',

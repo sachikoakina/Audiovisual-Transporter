@@ -38,6 +38,11 @@ import {
   resolveTmdbOperations,
   toShelfType,
 } from '../rules/tmdb-mapping';
+import {
+  normalizeReviewCategory,
+  normalizeReviewShelf,
+  reviewMetaSuffix,
+} from '../rules/review-vocab';
 import { pickExactTmdbMatch } from '../rules/tmdb-matching';
 import {
   neodbTmdbConfig,
@@ -140,6 +145,13 @@ type SyncContext = {
   capped: boolean;
   /** Labels of unmatched items, in encounter order, for the closing listing. */
   unmatchedTitles: string[];
+  /**
+   * The same unresolved entries as data, with the NeoDB link, type and shelf. The console listing
+   * only needs labels; the review queue needs the rest to group by type and state.
+   * 与 `unmatchedTitles` 同一批条目，但带 NeoDB 链接、类型与书架。控制台清单只需要标签；名单要靠
+   * 其余字段按类型与状态分组。
+   */
+  unmatchedItems: ReviewDetail[];
   /**
    * Detail behind `counters.failed` / `counters.skipped`, in encounter order.
    *
@@ -246,6 +258,7 @@ export default async function runNeodbToTmdb(
     itemYearsDirty: false,
     capped: false,
     unmatchedTitles: [],
+    unmatchedItems: [],
     failedItems: [],
     skippedItems: [],
     reviewLogWritten: false,
@@ -307,6 +320,7 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   // 排序让同一次遍历产出字节稳定的报告：artifact 可对比，覆盖范围的变化才是真的变化，而不是顺序抖动。
   report.scannedIds = [...ctx.scanned].sort();
   report.unresolvedTitles = [...ctx.unmatchedTitles];
+  report.unresolvedItems = [...ctx.unmatchedItems];
   report.failedItems = [...ctx.failedItems];
   report.skippedItems = [...ctx.skippedItems];
   // `unmatched > 0` alone would claim the log even when every write failed; the flag is set by
@@ -373,13 +387,15 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
             mark.item?.title ||
             mark.item?.uuid ||
             '(unknown)',
-          url: '',
+          url: mark.item?.url ?? '',
           // `tmdb-` prefix, not a bare `item-threw`: ④ prints exactly the same prefix and reason,
           // so a bare slug made every failure here get filed under Bangumi → NeoDB. The prefix is
           // what lets a single-line rule tell the two paths apart.
           // 前缀 `tmdb-` 而不是裸 `item-threw`：④ 打的是同一个前缀、同一个 reason，裸 slug 会让
           // 这里的每一条失败都被记到 Bangumi → NeoDB 名下。前缀正是「一行规则区分两条链路」的依据。
           reason: `tmdb-item-threw: ${thrown}`,
+          category: normalizeReviewCategory(mark.item?.category),
+          shelf: normalizeReviewShelf(mark.shelf_type),
         });
         // Deliberately not "Item failed, continuing": ④ uses that wording, and the review list
         // routes by it.
@@ -405,13 +421,21 @@ async function syncMark(
   ctx.counters.scanned += 1;
   const item = mark.item;
   const label = item?.display_title || item?.title || item?.uuid || '(unknown)';
+  const itemCategory = normalizeReviewCategory(item?.category);
+  const itemShelf = normalizeReviewShelf(mark.shelf_type ?? expectedShelf);
 
   if (!item?.uuid) {
     ctx.counters.failed += 1;
     // The one `failed` this path can raise without a label: there is no catalogue item to name,
     // so the label falls back to whatever the mark still carries.
     // 本链路唯一一个「没有名字」的失败：根本没有目录条目可点，标签只能退回到标记本身剩下的字段。
-    ctx.failedItems.push({ title: label, url: '', reason: 'no-catalog-item' });
+    ctx.failedItems.push({
+      title: label,
+      url: '',
+      reason: 'no-catalog-item',
+      category: itemCategory,
+      shelf: itemShelf,
+    });
     consola.warn('Mark without a catalog item; skipping.');
     return;
   }
@@ -435,7 +459,13 @@ async function syncMark(
     // 防御性兜底：当前每种书架状态都有映射（`dropped` 现在与 `progress` 一样加入 watchlist），
     // 实际运行不应走到这里。保留它是为了将来出现 TMDB 装不下的书架状态时仍能点名，而不是
     // 无声地消失在 `skipped` 里。
-    ctx.skippedItems.push({ title: label, url: '', reason: 'shelf-not-mapped' });
+    ctx.skippedItems.push({
+      title: label,
+      url: item.url,
+      reason: 'shelf-not-mapped',
+      category: itemCategory,
+      shelf: itemShelf,
+    });
     consola.debug(`${label}: ${plan.reason}`);
     return;
   }
@@ -446,8 +476,10 @@ async function syncMark(
     ctx.counters.skippedCategory += 1;
     ctx.skippedItems.push({
       title: label,
-      url: '',
+      url: item.url,
       reason: `no-tmdb-category: ${category}`,
+      category: itemCategory,
+      shelf: itemShelf,
     });
     consola.debug(`Category "${category}" has no TMDB counterpart; skip ${label}.`);
     return;
@@ -458,8 +490,10 @@ async function syncMark(
     ctx.counters.skippedCategory += 1;
     ctx.skippedItems.push({
       title: label,
-      url: '',
+      url: item.url,
       reason: `unmapped-category: ${category || '(empty)'}`,
+      category: itemCategory,
+      shelf: itemShelf,
     });
     consola.debug(`Unknown category "${category}"; skip ${label}.`);
     return;
@@ -477,8 +511,10 @@ async function syncMark(
     // 行折叠也正是为此（见 `rules/review-detail.ts`）。
     ctx.skippedItems.push({
       title: label,
-      url: '',
+      url: item.url,
       reason: 'unchanged-since-last-run',
+      category: itemCategory,
+      shelf: itemShelf,
     });
     consola.debug(`Unchanged since last run; skip ${label}.`);
     return;
@@ -495,12 +531,21 @@ async function syncMark(
   if (!resolution.target) {
     ctx.counters.unmatched += 1;
     ctx.unmatchedTitles.push(label);
-    // The wording stays exactly as it was: `scripts/review-queue.mjs` collects the review list by
-    // matching this prefix, and the log contract locks it. The distinction between "nothing matched"
-    // and "not even searched" lives in the archive's `reason` and in the debug line below.
-    // 文案一个字都不改：`scripts/review-queue.mjs` 靠这个前缀采名单，日志契约也锁着它。
-    // 「没匹配到」与「根本没搜」的区别放在留档的 `reason` 和下面的 debug 行里。
-    consola.warn(`No TMDB match; skip ${label}.`);
+    ctx.unmatchedItems.push({
+      title: label,
+      url: item.url,
+      reason: resolution.reason,
+      category: normalizeReviewCategory(category),
+      shelf: normalizeReviewShelf(shelfType),
+    });
+    // The prefix is locked by `scripts/review-queue.mjs` and `verify-log-contract`. The link and
+    // the `{category|shelf}` suffix are appended after it: the list groups by both, and ⑤ used to
+    // print a title with no address at all.
+    // 前缀被名单解析器与日志契约锁住；链接与 `{category|shelf}` 后缀追加在其后 —— 名单要按这两
+    // 者分组，而 ⑤ 过去只打标题、连地址都没有。
+    consola.warn(
+      `No TMDB match; skip ${label}[${item.url}] ${reviewMetaSuffix(category, shelfType)}.`,
+    );
     if (resolution.reason !== 'no-tmdb-match') {
       consola.debug(
         `  ${label}: ${resolution.reason} — title search was not attempted.`,
@@ -537,8 +582,10 @@ async function syncMark(
     // `skipped` 总数里不出现无法解释的条目。
     ctx.skippedItems.push({
       title: label,
-      url: '',
+      url: item.url,
       reason: `duplicate-in-run: ${identity}`,
+      category: itemCategory,
+      shelf: itemShelf,
     });
     return;
   }
@@ -562,7 +609,11 @@ async function syncMark(
     return;
   }
 
-  const ok = await applyPatch(target, patch, ctx, label);
+  const ok = await applyPatch(target, patch, ctx, label, {
+    url: item.url,
+    category: itemCategory,
+    shelf: itemShelf,
+  });
   if (ok) {
     recordSynced(ctx, cacheKey, fingerprint);
   }
@@ -589,6 +640,7 @@ async function applyPatch(
   patch: TmdbPatch,
   ctx: SyncContext,
   label: string,
+  meta: { url: string; category: string; shelf: string },
 ): Promise<boolean> {
   if (neodbTmdbConfig.dryRun) {
     for (const reason of patch.reasons) {
@@ -635,8 +687,10 @@ async function applyPatch(
     ctx.counters.failed += 1;
     ctx.failedItems.push({
       title: label,
-      url: '',
+      url: meta.url,
       reason: `tmdb-write-failed: ${failedFields.join('+')}`,
+      category: meta.category,
+      shelf: meta.shelf,
     });
     consola.error(
       `TMDB rejected ${failedFields.join('+')} for ${label}; will retry next run.`,

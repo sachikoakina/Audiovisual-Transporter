@@ -64,6 +64,11 @@ import {
   upsertReviewEntry,
   writeFullSyncCursor,
 } from '../utils';
+import {
+  normalizeReviewCategory,
+  normalizeReviewShelf,
+  reviewMetaSuffix,
+} from '../rules/review-vocab';
 import { printPathSummary } from '../sync-report';
 import {
   PathAbortedError,
@@ -248,8 +253,10 @@ export default async function syncBangumiToNeodb(
               // 导入它会把一本非漫画书塞进漫画书架。
               report.skippedItems.push({
                 title: collectionTitle(collection),
-                url: '',
+                url: bangumiSubjectUrl(collection.subject_id),
                 reason: 'platform-mismatch',
+                category: normalizeReviewCategory(collection.subject_type),
+                shelf: normalizeReviewShelf(collection.type),
               });
               break;
             case 'unresolved':
@@ -283,8 +290,10 @@ export default async function syncBangumiToNeodb(
           const detail = error instanceof Error ? error.message : String(error);
           report.failedItems.push({
             title: collectionTitle(collection),
-            url: '',
+            url: bangumiSubjectUrl(collection.subject_id),
             reason: `item-threw: ${detail}`,
+            category: normalizeReviewCategory(collection.subject_type),
+            shelf: normalizeReviewShelf(collection.type),
           });
           consola.error(
             `Item failed, continuing: ${collectionTitle(collection)} —`,
@@ -348,6 +357,13 @@ function recordUnresolved(collection: BangumiCollection, report: PathReport): vo
   const title = collectionTitle(collection);
 
   report.unresolvedTitles.push(title);
+  report.unresolvedItems.push({
+    title,
+    url: bangumiSubjectUrl(collection.subject_id),
+    reason: 'neodb-unresolved',
+    category: normalizeReviewCategory(collection.subject_type),
+    shelf: normalizeReviewShelf(collection.type),
+  });
 
   const written = upsertReviewEntry(unmatchedLogFile, {
     source: 'bangumi→neodb',
@@ -401,7 +417,10 @@ async function syncCollectionToNeodb(
     // 标题在前、链接在后，而不是只打链接。名单必须能说出它在问哪一条，而光秃秃的
     // `bgm.tv/subject/N` 只是个地址 —— 读者只会看到一个认不出来的链接。`标题[链接]` 也正是
     // ②（`itemLabel`）与 ③ 已有的形状，一个 `splitLabel` 就能读这三条。
-    consola.warn('NeoDB could not resolve Bangumi URL, skip: ', itemLabel(title, url));
+    consola.warn(
+      'NeoDB could not resolve Bangumi URL, skip: ',
+      `${itemLabel(title, url)} ${reviewMetaSuffix(collection.subject_type, collection.type)}`,
+    );
     return 'unresolved';
   }
 

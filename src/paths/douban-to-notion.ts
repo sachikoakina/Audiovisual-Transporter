@@ -27,6 +27,7 @@ import {
   getDataSourceId,
   syncConfig,
 } from '../sync-config';
+import { normalizeReviewCategory, normalizeReviewShelf } from '../rules/review-vocab';
 import { printPathSummary } from '../sync-report';
 
 /**
@@ -96,6 +97,8 @@ export default async function syncDoubanToNotion(
         title: item.title || item.id,
         url: item.link,
         reason: 'category-not-allowed',
+        category: normalizeReviewCategory(item.category),
+        shelf: normalizeReviewShelf(item.status),
       });
     },
   );
@@ -171,6 +174,8 @@ export default async function syncDoubanToNotion(
           title: feed.title ?? '',
           url: feed.link,
           reason: `notion-category-failed: ${detail}`,
+          category: normalizeReviewCategory(feed.category),
+          shelf: normalizeReviewShelf(feed.status),
         });
       }
     }

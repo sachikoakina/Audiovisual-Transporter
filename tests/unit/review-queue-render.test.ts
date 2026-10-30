@@ -1,23 +1,12 @@
 /**
- * The shape of the review list itself — how `本轮新增`, `本轮移除` and `观察中` are laid out.
- * 待核对名单自身的形状 —— 「本轮新增」「本轮移除」「观察中」怎么排。
+ * The shape of the review list: result → item type → user state.
+ * 待核对名单的形状：结果 → 条目类型 → 用户状态。
  *
- * Three claims are pinned here, because each of them was wrong or unverifiable before:
- * 这里钉住三件事，因为此前它们要么是错的，要么无从验证：
- *
- *   1. `本轮新增` and `本轮移除` are the *same* structure: a path heading per group, in ①→⑤ order.
- *      They used to be flat lists that only mentioned the path in a trailing bracket, so a long
- *      run read as one undifferentiated pile and the two sections described themselves differently.
- *      「本轮新增」与「本轮移除」是**同一个**结构：每组一个链路标题，按 ①→⑤ 排列。它们原先是不
- *      分组的平铺列表，链路只塞在行尾括号里 —— 一轮跑下来就是一堆分不清的条目，而且两节各自描述
- *      自己的方式还不一样。
- *   2. Every entry names its item before it prints the link. ④ printed only a `bgm.tv` URL, so its
- *      entries reached the list as an address nobody could recognise; the log line now carries
- *      `标题[链接]` and the parser still accepts the older bare-URL form.
- *      每个条目都先说名字、再说链接。④ 原先只打一个 `bgm.tv` 地址，于是它的条目进名单时是个谁也
- *      认不出的链接；现在日志行带 `标题[链接]`，而解析器仍接受更早的裸 URL 形态。
- *   3. An entry waiting out its observation window shows up once, under `观察中` — not also under
- *      `本轮新增`. 还在观察期里的条目只出现一次，在「观察中」下 —— 不再同时出现在「本轮新增」。
+ * The claims pinned here are the ones a future refactor can silently break: the heading levels,
+ * the group order, the fallback buckets, and the fact that an entry keeps its link, reason, age
+ * and path no matter which group it lands in.
+ * 这里钉住的是将来重构容易悄悄弄坏的东西：标题层级、分组顺序、兜底分组，以及条目无论落到哪一组
+ * 都保留链接、reason、已存在天数与链路。
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,7 +16,6 @@ import { parseLogs, render, type ReviewItem } from '../../scripts/review-queue.m
 
 const RUN_AT = '2026-10-26T08:00:00.000Z';
 
-/** One entry as `state.json` would carry it: listed already, unless overridden. / 一条按 `state.json` 形状的条目。 */
 function item(over: Partial<ReviewItem>): ReviewItem {
   return {
     key: 'key',
@@ -37,6 +25,8 @@ function item(over: Partial<ReviewItem>): ReviewItem {
     title: '无题',
     url: '',
     id: '',
+    category: 'movie',
+    shelf: 'wishlist',
     firstSeenAt: RUN_AT,
     lastSeenAt: RUN_AT,
     missedRuns: 0,
@@ -49,30 +39,31 @@ function renderText({
   items,
   added = [],
   removed = [],
-  degraded = '',
 }: {
   items: ReviewItem[];
   added?: ReviewItem[];
   removed?: ReviewItem[];
-  degraded?: string;
 }): string {
-  return render({ items, added, removed, degraded, runStartedAt: RUN_AT, runUrl: '' });
+  return render({
+    items,
+    added,
+    removed,
+    degraded: '',
+    runStartedAt: RUN_AT,
+    runUrl: '',
+  });
 }
 
-/** The body of one `## heading`, up to the next H2. / 取某个 H2 的正文，到下一个 H2 为止。 */
-function bodyOf(text: string, heading: string): string {
-  const start = text.indexOf(`## ${heading}`);
+/** The body under one heading, up to the next heading of the same or a higher level. */
+function section(text: string, heading: string): string {
+  const start = text.indexOf(`${heading}\n`);
   if (start < 0) {
     return '';
   }
-  const rest = text.slice(start + heading.length + 3);
-  const next = rest.indexOf('\n## ');
+  const level = (heading.match(/^#+/) ?? [''])[0].length;
+  const rest = text.slice(start + heading.length + 1).replace(/^\n+/, '');
+  const next = rest.search(new RegExp(`\\n#{1,${level}} `));
   return next < 0 ? rest : rest.slice(0, next);
-}
-
-/** Path headings in the order they appear, count suffix stripped. / 按出现顺序取链路标题，去掉计数。 */
-function pathHeadings(body: string): string[] {
-  return [...body.matchAll(/^### (.+?)（\d+）$/gm)].map((match) => match[1]);
 }
 
 const bangumiUnresolved = item({
@@ -81,86 +72,128 @@ const bangumiUnresolved = item({
   reason: 'neodb-unresolved',
   title: '狐妖小红娘13 黄风岭篇',
   url: 'https://bgm.tv/subject/391457',
-  id: 'bangumi:391457',
+  category: 'anime',
+  shelf: 'progress',
 });
 
-const bangumiMatch = item({
-  key: 'douban→bangumi::https://movie.douban.com/subject/1/',
+const doubanBook = item({
+  key: 'douban→bangumi::https://book.douban.com/subject/2/',
   source: 'douban→bangumi',
   reason: 'no-bangumi-match',
-  title: '四郎探母',
-  url: 'https://movie.douban.com/subject/1/',
+  title: '天仙配',
+  url: 'https://book.douban.com/subject/2/',
+  category: 'book',
+  shelf: 'wishlist',
 });
 
-const tmdbMatch = item({
-  key: 'neodb→tmdb::title:Medalist',
+const tmdbMovie = item({
+  key: 'neodb→tmdb::https://neodb.social/movie/1',
   title: 'Medalist (金牌得主 第二季)',
+  url: 'https://neodb.social/movie/1',
+  category: 'movie',
+  shelf: 'dropped',
 });
 
-describe('render — 本轮新增', () => {
-  it('groups by path in ①→⑤ order, whatever order the entries arrived in', () => {
-    const added = [tmdbMatch, bangumiMatch, bangumiUnresolved];
-    const text = renderText({ items: added, added });
-
-    expect(pathHeadings(bodyOf(text, '本轮新增'))).toEqual([
-      'Douban → Bangumi',
-      'Bangumi → NeoDB',
-      'NeoDB → TMDB',
-    ]);
-  });
-
-  it('prints the item name before the link, the way a reader can scan it', () => {
-    const text = renderText({ items: [bangumiUnresolved], added: [bangumiUnresolved] });
-
-    expect(text).toContain(
-      '- `unresolved` 狐妖小红娘13 黄风岭篇 — https://bgm.tv/subject/391457 · neodb-unresolved',
-    );
-  });
-
-  it('counts the entries it actually printed', () => {
-    const text = renderText({
-      items: [bangumiMatch, tmdbMatch],
-      added: [bangumiMatch, tmdbMatch],
+describe('render — 结果作为一级标题', () => {
+  it('emits one H1 per result, in unresolved → failed → skipped order, with counts', () => {
+    const failed = item({
+      kind: 'failed',
+      reason: 'tmdb-item-threw',
+      category: 'tv',
+      shelf: 'complete',
     });
+    const text = renderText({ items: [tmdbMovie, failed, doubanBook] });
 
-    expect(text).toContain('新增 **2**');
-    expect(bodyOf(text, '本轮新增')).toContain('### Douban → Bangumi（1）');
+    expect(text).toContain('# unresolved（2）');
+    expect(text).toContain('# failed（1）');
+    expect(text.indexOf('# unresolved')).toBeLessThan(text.indexOf('# failed'));
+  });
+
+  it('does not use a heading for the list title, so H1 means a result', () => {
+    const text = renderText({ items: [tmdbMovie] });
+
+    expect(text).toContain('**待核对名单（1 条）**');
+    expect(text).not.toContain('# 待核对名单');
   });
 });
 
-describe('render — 本轮移除', () => {
-  it('mirrors 本轮新增 exactly: same headings, same order, same line shape', () => {
-    const added = [tmdbMatch, bangumiMatch, bangumiUnresolved];
-    const removed = [bangumiUnresolved, tmdbMatch, bangumiMatch];
-    const text = renderText({ items: [], added, removed });
+describe('render — 类型与状态', () => {
+  it('groups by item type with Chinese labels, in the fixed order', () => {
+    const text = renderText({ items: [tmdbMovie, doubanBook, bangumiUnresolved] });
+    const body = section(text, '# unresolved（3）');
 
-    expect(pathHeadings(bodyOf(text, '本轮移除'))).toEqual(
-      pathHeadings(bodyOf(text, '本轮新增')),
+    expect(body).toContain('## 动画（1）');
+    expect(body).toContain('## 书籍（1）');
+    expect(body).toContain('## 电影（1）');
+    expect(body.indexOf('## 电影')).toBeLessThan(body.indexOf('## 动画'));
+    expect(body.indexOf('## 动画')).toBeLessThan(body.indexOf('## 书籍'));
+  });
+
+  it('groups by user state under each type, in the fixed order', () => {
+    const text = renderText({ items: [bangumiUnresolved] });
+    const body = section(text, '# unresolved（1）');
+
+    expect(body).toContain('### 在看（1）');
+    expect(body).toContain(
+      '- [ ] **1.** 狐妖小红娘13 黄风岭篇 — https://bgm.tv/subject/391457',
     );
   });
 
-  it('strikes the name but leaves the link clickable — a removal is a question, not a verdict', () => {
-    const text = renderText({ items: [], removed: [bangumiMatch] });
+  it('keeps link, reason, age and path on the item line', () => {
+    const text = renderText({ items: [bangumiUnresolved] });
 
+    expect(text).toContain('· neodb-unresolved · 已存在 0 天（Bangumi → NeoDB）');
+  });
+});
+
+describe('render — 缺失类型与状态', () => {
+  it('folds a missing type into 其他 and a missing state into 未知', () => {
+    const bare = item({ title: '无名', url: '', category: '', shelf: '' });
+    const text = renderText({ items: [bare] });
+
+    expect(text).toContain('## 其他（1）');
+    expect(text).toContain('### 未知（1）');
+  });
+
+  it('counts every entry exactly once across the three levels', () => {
+    const text = renderText({ items: [tmdbMovie, doubanBook, bangumiUnresolved] });
+    const counts = [...text.matchAll(/^## .+（(\d+)）$/gm)].map((m) => Number(m[1]));
+
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(3);
+  });
+});
+
+describe('render — 变化摘要块', () => {
+  it('uses a bold block, not headings, for 本轮新增', () => {
+    const text = renderText({ items: [doubanBook], added: [doubanBook] });
+
+    expect(text).toContain('**本轮新增（1）**');
+    expect(text).not.toContain('## 本轮新增');
     expect(text).toContain(
-      '- `unresolved` ~~四郎探母~~ — https://movie.douban.com/subject/1/ · no-bangumi-match',
+      '- `unresolved` 天仙配 — https://book.douban.com/subject/2/',
     );
   });
-});
 
-describe('render — 观察中', () => {
-  it('keeps an entry that is still inside its observation window out of 本轮新增', () => {
+  it('marks removals with a strikethrough and keeps the path', () => {
+    const text = renderText({ items: [], removed: [doubanBook] });
+
+    expect(text).toContain('**本轮移除（1，连续两轮被扫描到且未再出现）**');
+    expect(text).toContain('~~天仙配~~');
+    expect(text).toContain('（Douban → Bangumi）');
+  });
+
+  it('shows an entry still inside its observation window only under 观察中', () => {
     const observing = item({ kind: 'failed', reason: 'tmdb-item-threw', seenCount: 1 });
     const text = renderText({ items: [observing], added: [observing] });
 
     expect(text).toContain('新增 **0**');
-    expect(text).not.toContain('## 本轮新增');
-    expect(text).toContain('## 观察中（1，下一轮仍出现才入名单）');
+    expect(text).toContain('**观察中（1，下一轮仍出现才入名单）**');
+    expect(text).not.toContain('# failed');
     expect(text).toContain('- `failed` 无题 · tmdb-item-threw（NeoDB → TMDB）');
   });
 });
 
-describe('parseLogs — ④ names its items', () => {
+describe('parseLogs — 类型与状态', () => {
   const dirs: string[] = [];
 
   afterEach(() => {
@@ -176,31 +209,42 @@ describe('parseLogs — ④ names its items', () => {
     return parseLogs(dir).items;
   }
 
-  it('reads `标题[链接]`, so the entry arrives with a name and an id', () => {
+  it('reads the {category|shelf} suffix from a ③ line', () => {
     const [entry] = parse(
-      '[warn] NeoDB could not resolve Bangumi URL, skip: 狐妖小红娘13 黄风岭篇[https://bgm.tv/subject/391457]\n',
+      '[warn] No Bangumi match, skip: 天仙配[https://book.douban.com/subject/2/] {book|wishlist}\n',
     );
 
     expect(entry).toMatchObject({
-      source: 'bangumi→neodb',
-      reason: 'neodb-unresolved',
-      title: '狐妖小红娘13 黄风岭篇',
-      url: 'https://bgm.tv/subject/391457',
-      id: 'bangumi:391457',
+      source: 'douban→bangumi',
+      title: '天仙配',
+      url: 'https://book.douban.com/subject/2/',
+      category: 'book',
+      shelf: 'wishlist',
     });
   });
 
-  it('still accepts an older log that printed the bare URL', () => {
+  it('reads the ⑤ link and suffix', () => {
     const [entry] = parse(
-      '[warn] NeoDB could not resolve Bangumi URL, skip: https://bgm.tv/subject/999\n',
+      '[warn] No TMDB match; skip Medalist[https://neodb.social/movie/1] {movie|dropped}.\n',
     );
 
     expect(entry).toMatchObject({
-      url: 'https://bgm.tv/subject/999',
-      id: 'bangumi:999',
-      // Degraded rather than dropped: the entry is still worth showing, it just needs a look.
-      // 退化而不是丢弃：条目仍值得列出，只是需要点开看。
-      title: 'https://bgm.tv/subject/999',
+      source: 'neodb→tmdb',
+      title: 'Medalist',
+      url: 'https://neodb.social/movie/1',
+      category: 'movie',
+      shelf: 'dropped',
+    });
+  });
+
+  it('still accepts an older line with neither suffix nor link', () => {
+    const [entry] = parse('[warn] No TMDB match; skip Medalist.\n');
+
+    expect(entry).toMatchObject({
+      title: 'Medalist',
+      url: '',
+      category: 'other',
+      shelf: 'unknown',
     });
   });
 });

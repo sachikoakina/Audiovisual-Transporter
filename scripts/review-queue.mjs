@@ -43,6 +43,86 @@ const MISSES_BEFORE_REMOVAL = 2;
 
 const KIND_ORDER = ['unresolved', 'failed', 'skipped'];
 
+/** Item-type order and display names. Mirrors `src/rules/review-vocab.ts`. / 类型顺序与显示名，与词汇模块一致。 */
+const CATEGORY_ORDER = [
+  'movie',
+  'tv',
+  'anime',
+  'book',
+  'music',
+  'game',
+  'podcast',
+  'performance',
+  'other',
+];
+const CATEGORY_LABELS = new Map([
+  ['movie', '电影'],
+  ['tv', '电视剧'],
+  ['anime', '动画'],
+  ['book', '书籍'],
+  ['music', '音乐'],
+  ['game', '游戏'],
+  ['podcast', '播客'],
+  ['performance', '演出'],
+  ['other', '其他'],
+]);
+
+/** User-state order and display names; `unknown` is the fallback group. / 用户状态顺序与显示名；`unknown` 是兜底分组。 */
+const SHELF_ORDER = [
+  'wishlist',
+  'progress',
+  'complete',
+  'on_hold',
+  'dropped',
+  'unknown',
+];
+const SHELF_LABELS = new Map([
+  ['wishlist', '想看'],
+  ['progress', '在看'],
+  ['complete', '看过'],
+  ['on_hold', '搁置'],
+  ['dropped', '抛弃'],
+  ['unknown', '未知'],
+]);
+
+/**
+ * Trailing `{category|shelf}` on a per-item log line. Curly braces keep it apart from the
+ * `标题[链接]` shape; a line from an older run has none and falls back to `other` / `unknown`.
+ * 逐条日志行末尾的 `{category|shelf}`。花括号使它不与 `标题[链接]` 混淆；旧日志没有它，回落到
+ * `other` / `unknown`。
+ */
+const META_PATTERN = /\s*\{([a-z]+)\|([a-z_]+)\}\s*\.?$/;
+
+function splitMeta(text) {
+  const match = META_PATTERN.exec(text);
+  if (!match) {
+    return { text: text.trim(), category: '', shelf: '' };
+  }
+  return {
+    text: text.slice(0, match.index).trim(),
+    category: match[1],
+    shelf: match[2],
+  };
+}
+
+function normalizeCategory(value) {
+  const key = String(value || '').toLowerCase();
+  return CATEGORY_ORDER.includes(key) ? key : 'other';
+}
+
+function normalizeShelf(value) {
+  const key = String(value || '').toLowerCase();
+  return SHELF_ORDER.includes(key) ? key : 'unknown';
+}
+
+const compareCategory = (a, b) =>
+  CATEGORY_ORDER.indexOf(normalizeCategory(a)) -
+    CATEGORY_ORDER.indexOf(normalizeCategory(b)) || byText(a, b);
+
+const compareShelf = (a, b) =>
+  SHELF_ORDER.indexOf(normalizeShelf(a)) - SHELF_ORDER.indexOf(normalizeShelf(b)) ||
+  byText(a, b);
+
 /**
  * Path slug → display name. The keys are exactly the five literals passed to `add()`
  * (arrow U+2192, no spaces); the values are byte-identical to the `LABEL` constants in
@@ -67,8 +147,6 @@ const SOURCE_LABELS = new Map([
   ['bangumi→neodb', 'Bangumi → NeoDB'],
   ['neodb→tmdb', 'NeoDB → TMDB'],
 ]);
-
-const SOURCE_ORDER = [...SOURCE_LABELS.keys()];
 
 /**
  * Display label → path slug. `PathReport.label` and `SOURCE_LABELS` carry byte-identical strings
@@ -222,7 +300,7 @@ export function parseLogs(logsDir) {
   let unattributable = 0;
   let sawPathSummary = false;
 
-  const add = (kind, source, reason, { url, id, title }) => {
+  const add = (kind, source, reason, { url, id, title, category, shelf }) => {
     const cleanTitle = (title || '').trim();
     if (!cleanTitle && !url && !id) {
       unattributable += 1;
@@ -245,6 +323,8 @@ export function parseLogs(logsDir) {
       title: cleanTitle || url || id,
       url: url || '',
       id: id || '',
+      category: normalizeCategory(category),
+      shelf: normalizeShelf(shelf),
     });
   };
 
@@ -282,10 +362,15 @@ export function parseLogs(logsDir) {
       // ── ⑤ NeoDB → TMDB ────────────────────────────────────────────────
       const noMatch = line.indexOf('No TMDB match; skip ');
       if (noMatch >= 0) {
-        const title = line
-          .slice(noMatch + 'No TMDB match; skip '.length)
-          .replace(/\.$/, '');
-        add('unresolved', 'neodb→tmdb', 'no-tmdb-match', { title });
+        const raw = line.slice(noMatch + 'No TMDB match; skip '.length);
+        const { text, category, shelf } = splitMeta(raw);
+        const label = splitLabel(text);
+        add('unresolved', 'neodb→tmdb', 'no-tmdb-match', {
+          url: label ? label.url : '',
+          title: label ? label.title : text.replace(/\.$/, '').trim(),
+          category,
+          shelf,
+        });
         continue;
       }
       if (line.includes('Mark without a catalog item')) {
@@ -308,10 +393,15 @@ export function parseLogs(logsDir) {
       // ── ③ Douban → Bangumi ────────────────────────────────────────────
       const noBangumi = line.indexOf('No Bangumi match, skip: ');
       if (noBangumi >= 0) {
-        const label = splitLabel(
+        const { text, category, shelf } = splitMeta(
           line.slice(noBangumi + 'No Bangumi match, skip: '.length),
         );
-        add('unresolved', 'douban→bangumi', 'no-bangumi-match', label || { title: '' });
+        const label = splitLabel(text);
+        add('unresolved', 'douban→bangumi', 'no-bangumi-match', {
+          ...(label || { title: text.trim() }),
+          category,
+          shelf,
+        });
         continue;
       }
       if (line.includes('Bangumi has Douban-absent status')) {
@@ -333,14 +423,16 @@ export function parseLogs(logsDir) {
       // 成用 URL 当名字 —— 条目仍值得列出，只是没法一眼认出来。
       const noNeodb = line.indexOf('NeoDB could not resolve Bangumi URL, skip: ');
       if (noNeodb >= 0) {
-        const raw = line
-          .slice(noNeodb + 'NeoDB could not resolve Bangumi URL, skip: '.length)
-          .trim();
-        const label = splitLabel(raw);
+        const { text, category, shelf } = splitMeta(
+          line.slice(noNeodb + 'NeoDB could not resolve Bangumi URL, skip: '.length),
+        );
+        const label = splitLabel(text);
         add('unresolved', 'bangumi→neodb', 'neodb-unresolved', {
-          url: label ? label.url : raw,
-          id: bangumiSubjectId(label ? label.url : raw),
+          url: label ? label.url : text,
+          id: bangumiSubjectId(label ? label.url : text),
           title: label ? label.title : '',
+          category,
+          shelf,
         });
         continue;
       }
@@ -361,10 +453,15 @@ export function parseLogs(logsDir) {
       // 什么都不打，因此即使摘要已经开始点名，它的数据缺口也从未进过名单。
       const noNeodbMatch = line.indexOf('No NeoDB match, skip: ');
       if (noNeodbMatch >= 0) {
-        const label = splitLabel(
+        const { text, category, shelf } = splitMeta(
           line.slice(noNeodbMatch + 'No NeoDB match, skip: '.length),
         );
-        add('unresolved', 'douban→neodb', 'no-neodb-match', label || { title: '' });
+        const label = splitLabel(text);
+        add('unresolved', 'douban→neodb', 'no-neodb-match', {
+          ...(label || { title: text.trim() }),
+          category,
+          shelf,
+        });
         continue;
       }
       const absentStatus = line.indexOf(
@@ -561,6 +658,11 @@ export function merge(previous, observed, runStartedAt, coverage = null) {
       items.push({
         ...entry,
         ...seen,
+        // A log line without the `{category|shelf}` suffix must not erase what an earlier run
+        // recorded; only a real value overwrites.
+        // 没有 `{category|shelf}` 后缀的日志行不得抹掉上一轮记下的值；只有真实值才覆盖。
+        category: seen.category || entry.category,
+        shelf: seen.shelf || entry.shelf,
         firstSeenAt: entry.firstSeenAt,
         lastSeenAt: runStartedAt,
         missedRuns: 0,
@@ -641,12 +743,6 @@ function sourceLabel(source) {
   return SOURCE_LABELS.get(source) ?? source;
 }
 
-/** Position in the ①→⑤ order. Unknown slugs rank after every known one. / ①→⑤ 的位次；未知 slug 排在最后。 */
-function sourceRank(source) {
-  const rank = SOURCE_ORDER.indexOf(source);
-  return rank === -1 ? SOURCE_ORDER.length : rank;
-}
-
 /** Deterministic tie-break: never `localeCompare`, whose order depends on the runner's ICU. / 确定性兜底比较，不用受 ICU 影响的 `localeCompare`。 */
 function byText(a, b) {
   if (a === b) {
@@ -654,9 +750,6 @@ function byText(a, b) {
   }
   return a < b ? -1 : 1;
 }
-
-const compareSource = (a, b) =>
-  sourceRank(a) - sourceRank(b) || byText(String(a), String(b));
 
 const compareKind = (a, b) => {
   const rank = (kind) => {
@@ -692,42 +785,6 @@ function diffLine(item, { strike = false } = {}) {
   return `- \`${item.kind}\` ${name}${link} · ${item.reason}`;
 }
 
-/**
- * Emit a section body grouped by path: `### 链路（N）` in ①→⑤ order, entries in arrival order.
- *
- * `本轮新增` and `本轮移除` share this, so the two sections cannot drift apart: same heading level,
- * same grouping rule, same item line. Learning where a path heading sits in one of them is enough
- * to find it in the other.
- * 按链路分组输出一节正文：`### 链路（N）` 按 ①→⑤ 顺序，条目保持到达顺序。
- *
- * `本轮新增` 与 `本轮移除` 共用它，两节因此不会走样：相同的标题层级、相同的分组规则、相同的条目
- * 行。在哪一节的哪个位置找到某个链路标题，在另一节的同一位置也能找到。
- */
-function pushGroupedBySource(out, items, lineOf) {
-  const bySource = new Map();
-  for (const item of items) {
-    const bucket = bySource.get(item.source);
-    if (bucket) {
-      bucket.push(item);
-    } else {
-      bySource.set(item.source, [item]);
-    }
-  }
-  // `compareSource` keeps ①→⑤, and unknown slugs last in a stable order — the same rule the main
-  // list uses, so a path never appears in a different position in the two places it is shown.
-  // `compareSource` 保持 ①→⑤、未知 slug 排最后且顺序稳定 —— 与主名单同一条规则，同一条链路在
-  // 出现它的两处位置一致。
-  for (const source of [...bySource.keys()].sort(compareSource)) {
-    const bucket = bySource.get(source);
-    out.push(`### ${sourceLabel(source)}（${bucket.length}）`);
-    out.push('');
-    for (const item of bucket) {
-      out.push(lineOf(item));
-    }
-    out.push('');
-  }
-}
-
 export function render({
   items,
   added,
@@ -752,7 +809,12 @@ export function render({
   const fresh = listed(added);
 
   const out = [];
-  out.push(`# 待核对名单（${live.length} 条）`);
+  // The list title stays bold text, not an H1: the results (`unresolved` / `failed` / `skipped`)
+  // are the H1s below, which is the structure this list is read in. Two H1 levels would make the
+  // document outline say two different things about the same level.
+  // 标题用加粗行而不是 H1：下面的结果（`unresolved` / `failed` / `skipped`）才是一级标题，
+  // 两级 H1 会让文档大纲对同一层级给出两种说法。
+  out.push(`**待核对名单（${live.length} 条）**`);
   out.push('');
   out.push(`本轮运行：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}`);
   out.push('');
@@ -793,91 +855,84 @@ export function render({
     out.push('');
   }
 
-  // 新增 / 移除 are the same shape on purpose: H2 is the kind of change, H3 is the path (same
-  // order and same names as the main list below), entries carry name-then-link. The two sections
-  // used to be flat lists that only spelled the path in a trailing bracket, which made a long run
-  // read as one undifferentiated pile and let the two sections describe themselves differently.
-  // 新增 / 移除 刻意同形：H2 是变化类型，H3 是链路（顺序与显示名都与下面的主名单一致），条目行
-  // 名称在前、链接在后。这两节原先是不分组的平铺列表，链路只塞在行尾括号里，一轮跑下来就是一堆
-  // 分不清的条目，而且两节各自描述自己的方式还不一样。
+  // Change notices are a summary block, not sections: they describe what changed since the last
+  // round, not the work waiting now. Giving them heading levels would compete with the
+  // result→type→state outline and make it ambiguous which heading means what.
+  // 变化提示是摘要块而不是小节：它说的是「上一轮之后变了什么」，不是现在要做的活。让它占用标题
+  // 层级会与 结果→类型→状态 的大纲争夺含义。
   if (fresh.length) {
-    out.push('## 本轮新增');
+    out.push(`**本轮新增（${fresh.length}）**`);
     out.push('');
-    pushGroupedBySource(out, fresh, (item) => diffLine(item));
-  }
-  if (removed.length) {
-    out.push('## 本轮移除（连续两轮被扫描到且未再出现）');
-    out.push('');
-    pushGroupedBySource(out, removed, (item) => diffLine(item, { strike: true }));
-  }
-
-  // Two passes: bucket by path first (buckets keep `live`'s order, i.e. `state.json`'s
-  // order, so entries never jump between runs), then walk the paths in ①→⑤ order.
-  // 两趟：先按链路分桶（桶内保持 `live` 的顺序，也就是 `state.json` 的顺序，条目因此不会在
-  // 两轮之间跳位），再按 ①→⑤ 的顺序输出。
-  const bySource = new Map();
-  for (const item of live) {
-    const bucket = bySource.get(item.source);
-    if (bucket) {
-      bucket.push(item);
-    } else {
-      bySource.set(item.source, [item]);
-    }
-  }
-
-  for (const source of [...bySource.keys()].sort(compareSource)) {
-    const group = bySource.get(source);
-    out.push(`## ${sourceLabel(source)}`);
-    out.push('');
-
-    // Kinds are derived from the group rather than taken from `KIND_ORDER`: a kind that is
-    // not in that list would otherwise be dropped silently, and `# 待核对名单（N 条）`
-    // would stop matching the sum of the subsections.
-    // 档位从分组里派生，而不是遍历 `KIND_ORDER`：否则不在列表里的档位会被静默丢掉，
-    // 「# 待核对名单（N 条）」就不再等于各小节之和。
-    const kinds = [...new Set(group.map((item) => item.kind))].sort(compareKind);
-    for (const kind of kinds) {
-      const bucket = group.filter((item) => item.kind === kind);
-      if (!bucket.length) {
-        continue;
-      }
-      out.push(`### ${kind}（${bucket.length}）`);
-      out.push('');
-      bucket.forEach((item, index) => {
-        const age = daysSince(item.firstSeenAt, now);
-        // Name, then link. `add()` falls back to the URL as the name when the log carried nothing
-        // better — old ④ lines, or a snapshot carried over from before 2026-10-26 — and printing
-        // the address twice (`https://… — https://…`) would only add noise.
-        // 名称在前、链接在后。日志里没有更好的名字时（旧的 ④ 行，或 2026-10-26 之前沿用到现在的
-        // 快照），`add()` 会退化成用 URL 当名称；再拼一次链接只多出噪声。
-        const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
-        // Bullet + checkbox + the ordinal *in the text*. See `TASK_BOX` above for why the
-        // number cannot be the list marker. `seenCount` is printed nowhere: it only decides
-        // whether an entry has cleared its observation window (`MIN_ROUNDS`), and showing it
-        // invited the reader to reverse-engineer a threshold they cannot act on.
-        // 项目符号 + 复选框 + 写在正文里的序号。编号为何不能当列表标记，见上面的 `TASK_BOX`。
-        // `seenCount` 不再出现在任何地方：它只用来判断条目是否过了观察期（`MIN_ROUNDS`），
-        // 摆出来只会让读者去反推一个自己动不了的阈值。
-        out.push(
-          `- ${TASK_BOX}**${index + 1}.** ${item.title}${link} · ${item.reason} · 已存在 ${age} 天`,
-        );
-      });
-      out.push('');
-    }
-  }
-
-  if (observing.length) {
-    out.push(`## 观察中（${observing.length}，下一轮仍出现才入名单）`);
-    out.push('');
-    for (const item of observing) {
-      // Same line as 新增/移除, plus the path in brackets: this section has no per-path headings,
-      // so without the bracket the reader cannot tell which H2 the entry will land under once it
-      // clears its observation window.
-      // 与「新增 / 移除」同一行式，另加一个括号标注链路：本节没有按链路分标题，不标的话读者无法
-      // 判断它过了观察期会落到哪个 H2 下。
+    for (const item of fresh) {
       out.push(`${diffLine(item)}（${sourceLabel(item.source)}）`);
     }
     out.push('');
+  }
+  if (removed.length) {
+    out.push(`**本轮移除（${removed.length}，连续两轮被扫描到且未再出现）**`);
+    out.push('');
+    for (const item of removed) {
+      out.push(`${diffLine(item, { strike: true })}（${sourceLabel(item.source)}）`);
+    }
+    out.push('');
+  }
+  if (observing.length) {
+    out.push(`**观察中（${observing.length}，下一轮仍出现才入名单）**`);
+    out.push('');
+    for (const item of observing) {
+      out.push(`${diffLine(item)}（${sourceLabel(item.source)}）`);
+    }
+    out.push('');
+  }
+
+  // Three levels, in the order a reader triages: result → item type → user state. The path stays
+  // at the end of the line because it is per-entry information, not something to browse by.
+  // 三层，按读者分诊的顺序：结果 → 类型 → 用户状态。链路留在行尾，因为它是逐条信息，不是用来
+  // 浏览的分组。
+  const kinds = [...new Set(live.map((item) => item.kind))].sort(compareKind);
+  for (const kind of kinds) {
+    const kindItems = live.filter((item) => item.kind === kind);
+    out.push(`# ${kind}（${kindItems.length}）`);
+    out.push('');
+
+    const categories = [
+      ...new Set(kindItems.map((item) => normalizeCategory(item.category))),
+    ].sort(compareCategory);
+    for (const category of categories) {
+      const categoryItems = kindItems.filter(
+        (item) => normalizeCategory(item.category) === category,
+      );
+      out.push(
+        `## ${CATEGORY_LABELS.get(category) ?? category}（${categoryItems.length}）`,
+      );
+      out.push('');
+
+      const shelves = [
+        ...new Set(categoryItems.map((item) => normalizeShelf(item.shelf))),
+      ].sort(compareShelf);
+      for (const shelf of shelves) {
+        const bucket = categoryItems.filter(
+          (item) => normalizeShelf(item.shelf) === shelf,
+        );
+        out.push(`### ${SHELF_LABELS.get(shelf) ?? shelf}（${bucket.length}）`);
+        out.push('');
+        bucket.forEach((item, index) => {
+          const age = daysSince(item.firstSeenAt, now);
+          // Name, then link. `add()` falls back to the URL as the name when the log carried
+          // nothing better, and printing the address twice would only add noise.
+          // 名称在前、链接在后。日志里没有更好的名字时 `add()` 会退化成用 URL 当名称；再拼一次
+          // 链接只多出噪声。
+          const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
+          // Bullet + checkbox + the ordinal in the text; see `TASK_BOX` for why the number cannot
+          // be the list marker.
+          // 项目符号 + 复选框 + 写在正文里的序号；编号为何不能当列表标记，见 `TASK_BOX`。
+          out.push(
+            `- ${TASK_BOX}**${index + 1}.** ${item.title}${link} · ${item.reason} · 已存在 ${age} 天（${sourceLabel(item.source)}）`,
+          );
+        });
+        out.push('');
+      }
+    }
   }
 
   out.push('---');
@@ -1001,6 +1056,55 @@ function arg(name, fallback) {
   return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
 }
 
+/**
+ * Fill type and state from the run report when a log line did not carry them.
+ *
+ * The log suffix is the primary source; the report is the redundancy the user asked for. A line
+ * from an older run has neither, and stays `other` / `unknown` rather than being dropped.
+ * 日志后缀是主来源，报表是要求的冗余。旧一轮的日志两者都没有，保持 `other` / `unknown`，
+ * 而不是被丢弃。
+ */
+export function attachReportMeta(items, report) {
+  if (!report) {
+    return items;
+  }
+  const index = new Map();
+  for (const path of report.paths ?? []) {
+    const source = SOURCE_BY_LABEL.get(path.label);
+    if (!source) {
+      continue;
+    }
+    const details = [
+      ...(Array.isArray(path.unresolvedItems) ? path.unresolvedItems : []),
+      ...(Array.isArray(path.failedItems) ? path.failedItems : []),
+      ...(Array.isArray(path.skippedItems) ? path.skippedItems : []),
+    ];
+    for (const entry of details) {
+      const meta = {
+        category: normalizeCategory(entry.category),
+        shelf: normalizeShelf(entry.shelf),
+      };
+      if (entry.url) {
+        index.set(`${source}::${entry.url}`, meta);
+      }
+      if (entry.title) {
+        index.set(`${source}::title:${entry.title}`, meta);
+      }
+    }
+  }
+  return items.map((item) => {
+    const hit = index.get(item.key) || index.get(`${item.source}::title:${item.title}`);
+    if (!hit) {
+      return item;
+    }
+    return {
+      ...item,
+      category: item.category !== 'other' ? item.category : hit.category,
+      shelf: item.shelf !== 'unknown' ? item.shelf : hit.shelf,
+    };
+  });
+}
+
 function main() {
   const logsDir = arg('logs', process.env.LOGS_DIR || '');
   const stateFile = arg('state', process.env.STATE_FILE || '');
@@ -1020,12 +1124,14 @@ function main() {
     return;
   }
 
-  const { items: observed, unattributable } = parseLogs(logsDir);
+  const parsed = parseLogs(logsDir);
   const previous = loadState(stateFile);
-  // Read the report *before* the merge: it now decides which absences may be counted, not just
-  // whether the parsed `failed` count adds up.
-  // 在合并之前读报表：它现在决定哪些缺席可以计数，而不只是给 `failed` 的对账当旁证。
+  // Read the report *before* the merge: it decides which absences may be counted, and it fills in
+  // the type/state a log line may not have carried.
+  // 在合并之前读报表：它决定哪些缺席可以计数，并补齐日志行可能没带的类型与状态。
   const report = readRunReport(reportDir);
+  const observed = attachReportMeta(parsed.items, report);
+  const unattributable = parsed.unattributable;
   const coverage = coverageFromReport(report);
   const { items, added, removed, degraded, uncovered } = merge(
     previous,

@@ -115,7 +115,7 @@ cols.json                   Notion 列名映射
 
 任一条路 `aborted` 或 `failed > 0` 时退出码为 1；`SYNC_DOUBAN_REQUIRED=0` 时豆瓣侧的失败标记为 `TOLERATED`，只展示、不参与退出码。
 
-未匹配条目会写入待核对名单（`review-state` artifact，保留 90 天），本地同时记录到 `.cache/unmatched.json`。
+未匹配条目会写入待核对名单（`review-state` artifact，保留 90 天），按 `结果 → 类型 → 状态` 分组；本地同时记录到 `.cache/unmatched.json`。
 
 ## 已知限制
 
