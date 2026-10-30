@@ -159,6 +159,12 @@ const SOURCE_BY_LABEL = new Map(
   [...SOURCE_LABELS.entries()].map(([source, label]) => [label, source]),
 );
 
+/** Path slugs in ①→⑤ order — also the render order of the list's H1 groups. / 链路 slug 按 ①→⑤ 排列 —— 也是名单一级标题的渲染顺序。 */
+const SOURCE_ORDER = [...SOURCE_LABELS.keys()];
+
+const compareSource = (a, b) =>
+  SOURCE_ORDER.indexOf(a) - SOURCE_ORDER.indexOf(b) || byText(String(a), String(b));
+
 /**
  * GFM task marker — the "have I dealt with it" box.
  *
@@ -257,6 +263,7 @@ const DETAIL_REASONS = new Map([
   ['notion-insert-failed', ['failed', 'douban→notion']],
   ['douban-scrape-failed', ['failed', 'douban→notion']],
   ['notion-category-failed', ['failed', 'douban→notion']],
+  ['no-notion-database', ['skipped', 'douban→notion']],
   ['neodb-mark-rejected', ['failed', 'douban→neodb']],
   ['neodb-item-threw', ['failed', 'douban→neodb']],
   ['neodb-read-failed', ['failed', 'douban→neodb']],
@@ -556,15 +563,41 @@ function loadState(file) {
 }
 
 /**
+ * One-time migration, shipped with the path-as-H1 re-grouping: ⑤'s entries used to be keyed by
+ * title because its log lines carried relative NeoDB paths the parser could not accept. The path
+ * now absolutizes every URL and records the same URL into `scannedIds`, so a title-keyed ⑤ entry
+ * can never again be covered by the scan set — left alone, each one would sit in the list
+ * forever, frozen. Dropping them re-baselines ⑤ only; the other four paths keep their history
+ * and their `firstSeenAt` ages.
+ *
+ * 一次性迁移，随「链路作一级标题」的重排一起发布：⑤ 的条目过去按标题建 key，因为它的日志行
+ * 携带的是解析器无法接受的相对 NeoDB 路径。现在链路侧把每个 URL 绝对化、并把同一个 URL 记进
+ * `scannedIds`，按标题建 key 的 ⑤ 条目从此不可能再被扫描集合覆盖 —— 不清理的话，每一条都会
+ * 冻结在名单里永不淘汰。丢弃它们只重置 ⑤；其余四条链路的历史与 `firstSeenAt` 天龄原样保留。
+ *
+ * @returns {Array} The same array when there is nothing to drop, so `main` can treat this as a
+ *   no-op pass-through.
+ *   没有可清理项时原数组原样返回，`main` 因此可以把这步当成无操作的透传。
+ */
+export function dropLegacyTmdbTitleKeys(items) {
+  const kept = items.filter(
+    (item) => !String(item?.key ?? '').startsWith('neodb→tmdb::title:'),
+  );
+  return kept.length === items.length ? items : kept;
+}
+
+/**
  * The identity part of an entry's key — the same string `scannedIds` records for that item.
  *
- * `makeKey` builds `${source}::${url || id || 'title:' + title}`, and ⑤ is the one path whose
- * identity is a bare title, so the `title:` marker has to come off before comparing against the
- * run report (which stores the title, not this list's key syntax).
+ * `makeKey` builds `${source}::${url || id || 'title:' + title}`; ⑤ now keys by its absolutized
+ * NeoDB URL, so in practice the `title:` branch only remains for a legacy or empty-URL line, but
+ * the marker still has to come off before comparing against a run report that stores the bare
+ * identity, not this list's key syntax.
  * 条目 key 的身份段 —— 与 `scannedIds` 为同一条目记录的字符串相同。
  *
- * `makeKey` 拼的是 `${source}::${url || id || 'title:' + title}`，而 ⑤ 是唯一以纯标题为身份的
- * 链路，因此与运行报表比较前要去掉 `title:` 标记（报表存的是标题，不是本名单的 key 语法）。
+ * `makeKey` 拼的是 `${source}::${url || id || 'title:' + title}`；⑤ 现在按绝对化后的 NeoDB URL
+ * 建 key，实际运行里 `title:` 分支只剩「旧日志或 URL 为空」的兜底，但与运行报表比较前仍要去掉
+ * `title:` 标记 —— 报表存的是裸身份，不是本名单的 key 语法。
  */
 function scannedIdOf(entry) {
   const key = String(entry.key ?? '');
@@ -809,11 +842,11 @@ export function render({
   const fresh = listed(added);
 
   const out = [];
-  // The list title stays bold text, not an H1: the results (`unresolved` / `failed` / `skipped`)
-  // are the H1s below, which is the structure this list is read in. Two H1 levels would make the
-  // document outline say two different things about the same level.
-  // 标题用加粗行而不是 H1：下面的结果（`unresolved` / `failed` / `skipped`）才是一级标题，
-  // 两级 H1 会让文档大纲对同一层级给出两种说法。
+  // The list title stays bold text, not an H1: the sync paths (`NeoDB → TMDB` …) are the H1s
+  // below, which is the unit the list is browsed by. Two H1 levels would make the document
+  // outline say two different things about the same level.
+  // 标题用加粗行而不是 H1：下面的同步链路（`NeoDB → TMDB` …）才是一级标题 —— 那正是读者浏览
+  // 名单的单位。两级 H1 会让文档大纲对同一层级给出两种说法。
   out.push(`**待核对名单（${live.length} 条）**`);
   out.push('');
   out.push(`本轮运行：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}`);
@@ -885,52 +918,62 @@ export function render({
     out.push('');
   }
 
-  // Three levels, in the order a reader triages: result → item type → user state. The path stays
-  // at the end of the line because it is per-entry information, not something to browse by.
-  // 三层，按读者分诊的顺序：结果 → 类型 → 用户状态。链路留在行尾，因为它是逐条信息，不是用来
-  // 浏览的分组。
-  const kinds = [...new Set(live.map((item) => item.kind))].sort(compareKind);
-  for (const kind of kinds) {
-    const kindItems = live.filter((item) => item.kind === kind);
-    out.push(`# ${kind}（${kindItems.length}）`);
+  // Four levels, outermost first, in the order a reader works through them: sync path (the unit
+  // one goes and fixes) → result → item type → user state. The path moved here from the end of
+  // the line: as a heading it carries the per-entry label's job, so the label is gone from the
+  // entry line — the change blocks above are NOT under a heading and still spell it out.
+  // 四级、由外到内，按读者处理的顺序：同步链路（去处理的对象）→ 结果 → 条目类型 → 用户状态。
+  // 链路从行尾移到这里：升为标题后它接管了行尾标注的职责，因此正文条目不再带标注 —— 上面的
+  // 变化块不在任何标题之下，仍然逐条写明链路。
+  const sources = [...new Set(live.map((item) => item.source))].sort(compareSource);
+  for (const source of sources) {
+    const sourceItems = live.filter((item) => item.source === source);
+    out.push(`# ${sourceLabel(source)}（${sourceItems.length}）`);
     out.push('');
 
-    const categories = [
-      ...new Set(kindItems.map((item) => normalizeCategory(item.category))),
-    ].sort(compareCategory);
-    for (const category of categories) {
-      const categoryItems = kindItems.filter(
-        (item) => normalizeCategory(item.category) === category,
-      );
-      out.push(
-        `## ${CATEGORY_LABELS.get(category) ?? category}（${categoryItems.length}）`,
-      );
+    const kinds = [...new Set(sourceItems.map((item) => item.kind))].sort(compareKind);
+    for (const kind of kinds) {
+      const kindItems = sourceItems.filter((item) => item.kind === kind);
+      out.push(`## ${kind}（${kindItems.length}）`);
       out.push('');
 
-      const shelves = [
-        ...new Set(categoryItems.map((item) => normalizeShelf(item.shelf))),
-      ].sort(compareShelf);
-      for (const shelf of shelves) {
-        const bucket = categoryItems.filter(
-          (item) => normalizeShelf(item.shelf) === shelf,
+      const categories = [
+        ...new Set(kindItems.map((item) => normalizeCategory(item.category))),
+      ].sort(compareCategory);
+      for (const category of categories) {
+        const categoryItems = kindItems.filter(
+          (item) => normalizeCategory(item.category) === category,
         );
-        out.push(`### ${SHELF_LABELS.get(shelf) ?? shelf}（${bucket.length}）`);
+        out.push(
+          `### ${CATEGORY_LABELS.get(category) ?? category}（${categoryItems.length}）`,
+        );
         out.push('');
-        bucket.forEach((item, index) => {
-          const age = daysSince(item.firstSeenAt, now);
-          // Name, then link. `add()` falls back to the URL as the name when the log carried
-          // nothing better, and printing the address twice would only add noise.
-          // 名称在前、链接在后。日志里没有更好的名字时 `add()` 会退化成用 URL 当名称；再拼一次
-          // 链接只多出噪声。
-          const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
-          // Bullet + checkbox + the ordinal in the text; see `TASK_BOX` for why the number cannot
-          // be the list marker.
-          // 项目符号 + 复选框 + 写在正文里的序号；编号为何不能当列表标记，见 `TASK_BOX`。
-          out.push(
-            `- ${TASK_BOX}**${index + 1}.** ${item.title}${link} · ${item.reason} · 已存在 ${age} 天（${sourceLabel(item.source)}）`,
+
+        const shelves = [
+          ...new Set(categoryItems.map((item) => normalizeShelf(item.shelf))),
+        ].sort(compareShelf);
+        for (const shelf of shelves) {
+          const bucket = categoryItems.filter(
+            (item) => normalizeShelf(item.shelf) === shelf,
           );
-        });
-        out.push('');
+          out.push(`#### ${SHELF_LABELS.get(shelf) ?? shelf}（${bucket.length}）`);
+          out.push('');
+          bucket.forEach((item, index) => {
+            const age = daysSince(item.firstSeenAt, now);
+            // Name, then link. `add()` falls back to the URL as the name when the log carried
+            // nothing better, and printing the address twice would only add noise.
+            // 名称在前、链接在后。日志里没有更好的名字时 `add()` 会退化成用 URL 当名称；再拼一次
+            // 链接只多出噪声。
+            const link = item.url && item.url !== item.title ? ` — ${item.url}` : '';
+            // Bullet + checkbox + the ordinal in the text; see `TASK_BOX` for why the number
+            // cannot be the list marker.
+            // 项目符号 + 复选框 + 写在正文里的序号；编号为何不能当列表标记，见 `TASK_BOX`。
+            out.push(
+              `- ${TASK_BOX}**${index + 1}.** ${item.title}${link} · ${item.reason} · 已存在 ${age} 天`,
+            );
+          });
+          out.push('');
+        }
       }
     }
   }
@@ -1024,7 +1067,7 @@ export function runReportLines(report, observed) {
   );
   const parsedFailed = observed.filter((item) => item.kind === 'failed').length;
 
-  const lines = ['', '### 运行报表（JSON）', ''];
+  const lines = ['', '## 运行报表（JSON）', ''];
   lines.push(
     `报表合计：failed ${total.failed} · skipped ${total.skipped} · unresolved ${total.unresolved}。` +
       `本次从日志解析出 ${observed.length} 条（其中 failed ${parsedFailed} 条）。`,
@@ -1125,7 +1168,7 @@ function main() {
   }
 
   const parsed = parseLogs(logsDir);
-  const previous = loadState(stateFile);
+  const previous = dropLegacyTmdbTitleKeys(loadState(stateFile));
   // Read the report *before* the merge: it decides which absences may be counted, and it fills in
   // the type/state a log line may not have carried.
   // 在合并之前读报表：它决定哪些缺席可以计数，并补齐日志行可能没带的类型与状态。

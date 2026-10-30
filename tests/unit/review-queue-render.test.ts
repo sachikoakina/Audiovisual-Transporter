@@ -1,12 +1,13 @@
 /**
- * The shape of the review list: result → item type → user state.
- * 待核对名单的形状：结果 → 条目类型 → 用户状态。
+ * The shape of the review list: sync path → result → item type → user state.
+ * 待核对名单的形状：同步链路 → 结果 → 条目类型 → 用户状态。
  *
  * The claims pinned here are the ones a future refactor can silently break: the heading levels,
- * the group order, the fallback buckets, and the fact that an entry keeps its link, reason, age
- * and path no matter which group it lands in.
+ * the group order, the fallback buckets, and the fact that an entry keeps its link, reason and
+ * age no matter which group it lands in — while the path lives in the H1 above it, not in the
+ * line.
  * 这里钉住的是将来重构容易悄悄弄坏的东西：标题层级、分组顺序、兜底分组，以及条目无论落到哪一组
- * 都保留链接、reason、已存在天数与链路。
+ * 都保留链接、reason 与已存在天数 —— 而链路由它上方的 H1 承载，不再出现在条目行里。
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -94,22 +95,30 @@ const tmdbMovie = item({
   shelf: 'dropped',
 });
 
-describe('render — 结果作为一级标题', () => {
-  it('emits one H1 per result, in unresolved → failed → skipped order, with counts', () => {
+describe('render — 链路作为一级标题', () => {
+  it('emits one H1 per sync path, in ①→⑤ order, with counts', () => {
     const failed = item({
       kind: 'failed',
       reason: 'tmdb-item-threw',
       category: 'tv',
       shelf: 'complete',
     });
-    const text = renderText({ items: [tmdbMovie, failed, doubanBook] });
+    const text = renderText({
+      items: [tmdbMovie, failed, doubanBook, bangumiUnresolved],
+    });
 
-    expect(text).toContain('# unresolved（2）');
-    expect(text).toContain('# failed（1）');
-    expect(text.indexOf('# unresolved')).toBeLessThan(text.indexOf('# failed'));
+    expect(text).toContain('# Douban → Bangumi（1）');
+    expect(text).toContain('# Bangumi → NeoDB（1）');
+    expect(text).toContain('# NeoDB → TMDB（2）');
+    expect(text.indexOf('# Douban → Bangumi')).toBeLessThan(
+      text.indexOf('# Bangumi → NeoDB'),
+    );
+    expect(text.indexOf('# Bangumi → NeoDB')).toBeLessThan(
+      text.indexOf('# NeoDB → TMDB'),
+    );
   });
 
-  it('does not use a heading for the list title, so H1 means a result', () => {
+  it('does not use a heading for the list title, so H1 means a sync path', () => {
     const text = renderText({ items: [tmdbMovie] });
 
     expect(text).toContain('**待核对名单（1 条）**');
@@ -117,49 +126,73 @@ describe('render — 结果作为一级标题', () => {
   });
 });
 
-describe('render — 类型与状态', () => {
-  it('groups by item type with Chinese labels, in the fixed order', () => {
-    const text = renderText({ items: [tmdbMovie, doubanBook, bangumiUnresolved] });
-    const body = section(text, '# unresolved（3）');
+describe('render — 结果、类型与状态', () => {
+  it('groups by result under each path (H2), in unresolved → failed → skipped order', () => {
+    const skipped = item({ kind: 'skipped', reason: 'guard-target-status' });
+    const text = renderText({ items: [tmdbMovie, skipped] });
+    const body = section(text, '# NeoDB → TMDB（2）');
 
-    expect(body).toContain('## 动画（1）');
-    expect(body).toContain('## 书籍（1）');
-    expect(body).toContain('## 电影（1）');
-    expect(body.indexOf('## 电影')).toBeLessThan(body.indexOf('## 动画'));
-    expect(body.indexOf('## 动画')).toBeLessThan(body.indexOf('## 书籍'));
+    expect(body).toContain('## unresolved（1）');
+    expect(body).toContain('## skipped（1）');
+    expect(body.indexOf('## unresolved')).toBeLessThan(body.indexOf('## skipped'));
   });
 
-  it('groups by user state under each type, in the fixed order', () => {
-    const text = renderText({ items: [bangumiUnresolved] });
-    const body = section(text, '# unresolved（1）');
+  it('groups by item type under each result (H3), in the fixed order', () => {
+    const tv = item({ category: 'tv', shelf: 'complete' });
+    const text = renderText({ items: [tmdbMovie, tv] });
+    const body = section(text, '# NeoDB → TMDB（2）');
 
-    expect(body).toContain('### 在看（1）');
+    expect(body).toContain('### 电影（1）');
+    expect(body).toContain('### 电视剧（1）');
+    expect(body.indexOf('### 电影')).toBeLessThan(body.indexOf('### 电视剧'));
+  });
+
+  it('groups by user state under each type (H4), in the fixed order', () => {
+    const wishing = item({ shelf: 'wishlist' });
+    const text = renderText({ items: [tmdbMovie, wishing] });
+    const body = section(text, '# NeoDB → TMDB（2）');
+
+    expect(body).toContain('#### 想看（1）');
+    expect(body).toContain('#### 抛弃（1）');
+    expect(body.indexOf('#### 想看')).toBeLessThan(body.indexOf('#### 抛弃'));
+  });
+
+  it('renders the entry line with checkbox, ordinal, link, reason and age under the H4', () => {
+    const text = renderText({ items: [bangumiUnresolved] });
+    const body = section(text, '# Bangumi → NeoDB（1）');
+
+    expect(body).toContain('#### 在看（1）');
     expect(body).toContain(
       '- [ ] **1.** 狐妖小红娘13 黄风岭篇 — https://bgm.tv/subject/391457',
     );
   });
 
-  it('keeps link, reason, age and path on the item line', () => {
+  it('keeps link, reason and age on the item line, and leaves the path to the H1', () => {
     const text = renderText({ items: [bangumiUnresolved] });
 
-    expect(text).toContain('· neodb-unresolved · 已存在 0 天（Bangumi → NeoDB）');
+    expect(text).toContain('· neodb-unresolved · 已存在 0 天');
+    expect(section(text, '# Bangumi → NeoDB（1）')).not.toContain(
+      '（Bangumi → NeoDB）',
+    );
   });
 });
 
 describe('render — 缺失类型与状态', () => {
-  it('folds a missing type into 其他 and a missing state into 未知', () => {
+  it('folds a missing type into 其他 (H3) and a missing state into 未知 (H4)', () => {
     const bare = item({ title: '无名', url: '', category: '', shelf: '' });
     const text = renderText({ items: [bare] });
 
-    expect(text).toContain('## 其他（1）');
-    expect(text).toContain('### 未知（1）');
+    expect(text).toContain('### 其他（1）');
+    expect(text).toContain('#### 未知（1）');
   });
 
-  it('counts every entry exactly once across the three levels', () => {
+  it('counts every entry exactly once at every level', () => {
     const text = renderText({ items: [tmdbMovie, doubanBook, bangumiUnresolved] });
-    const counts = [...text.matchAll(/^## .+（(\d+)）$/gm)].map((m) => Number(m[1]));
+    const h1 = [...text.matchAll(/^# .+（(\d+)）$/gm)].map((m) => Number(m[1]));
+    const h4 = [...text.matchAll(/^#### .+（(\d+)）$/gm)].map((m) => Number(m[1]));
 
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(3);
+    expect(h1.reduce((a, b) => a + b, 0)).toBe(3);
+    expect(h4.reduce((a, b) => a + b, 0)).toBe(3);
   });
 });
 
@@ -188,7 +221,7 @@ describe('render — 变化摘要块', () => {
 
     expect(text).toContain('新增 **0**');
     expect(text).toContain('**观察中（1，下一轮仍出现才入名单）**');
-    expect(text).not.toContain('# failed');
+    expect(text).not.toContain('# NeoDB → TMDB');
     expect(text).toContain('- `failed` 无题 · tmdb-item-threw（NeoDB → TMDB）');
   });
 });
@@ -235,6 +268,25 @@ describe('parseLogs — 类型与状态', () => {
       category: 'movie',
       shelf: 'dropped',
     });
+  });
+
+  it('keeps an older ⑤ line with a relative NeoDB path as a title-only entry', () => {
+    // Pre-absolutization log shape: the parser cannot accept a relative URL, so the bracket
+    // stays inside the title. Production no longer prints this form; the fallback stays so an
+    // old log degrades instead of losing the entry.
+    // 绝对化之前的日志形态：解析器不收相对 URL，方括号因此留在标题里。生产端已不再打印这种
+    // 形态；保留兜底是为了让旧日志降级而不是丢条目。
+    const [entry] = parse(
+      '[warn] No TMDB match; skip 流浪地球3(下)[/movie/1NYyQu0dXMM3PpvA5EoK5p] {movie|complete}.\n',
+    );
+
+    expect(entry).toMatchObject({
+      source: 'neodb→tmdb',
+      url: '',
+      category: 'movie',
+      shelf: 'complete',
+    });
+    expect(entry.title).toBe('流浪地球3(下)[/movie/1NYyQu0dXMM3PpvA5EoK5p]');
   });
 
   it('still accepts an older line with neither suffix nor link', () => {

@@ -118,6 +118,15 @@ export function merge(
   coverage?: Map<string, Coverage> | null,
 ): MergeResult;
 
+/**
+ * One-time migration: drops ⑤ entries still keyed by title (`neodb→tmdb::title:…`) from a loaded
+ * snapshot, now that ⑤'s identity is the absolutized NeoDB URL. Passes the array through
+ * untouched when there is nothing to drop.
+ * 一次性迁移：从加载的快照里丢弃仍按标题建 key 的 ⑤ 条目（`neodb→tmdb::title:…`）—— ⑤ 的身份
+ * 现在是绝对化的 NeoDB URL。没有可清理项时原数组原样返回。
+ */
+export function dropLegacyTmdbTitleKeys(items: ReadonlyArray<ReviewItem>): ReviewItem[];
+
 export function runReportLines(
   report: RunReport | null,
   observed: ReadonlyArray<{ kind: string }>,
