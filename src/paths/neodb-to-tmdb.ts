@@ -52,7 +52,7 @@ import {
   validateNeodbTmdbCredentials,
   type NeodbTmdbRunMode,
 } from '../sync-config';
-import { neodbThrottle } from '../clients/neodb-http';
+import { absoluteNeodbUrl, neodbThrottle } from '../clients/neodb-http';
 import { fetchShelf, getNeodbMe, verifyNeodbToken } from '../clients/neodb-shelf';
 import { getNeodbItemDetail } from '../clients/neodb-catalog';
 import {
@@ -106,21 +106,26 @@ type SyncContext = {
   /** `${mediaType}:${id}` seen this run, to dedupe across shelves/categories. */
   seen: Set<string>;
   /**
-   * Display titles this run actually examined, written into `PathReport.scannedIds`.
+   * Identities this run actually examined, written into `PathReport.scannedIds`.
    *
-   * The review list keys ⑤'s entries by title (its log line carries no id), so that is the
-   * identity this set has to carry. It is filled before the per-item gates: an item skipped
+   * The identity is the **absolute NeoDB URL** — the same string the review list parses out of
+   * the log line and keys its entries by (`makeKey` prefers the URL, and a title is exactly
+   * what the reader goes to edit, so keying by it would re-create an entry the moment a title
+   * is fixed). Items whose `url` came back empty fall back to the label, mirroring the list's
+   * own `url || title:` fallback. The set is filled before the per-item gates: an item skipped
    * because its category has no TMDB counterpart was still looked at, and its review entry is
    * therefore allowed to age out. An item behind `SYNC_MAX_ITEMS`, behind `NEODB_MAX_PAGES` or
    * after an abort never gets here — which is exactly how the list distinguishes "fixed" from
    * "never reached".
    *
-   * 本轮真正检查过的展示标题，写进 `PathReport.scannedIds`。
+   * 本轮真正检查过的身份，写进 `PathReport.scannedIds`。
    *
-   * 名单给 ⑤ 的条目按标题建 key（日志行不带 id），这里因此也按标题记。写入点在逐条闸门之前：
-   * 分类没有 TMDB 对应而被跳过的条目，仍然是「看过」的，其次日可以正常老化。被 `SYNC_MAX_ITEMS`、
-   * `NEODB_MAX_PAGES` 挡在外面或在 abort 之后的条目永远不会进来 —— 名单正是靠这一点区分
-   * 「修好了」与「根本没走到」。
+   * 身份是**绝对化的 NeoDB URL** —— 与名单从日志行里解析出、并用来建 key 的是同一个字符串
+   * （`makeKey` 优先用 URL，而标题恰恰是读者要去改的东西，按标题建 key 会让一次改标题把刚修好
+   * 的条目重新创建出来）。`url` 为空的条目回退到标签，与名单自己的 `url || title:` 回退一致。
+   * 写入点在逐条闸门之前：分类没有 TMDB 对应而被跳过的条目，仍然是「看过」的，其次日可以正常
+   * 老化。被 `SYNC_MAX_ITEMS`、`NEODB_MAX_PAGES` 挡在外面或在 abort 之后的条目永远不会进来 ——
+   * 名单正是靠这一点区分「修好了」与「根本没走到」。
    */
   scanned: Set<string>;
   counters: SyncCounters;
@@ -423,6 +428,14 @@ async function syncMark(
   const label = item?.display_title || item?.title || item?.uuid || '(unknown)';
   const itemCategory = normalizeReviewCategory(item?.category);
   const itemShelf = normalizeReviewShelf(mark.shelf_type ?? expectedShelf);
+  // Absolute, self-host-aware page URL. NeoDB returns `item.url` as-is and it may be relative
+  // (`/movie/<uuid>`); printing it raw used to glue the bracket into the review list's title,
+  // because the list's parser only accepts `http(s)` links. Every emission below — detail
+  // entries, the unmatched log line, the coverage identity — uses this one absolutized value.
+  // 绝对化、自建实例感知的页面 URL。NeoDB 原样返回 `item.url`，它可能是相对路径
+  // （`/movie/<uuid>`）；直接打印会让方括号粘进待核对名单的标题里，因为名单解析器只认 `http(s)`
+  // 链接。下面的每一处发射 —— 明细条目、未匹配日志行、覆盖身份 —— 都用这一个绝对化后的值。
+  const itemUrl = item?.url ? absoluteNeodbUrl(item.url) : '';
 
   if (!item?.uuid) {
     ctx.counters.failed += 1;
@@ -444,7 +457,7 @@ async function syncMark(
   // item needs writing, not whether it was examined. See `SyncContext.scanned`.
   // 扫描集合在这里登记，位于所有逐条闸门之前：下面的闸门决定「要不要写」，不决定「有没有看」。
   // 见 `SyncContext.scanned`。
-  ctx.scanned.add(label);
+  ctx.scanned.add(itemUrl || label);
 
   // 1) Resolve the mapping for this shelf state.
   const shelfType =
@@ -461,7 +474,7 @@ async function syncMark(
     // 无声地消失在 `skipped` 里。
     ctx.skippedItems.push({
       title: label,
-      url: item.url,
+      url: itemUrl,
       reason: 'shelf-not-mapped',
       category: itemCategory,
       shelf: itemShelf,
@@ -476,7 +489,7 @@ async function syncMark(
     ctx.counters.skippedCategory += 1;
     ctx.skippedItems.push({
       title: label,
-      url: item.url,
+      url: itemUrl,
       reason: `no-tmdb-category: ${category}`,
       category: itemCategory,
       shelf: itemShelf,
@@ -490,7 +503,7 @@ async function syncMark(
     ctx.counters.skippedCategory += 1;
     ctx.skippedItems.push({
       title: label,
-      url: item.url,
+      url: itemUrl,
       reason: `unmapped-category: ${category || '(empty)'}`,
       category: itemCategory,
       shelf: itemShelf,
@@ -511,7 +524,7 @@ async function syncMark(
     // 行折叠也正是为此（见 `rules/review-detail.ts`）。
     ctx.skippedItems.push({
       title: label,
-      url: item.url,
+      url: itemUrl,
       reason: 'unchanged-since-last-run',
       category: itemCategory,
       shelf: itemShelf,
@@ -533,7 +546,7 @@ async function syncMark(
     ctx.unmatchedTitles.push(label);
     ctx.unmatchedItems.push({
       title: label,
-      url: item.url,
+      url: itemUrl,
       reason: resolution.reason,
       category: normalizeReviewCategory(category),
       shelf: normalizeReviewShelf(shelfType),
@@ -544,7 +557,7 @@ async function syncMark(
     // 前缀被名单解析器与日志契约锁住；链接与 `{category|shelf}` 后缀追加在其后 —— 名单要按这两
     // 者分组，而 ⑤ 过去只打标题、连地址都没有。
     consola.warn(
-      `No TMDB match; skip ${label}[${item.url}] ${reviewMetaSuffix(category, shelfType)}.`,
+      `No TMDB match; skip ${label}[${itemUrl}] ${reviewMetaSuffix(category, shelfType)}.`,
     );
     if (resolution.reason !== 'no-tmdb-match') {
       consola.debug(
@@ -582,7 +595,7 @@ async function syncMark(
     // `skipped` 总数里不出现无法解释的条目。
     ctx.skippedItems.push({
       title: label,
-      url: item.url,
+      url: itemUrl,
       reason: `duplicate-in-run: ${identity}`,
       category: itemCategory,
       shelf: itemShelf,
@@ -610,7 +623,7 @@ async function syncMark(
   }
 
   const ok = await applyPatch(target, patch, ctx, label, {
-    url: item.url,
+    url: itemUrl,
     category: itemCategory,
     shelf: itemShelf,
   });

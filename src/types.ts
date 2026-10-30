@@ -175,6 +175,15 @@ export type FailedItem = {
    * 失败原因的 slug。可选：没有额外信息的调用方不必硬编一个，清单就只打印标题。
    */
   reason?: string;
+  /**
+   * Review-list grouping metadata, optional for the same reason as `reason`: carried through to
+   * `ReviewDetail` when the caller knows them, so the list can group the entry under its type
+   * and user state instead of the `其他` / `未知` buckets.
+   * 名单分组用的元数据，与 `reason` 同样可选：调用方知道时就带上，转成 `ReviewDetail` 后名单
+   * 能把条目归进它的类型与用户状态，而不是落进 `其他` / `未知` 桶。
+   */
+  category?: string;
+  shelf?: string;
 };
 
 // ───────────────────────────────────────────────────────────────────────────

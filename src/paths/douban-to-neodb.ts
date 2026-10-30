@@ -129,6 +129,8 @@ export default async function syncDoubanToNeodb(
         title: item.title || item.id,
         url: item.link,
         reason: failureReason(error, 'neodb-read-failed', 'neodb-item-threw'),
+        category: normalizeReviewCategory(item.category),
+        shelf: normalizeReviewShelf(item.status),
       });
       // Deliberately not `Item failed, continuing:` — that sentence is how the review list
       // recognises Bangumi → NeoDB, and it routes on that string alone.

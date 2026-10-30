@@ -159,6 +159,8 @@ export default async function syncDoubanToNotion(
           title: item.title || item.link,
           url: item.link,
           reason: item.reason ?? 'notion-insert-failed',
+          category: item.category,
+          shelf: item.shelf,
         });
       }
     } catch (error) {
@@ -319,6 +321,8 @@ async function syncCategoryToNotion(
         title: item.title || item.id,
         url: item.link,
         reason: `no-notion-database: ${category}`,
+        category: normalizeReviewCategory(category),
+        shelf: normalizeReviewShelf(item.status),
       })),
     };
   }
@@ -406,6 +410,8 @@ async function syncCategoryToNotion(
           // are the suspect — not the scrape.
           // Notion 收到了请求却没建页，因此可疑的是列或令牌，而不是抓取。
           reason: 'notion-insert-failed',
+          category: normalizeReviewCategory(category),
+          shelf: normalizeReviewShelf(newFeedItem.status),
         });
       }
       await sleep(NOTION_INSERT_INTERVAL_MS);
@@ -423,6 +429,8 @@ async function syncCategoryToNotion(
         // 与 `notion-insert-failed` 分开，因为要修的东西不同：这里意味着豆瓣页面读不到，
         // 压根没往 Notion 发过请求。
         reason: 'douban-scrape-failed',
+        category: normalizeReviewCategory(category),
+        shelf: normalizeReviewShelf(newFeedItem.status),
       });
     }
   }

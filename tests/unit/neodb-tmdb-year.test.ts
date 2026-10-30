@@ -31,7 +31,13 @@ const getTmdbById = vi.fn();
 const getTmdbAccountStates = vi.fn();
 const upsertReviewEntry = vi.fn();
 
-vi.mock('../../src/clients/neodb-http', () => ({
+// Partial: the real `absoluteNeodbUrl` stays live (it only reads the mocked sync-config's
+// `baseUrl`), so the path's URL emission is exercised against actual absolutization; only the
+// token and the pacing are stubbed.
+// 部分替换：`absoluteNeodbUrl` 保持真实现（它只读被 mock 的 sync-config 里的 `baseUrl`），
+// 链路的 URL 发射因此跑在真实的绝对化逻辑上；只替换令牌与节流。
+vi.mock('../../src/clients/neodb-http', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/clients/neodb-http')>()),
   neodbToken: 'test-token',
   neodbThrottle: async () => {},
 }));
