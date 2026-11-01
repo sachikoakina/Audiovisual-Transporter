@@ -386,13 +386,20 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
 
         ctx.counters.failed += 1;
         const thrown = error instanceof Error ? error.message : String(error);
+        const failedTitle =
+          mark.item?.display_title ||
+          mark.item?.title ||
+          mark.item?.uuid ||
+          '(unknown)';
+        // The catalogue URL arrives relative (`/movie/<uuid>`), and this catch used to keep it
+        // that way — the detail line then rendered `title[/movie/…]`, which the queue cannot split,
+        // so the address got glued to the title and the entry was keyed by the whole string.
+        // 目录 URL 是相对路径（`/movie/<uuid>`），这个 catch 过去原样保留 —— 明细行于是渲染成
+        // `标题[/movie/…]`，名单拆不开，地址被粘进标题，条目也就按整串建 key。
+        const failedUrl = mark.item?.url ? absoluteNeodbUrl(mark.item.url) : '';
         ctx.failedItems.push({
-          title:
-            mark.item?.display_title ||
-            mark.item?.title ||
-            mark.item?.uuid ||
-            '(unknown)',
-          url: mark.item?.url ?? '',
+          title: failedTitle,
+          url: failedUrl,
           // `tmdb-` prefix, not a bare `item-threw`: ④ prints exactly the same prefix and reason,
           // so a bare slug made every failure here get filed under Bangumi → NeoDB. The prefix is
           // what lets a single-line rule tell the two paths apart.
@@ -403,10 +410,14 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
           shelf: normalizeReviewShelf(mark.shelf_type),
         });
         // Deliberately not "Item failed, continuing": ④ uses that wording, and the review list
-        // routes by it.
-        // 刻意不用「Item failed, continuing」：④ 用的是那句，待核对名单正是按它路由的。
+        // routes by it. The link and `{category|shelf}` keep this failure identifiable by the same
+        // key as its detail line, so the two log forms collapse to one entry.
+        // 刻意不用「Item failed, continuing」：④ 用的是那句，待核对名单正是按它路由的。链接与
+        // `{category|shelf}` 让这条失败与它的明细行共用同一个 key，两种日志形态因此只产生一条。
         consola.error(
-          `TMDB write threw, continuing: ${mark.item?.title ?? mark.item?.uuid} —`,
+          `TMDB write threw, continuing: ${failedTitle}${
+            failedUrl ? `[${failedUrl}]` : ''
+          } ${reviewMetaSuffix(mark.item?.category, mark.shelf_type)} —`,
           error instanceof Error ? error.message : error,
         );
       }
@@ -437,6 +448,12 @@ async function syncMark(
   // 链接。下面的每一处发射 —— 明细条目、未匹配日志行、覆盖身份 —— 都用这一个绝对化后的值。
   const itemUrl = item?.url ? absoluteNeodbUrl(item.url) : '';
 
+  // Coverage is recorded here, before every per-item gate, including the no-catalogue early
+  // return below: that return still examined the mark, and leaving it out froze the entry forever.
+  // 扫描集合在这里登记，位于所有逐条闸门之前，也包括下面那个「没有目录条目」的早退：那条路径
+  // 同样检查过这个标记，漏掉它会让该条目永远无法老化。
+  ctx.scanned.add(itemUrl || label);
+
   if (!item?.uuid) {
     ctx.counters.failed += 1;
     // The one `failed` this path can raise without a label: there is no catalogue item to name,
@@ -452,12 +469,6 @@ async function syncMark(
     consola.warn('Mark without a catalog item; skipping.');
     return;
   }
-
-  // Coverage is recorded here, before every per-item gate: the gates below decide whether the
-  // item needs writing, not whether it was examined. See `SyncContext.scanned`.
-  // 扫描集合在这里登记，位于所有逐条闸门之前：下面的闸门决定「要不要写」，不决定「有没有看」。
-  // 见 `SyncContext.scanned`。
-  ctx.scanned.add(itemUrl || label);
 
   // 1) Resolve the mapping for this shelf state.
   const shelfType =

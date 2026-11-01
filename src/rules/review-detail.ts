@@ -82,7 +82,10 @@ export function labelOf(item: ReviewDetail): string {
   const title = (item.title || '').trim();
   const url = (item.url || '').trim();
   if (!title) {
-    return url || '(unnamed)';
+    // The same sentinel the queue treats as unattributable. Two spellings meant one side skipped
+    // the line while the other turned it into a permanent fake entry.
+    // 与名单视为「无法归属」的同一个哨兵。两种拼法会让一边跳过、另一边把它变成永久假条目。
+    return url || '(unknown)';
   }
   return url ? `${title}[${url}]` : title;
 }

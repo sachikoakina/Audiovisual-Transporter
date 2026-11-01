@@ -390,10 +390,22 @@ export function parseLogs(logsDir) {
       // 于是这里的每条失败都被记到 Bangumi → NeoDB 名下。
       const tmdbFailed = line.indexOf('TMDB write threw, continuing: ');
       if (tmdbFailed >= 0) {
-        const title = line
-          .slice(tmdbFailed + 'TMDB write threw, continuing: '.length)
-          .replace(/\s+—.*$/, '');
-        add('failed', 'neodb→tmdb', 'tmdb-item-threw', { title });
+        // The line is `标题[URL] {cat|shelf} — 错误信息`: the meta sits before the dash, not at the
+        // end, so cut the error tail first, then strip the suffix, then split the label. Doing it
+        // in any other order either misses the meta or leaves the dash in the title.
+        // 该行是 `标题[URL] {cat|shelf} — 错误信息`：meta 位于破折号之前而非行尾，因此先切掉错误
+        // 尾巴，再摘后缀，最后拆标签。顺序颠倒会漏掉 meta，或把破折号留在标题里。
+        const rest = line.slice(tmdbFailed + 'TMDB write threw, continuing: '.length);
+        const dash = rest.lastIndexOf(' —');
+        const head = dash >= 0 ? rest.slice(0, dash) : rest;
+        const { text, category, shelf } = splitMeta(head);
+        const label = splitLabel(text);
+        add('failed', 'neodb→tmdb', 'tmdb-item-threw', {
+          url: label ? label.url : '',
+          title: label ? label.title : text.trim(),
+          category,
+          shelf,
+        });
         continue;
       }
 

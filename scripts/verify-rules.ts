@@ -938,9 +938,9 @@ check(
   renderDetailLines([{ title: '某书', url: '', reason: 'r' }]).lines[0] === '某书 — r',
 );
 check(
-  'an entry with no title and no url is named (unnamed) rather than printed as an empty bullet',
+  'an entry with no title and no url uses the same (unknown) sentinel the queue skips',
   renderDetailLines([{ title: '  ', url: ' ', reason: 'r' }]).lines[0] ===
-    '(unnamed) — r',
+    '(unknown) — r',
 );
 check(
   'a url with no title still gets rendered, because it is the only handle there is',
