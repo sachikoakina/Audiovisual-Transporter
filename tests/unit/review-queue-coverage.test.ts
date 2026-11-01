@@ -20,7 +20,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   coverageFromReport,
-  dropLegacyTmdbTitleKeys,
   merge,
   type ReviewItem,
 } from '../../scripts/review-queue.mjs';
@@ -201,28 +200,8 @@ describe('merge — observed entries', () => {
   });
 });
 
-describe('dropLegacyTmdbTitleKeys — one-time ⑤ re-baseline', () => {
-  it('drops only ⑤ entries keyed by title, keeping every other path untouched', () => {
-    const legacy = entry({ key: 'neodb→tmdb::title:流浪地球3(下)', url: '' });
-    const otherPath = entry({
-      key: 'douban→neodb::https://book.douban.com/subject/2/',
-      source: 'douban→neodb',
-      title: '天仙配',
-      url: 'https://book.douban.com/subject/2/',
-    });
-    const current = entry({});
-
-    const kept = dropLegacyTmdbTitleKeys([legacy, otherPath, current]);
-
-    expect(kept).toEqual([otherPath, current]);
-  });
-
-  it('returns the same array when there is nothing to drop', () => {
-    const items = [
-      entry({}),
-      entry({ key: `neodb→tmdb::${TMDB_URL_2}`, url: TMDB_URL_2 }),
-    ];
-
-    expect(dropLegacyTmdbTitleKeys(items)).toBe(items);
-  });
-});
+// The one-time ⑤ migration is gone: the 2026-11-01 snapshot held 771 entries and zero
+// `neodb→tmdb::title:` keys, so there is nothing left to re-baseline — and keeping the pass would
+// delete a future empty-URL entry on the next round, resetting its `firstSeenAt`.
+// ⑤ 的一次性迁移已删除：2026-11-01 的快照有 771 条、0 条 `neodb→tmdb::title:`，没有可重置的东西；
+// 保留这一步反而会在下一轮删掉将来某个空 URL 条目，并重置它的 `firstSeenAt`。

@@ -592,30 +592,6 @@ function loadState(file) {
 }
 
 /**
- * One-time migration, shipped with the path-as-H1 re-grouping: ⑤'s entries used to be keyed by
- * title because its log lines carried relative NeoDB paths the parser could not accept. The path
- * now absolutizes every URL and records the same URL into `scannedIds`, so a title-keyed ⑤ entry
- * can never again be covered by the scan set — left alone, each one would sit in the list
- * forever, frozen. Dropping them re-baselines ⑤ only; the other four paths keep their history
- * and their `firstSeenAt` ages.
- *
- * 一次性迁移，随「链路作一级标题」的重排一起发布：⑤ 的条目过去按标题建 key，因为它的日志行
- * 携带的是解析器无法接受的相对 NeoDB 路径。现在链路侧把每个 URL 绝对化、并把同一个 URL 记进
- * `scannedIds`，按标题建 key 的 ⑤ 条目从此不可能再被扫描集合覆盖 —— 不清理的话，每一条都会
- * 冻结在名单里永不淘汰。丢弃它们只重置 ⑤；其余四条链路的历史与 `firstSeenAt` 天龄原样保留。
- *
- * @returns {Array} The same array when there is nothing to drop, so `main` can treat this as a
- *   no-op pass-through.
- *   没有可清理项时原数组原样返回，`main` 因此可以把这步当成无操作的透传。
- */
-export function dropLegacyTmdbTitleKeys(items) {
-  const kept = items.filter(
-    (item) => !String(item?.key ?? '').startsWith('neodb→tmdb::title:'),
-  );
-  return kept.length === items.length ? items : kept;
-}
-
-/**
  * The identity part of an entry's key — the same string `scannedIds` records for that item.
  *
  * `makeKey` builds `${source}::${url || id || 'title:' + title}`; ⑤ now keys by its absolutized
@@ -1197,7 +1173,12 @@ function main() {
   }
 
   const parsed = parseLogs(logsDir);
-  const previous = dropLegacyTmdbTitleKeys(loadState(stateFile));
+  // The ⑤ title-key migration ran until the 2026-11-01 snapshot (771 entries, 0 legacy keys).
+  // It is gone now: keeping it would silently drop a future empty-URL entry on the very next
+  // round, resetting `firstSeenAt` every run.
+  // ⑤ 的标题 key 迁移一直跑到 2026-11-01 的快照（771 条，0 条遗留 key）。现在删除它：保留反而
+  // 会把将来某个空 URL 条目在下一轮直接删掉，导致 `firstSeenAt` 每轮重置。
+  const previous = loadState(stateFile);
   // Read the report *before* the merge: it decides which absences may be counted, and it fills in
   // the type/state a log line may not have carried.
   // 在合并之前读报表：它决定哪些缺席可以计数，并补齐日志行可能没带的类型与状态。

@@ -391,7 +391,7 @@
 
 **路径**：`SYNC_UNMATCHED_LOG`，默认 `.cache/unmatched.json`。这是**相对路径**，按**进程的工作目录**解析 —— `npm run sync` 的工作目录是仓库根，所以本地默认落在 `<仓库>/.cache/unmatched.json`；用 `npm --prefix`、IDE 任务、或从别的目录直接调 `tsx src/index.ts` 时，它落在**那个目录**下的 `.cache/`。
 
-**四条链路会写它**：② Douban → NeoDB（`no-neodb-match`）、③ Douban → Bangumi（`no-bangumi-match`）、④ Bangumi → NeoDB（`neodb-unresolved`）、⑤ NeoDB → TMDB（`no-tmdb-match` / `no-neodb-year` / `no-neodb-year-fetch-failed`）。① 不写（它的未配置分类与写入失败走 Notion 侧的明细与 `skipped`），因此「汇总里没有 `Full entries` 那一行」不代表出错。
+**四条链路会写它**：② Douban → NeoDB（`no-neodb-match`）、③ Douban → Bangumi（`no-bangumi-match`）、④ Bangumi → NeoDB（`neodb-unresolved`）、⑤ NeoDB → TMDB（`no-tmdb-match` / `no-neodb-year` 记为 unresolved，`no-neodb-year-fetch-failed` 记为 failed）。① 不写（它的未配置分类与写入失败走 Notion 侧的明细与 `skipped`），因此「汇总里没有 `Full entries` 那一行」不代表出错。
 
 **本地日志里打印的是解析后的绝对路径**，形如：
 
@@ -504,7 +504,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 > **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。
 >
-> `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④），以及 ⑤ 的三种 —— `no-tmdb-match`（搜过了，没有）、`no-neodb-year`（没年份，根本没搜）、`no-neodb-year-fetch-failed`（取年份失败）。
+> `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④），以及 ⑤ 的两种 —— `no-tmdb-match`（搜过了，没有）、`no-neodb-year`（没年份，根本没搜）。⑤ 的第三种 `no-neodb-year-fetch-failed`（取年份失败）不是数据缺口，计入 `failed` 并走失败的明细与哨兵行。
 >
 > 每条链路还会把本轮检查过的条目身份写进 `PathReport.scannedIds`。待核对名单的淘汰规则依赖它：只有身份在集合里、且日志里不再出现的条目才计入缺席；被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断或链路未运行的部分不会进入集合，名单因此冻结而不是误删。
 
@@ -611,10 +611,10 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 「本轮新增 / 本轮移除 / 观察中」位于顶部，是无标题的摘要块，不参与上述层级。
 
 - 来源：条目内容取自日志；是否允许淘汰取自 `sync-report.json` 的 `scannedIds`。
-- 老化：连续两轮未出现才移除；被条数上限截断或未运行的链路不计缺席。
+- 老化：连续两轮未出现才移除；被条数上限、分页截断（`truncated`）或未运行的链路不计缺席。
 - 截断：控制台只列前 20 条。
-- 迁移：⑤ 曾按标题建 key（当时的日志行带相对路径、解析器不收）。链路侧改为绝对化 URL 后，加载快照时会一次性丢弃 `neodb→tmdb::title:` 形式的遗留条目 —— 它们的身份永远无法再被 URL 化的扫描集合覆盖，不清理就会永久冻结；其余四条链路的历史与天龄不受影响。
-- 区分：⑤ 的 `no-tmdb-match`、`no-neodb-year`、`no-neodb-year-fetch-failed` 在名单上不可区分，只能看本地留档或 debug 日志。
+- 迁移：已结束。2026-11-01 的快照（771 条）中 `neodb→tmdb::title:` 为 0，一次性清理随该轮删除；此后不再每轮扫描 title key。空 URL 的 ⑤ 条目仍按 `title:` 建 key，并由扫描集合里的同一条身份覆盖，正常老化。
+- 区分：⑤ 的 `no-tmdb-match` 与 `no-neodb-year` 在名单的 unresolved 组里不可区分，只能看本地留档或 debug 日志；`no-neodb-year-fetch-failed` 已改判为 failed，用自己的哨兵行进入 failed 组。
 
 ## 设计取舍
 
