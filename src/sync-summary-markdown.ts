@@ -56,6 +56,16 @@ export function stateLabel(report: PathReport): string {
       ? `dry-run, ${report.unresolved} unresolved`
       : 'dry-run';
   }
+  // A truncated walk ranks above `capped`: being capped is a configured limit, while a failed or
+  // malformed page means the path does not actually know what it missed. Saying "capped" there
+  // would send the reader to `SYNC_MAX_ITEMS` for a network problem.
+  // 截断排在 `capped` 之前：cap 是配置上限，而失败或畸形的页意味着链路根本不知道自己漏了什么。
+  // 在那种情况下说 "capped" 会让读者去调 `SYNC_MAX_ITEMS` 解决网络问题。
+  if (report.truncated) {
+    return report.unresolved > 0
+      ? `partial, ${report.unresolved} unresolved`
+      : 'partial';
+  }
   if (report.capped) {
     return report.unresolved > 0 ? `capped, ${report.unresolved} unresolved` : 'capped';
   }

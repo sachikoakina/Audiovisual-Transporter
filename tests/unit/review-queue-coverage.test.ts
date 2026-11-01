@@ -50,7 +50,12 @@ function entry(over: Partial<ReviewItem>): ReviewItem {
 /** Coverage as `coverageFromReport` would build it from one path's report. / 按一条链路的报表构造覆盖集合。 */
 function coverage(
   ids: string[],
-  over: { capped?: boolean; aborted?: boolean; unresolved?: number } = {},
+  over: {
+    capped?: boolean;
+    aborted?: boolean;
+    truncated?: boolean;
+    unresolved?: number;
+  } = {},
 ) {
   return coverageFromReport({
     version: 1,
@@ -60,6 +65,7 @@ function coverage(
         scannedIds: ids,
         capped: over.capped ?? false,
         aborted: over.aborted ?? false,
+        truncated: over.truncated ?? false,
         unresolved: over.unresolved ?? 0,
       },
     ],
@@ -74,9 +80,13 @@ describe('coverageFromReport', () => {
     expect(map.get('neodb→tmdb')?.complete).toBe(true);
   });
 
-  it('marks a capped or aborted path as incomplete', () => {
+  it('marks a capped, aborted or truncated path as incomplete', () => {
     expect(coverage([], { capped: true }).get('neodb→tmdb')?.complete).toBe(false);
     expect(coverage([], { aborted: true }).get('neodb→tmdb')?.complete).toBe(false);
+    // A failed page is not a configured limit: without this the stats file keeps claiming the
+    // run covered the whole shelf while ageing has to be frozen.
+    // 分页失败不是配置上限：漏掉它，统计文件会继续声称这一轮覆盖了整个书架，而老化其实必须冻结。
+    expect(coverage([], { truncated: true }).get('neodb→tmdb')?.complete).toBe(false);
   });
 
   it('ignores a report path that is not a review-list source', () => {

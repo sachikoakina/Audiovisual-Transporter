@@ -43,7 +43,14 @@ vi.mock('../../src/clients/neodb-http', async (importOriginal) => ({
 }));
 
 vi.mock('../../src/clients/neodb-shelf', () => ({
-  fetchShelf: (...args: unknown[]) => fetchShelf(...args),
+  // Tests keep stubbing `fetchShelf` with a plain array (that was its old shape); the wrapper
+  // adapts it to the new `{ marks, truncated }` contract instead of rewriting every fixture.
+  // 测试仍以裸数组 stub `fetchShelf`（它的旧形状）；这里适配成新的 `{ marks, truncated }`，
+  // 免得逐个改夹具。
+  fetchShelf: async (...args: unknown[]) => {
+    const result = await fetchShelf(...args);
+    return Array.isArray(result) ? { marks: result, truncated: false } : result;
+  },
   getNeodbMe: async () => ({ username: 'tester' }),
   verifyNeodbToken: async () => true,
 }));

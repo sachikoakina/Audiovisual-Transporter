@@ -330,10 +330,14 @@ export async function fetchShelfPage(options: {
     // Defensive: the shape is verified, but a proxy or a fork could differ.
     // 防御性处理：结构已实测，但代理或分支实现可能不同。
     if (!Array.isArray(result?.data)) {
+      // Not an empty page: the response did not have the shape we walk. Returning `null` lets
+      // `fetchShelf` mark the walk as truncated instead of silently pretending the shelf ended.
+      // 这不是空页：响应的结构根本不对。返回 `null` 让 `fetchShelf` 把这次遍历标成截断，而不是
+      // 悄悄假装书架到头了。
       consola.warn(
-        `Unexpected shelf response for ${options.shelfType} page ${options.page}; treating as empty.`,
+        `Unexpected shelf response for ${options.shelfType} page ${options.page}; aborting that shelf.`,
       );
-      return { data: [], pages: 1, count: 0 };
+      return null;
     }
     return result;
   } catch (error) {
@@ -369,13 +373,17 @@ export async function fetchShelf(
   shelfType: ShelfType,
   category?: string,
   maxPages: number = neodbTmdbConfig.neodb.maxPages,
-): Promise<NeodbPagedMark['data']> {
+): Promise<{ marks: NeodbPagedMark['data']; truncated: boolean }> {
   const collected: NeodbPagedMark['data'] = [];
+  let truncated = false;
 
   for (let page = 1; page <= maxPages; page += 1) {
     const result = await fetchShelfPage({ shelfType, category, page });
     if (result === null) {
+      // A failed or malformed page means the walk is incomplete, not that the shelf is empty.
+      // 失败或畸形的页意味着这次遍历不完整，而不是书架为空。
       consola.warn(`Aborting shelf "${shelfType}" at page ${page} after an error.`);
+      truncated = true;
       break;
     }
     if (result.data.length === 0) {
@@ -392,10 +400,11 @@ export async function fetchShelf(
       consola.warn(
         `Shelf "${shelfType}" hit NEODB_MAX_PAGES (${maxPages}); more items remain.`,
       );
+      truncated = true;
       break;
     }
     await neodbThrottle();
   }
 
-  return collected;
+  return { marks: collected, truncated };
 }

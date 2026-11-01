@@ -495,8 +495,8 @@ export type PathReport = {
   /**
    * Identities of the items this run actually examined — the same strings the review list uses
    * as the identity part of an entry's key: the Douban link for ①②③, the Bangumi subject URL
-   * (plus the display title, for the title-keyed failure lines) for ④, and the display title for
-   * ⑤. Empty when the path stopped before examining anything.
+   * (plus the display title, for the title-keyed failure lines) for ④, and the absolutized NeoDB
+   * URL for ⑤. Empty when the path stopped before examining anything.
    *
    * This is what separates "fixed" from "never looked at". A capped, paginated or aborted run
    * simply contains fewer identities, so the review list can freeze the entries it never reached
@@ -518,6 +518,16 @@ export type PathReport = {
   failed: number;
   /** A configured cap stopped the run before everything was walked. */
   capped: boolean;
+  /**
+   * The path did not finish walking its source: a page failed, a response was malformed, or the
+   * page budget ran out. Distinct from `capped` (a configured item cap) on purpose — treating the
+   * two as one makes the list say "cap reached" when the network failed, and hides the fact that
+   * ageing must be frozen. Optional so an older `sync-report.json` remains readable.
+   * 该链路没有走完数据源：分页失败、响应畸形，或页数预算用尽。刻意与 `capped`（配置的条数上限）
+   * 分开 —— 混为一谈会让名单把网络故障说成「cap reached」，也掩盖了必须冻结老化这件事。可选，
+   * 以便旧 `sync-report.json` 仍可读取。
+   */
+  truncated?: boolean;
   /** The path could not run at all (missing credentials, network failure). */
   aborted: boolean;
   /**
@@ -577,6 +587,7 @@ export function newPathReport(label: string): PathReport {
     unresolved: 0,
     failed: 0,
     capped: false,
+    truncated: false,
     aborted: false,
     dryRun: false,
     tolerated: false,

@@ -148,6 +148,13 @@ type SyncContext = {
    * `SYNC_MAX_ITEMS` 提前中止了本轮；仍有条目未走到，顺延到下一轮。
    */
   capped: boolean;
+  /**
+   * A shelf walk stopped before its natural end (failed page, malformed response, page budget).
+   * Unlike `capped`, this is not a configured limit, and it must freeze ageing for the whole path.
+   * 某个书架没有走到自然结束（分页失败、响应畸形、页数预算）。与 `capped` 不同，它不是配置上限，
+   * 并且必须冻结整条链路的老化。
+   */
+  truncated: boolean;
   /** Labels of unmatched items, in encounter order, for the closing listing. */
   unmatchedTitles: string[];
   /**
@@ -262,6 +269,7 @@ export default async function runNeodbToTmdb(
     itemYears: readItemYearCache(neodbTmdbConfig.itemYearCacheFile),
     itemYearsDirty: false,
     capped: false,
+    truncated: false,
     unmatchedTitles: [],
     unmatchedItems: [],
     failedItems: [],
@@ -320,6 +328,7 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   report.unresolved = c.unmatched;
   report.failed = c.failed;
   report.capped = ctx.capped;
+  report.truncated = ctx.truncated;
   // Sorted so the report is byte-stable for the same walk, which keeps the artifact diffable and
   // makes a coverage regression visible as a real difference rather than a reshuffle.
   // 排序让同一次遍历产出字节稳定的报告：artifact 可对比，覆盖范围的变化才是真的变化，而不是顺序抖动。
@@ -342,10 +351,30 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
  * 同步一个书架。返回 `true` 表示整轮必须停下 —— 凭据失效了，剩下的标记都会产生同一个错误。
  */
 async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolean> {
+  // Once the cap is hit, the remaining shelves have nothing to do. Checking here avoids one
+  // paginated request per shelf just to rediscover the same wall.
+  // 配额一旦撞到，剩下的书架无事可做。在这里判断可以避免为每个书架各发一轮分页请求去重新发现
+  // 同一面墙。
+  if (ctx.capped) {
+    return false;
+  }
   consola.start(`Shelf "${shelfType}"`);
 
   for (const category of resolveTargetCategories()) {
-    const marks = await fetchShelf(shelfType, category, ctx.mode.maxPages);
+    if (ctx.capped) {
+      break;
+    }
+    const { marks, truncated } = await fetchShelf(
+      shelfType,
+      category,
+      ctx.mode.maxPages,
+    );
+    if (truncated) {
+      // A partial read must freeze ageing for this path: entries that were never reached would
+      // otherwise look "absent" and be dropped from the review list.
+      // 读取不完整必须冻结本链路的老化：没走到的条目否则会被当成「未出现」而从名单里淘汰。
+      ctx.truncated = true;
+    }
     consola.info(`  ${shelfType}/${category}: ${marks.length} mark(s).`);
 
     for (const mark of marks) {

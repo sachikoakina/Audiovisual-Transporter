@@ -21,10 +21,18 @@ export const bangumiToken = process.env.BANGUMI_ACCESS_TOKEN;
 /** `BANGUMI_PRIVATE=true` makes new collections private. / `BANGUMI_PRIVATE=true` 时新建收藏为私密。 */
 export const bangumiPrivate = process.env.BANGUMI_PRIVATE === 'true';
 /** Page size for collection listing, clamped to Bangumi's accepted maximum of 50. / 收藏列表的分页大小，被约束在 Bangumi 接受的 50 以内。 */
-export const bangumiCollectionLimit = Math.min(
-  Math.max(Number(process.env.BANGUMI_COLLECTION_LIMIT ?? 50), 1),
-  50,
-);
+const rawCollectionLimit = process.env.BANGUMI_COLLECTION_LIMIT;
+// `Number('')` is 0 and `Number('abc')` is NaN; both used to reach Bangumi as `limit=1` or
+// `limit=NaN`. Anything unusable falls back to the default page size instead.
+// `Number('')` 是 0、`Number('abc')` 是 NaN；两者过去会以 `limit=1` 或 `limit=NaN` 发给 Bangumi。
+// 任何不可用的值都回落到默认页大小。
+const parsedCollectionLimit =
+  rawCollectionLimit === undefined || rawCollectionLimit.trim() === ''
+    ? 50
+    : Number(rawCollectionLimit);
+export const bangumiCollectionLimit = Number.isFinite(parsedCollectionLimit)
+  ? Math.floor(Math.min(Math.max(parsedCollectionLimit, 1), 50))
+  : 50;
 /** Bangumi requires a descriptive UA. / Bangumi 要求带一个可识别的 UA。 */
 export const bangumiUserAgent =
   process.env.BANGUMI_USER_AGENT ||

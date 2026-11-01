@@ -27,6 +27,8 @@ export type RunReportPath = {
   aborted?: boolean;
   written?: number;
   unchanged?: number;
+  /** A shelf walk stopped early (failed page, malformed response, page budget). */
+  truncated?: boolean;
   // Detail entries the queue uses to fill in type/state when the log line lacked them. Optional:
   // an older report does not carry them.
   // 名单用来补齐类型/状态的明细；旧报表没有这些字段，因此可选。

@@ -163,8 +163,9 @@ export function printPathSummary(report: PathReport): void {
     `${report.label}: scanned ${report.scanned}, written ${report.written}, ` +
       `unchanged ${report.unchanged}, skipped ${report.skipped}, ` +
       `unresolved ${report.unresolved}, failed ${report.failed}` +
+      `${report.truncated ? ' — read incomplete' : ''}` +
       `${report.capped ? ' — cap reached' : ''}` +
-      `${report.aborted ? ' — aborted before it could run' : ''}` +
+      `${report.aborted ? ' — aborted mid-run' : ''}` +
       `${report.dryRun ? ' — dry run, nothing was sent' : ''}`,
   );
 

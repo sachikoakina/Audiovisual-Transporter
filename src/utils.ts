@@ -384,17 +384,41 @@ function readReviewLog(file: string): ReviewLogEntry[] {
     return cached;
   }
   let entries: ReviewLogEntry[];
+  let text: string;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      // Genuinely absent: the first run. Starting from zero is correct.
+      // 确实不存在：首次运行。从零开始是正确的。
+      entries = [];
+      reviewLogCache.set(file, entries);
+      return entries;
+    }
+    // A permission / I/O error is not "no entries". Treating it as empty made the next write
+    // replace the whole file with the single entry being added — silent data loss.
+    // 权限／I/O 错误不等于「没有条目」。把它当空数组，会让紧接着的写入用当前这一条覆盖整份
+    // 文件 —— 静默的数据丢失。
+    throw new Error(
+      `Could not read review log ${file}: ${fileErrorDetail(error).text}`,
+      { cause: error },
+    );
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
     entries = Array.isArray(parsed)
       ? (parsed.filter(
           (item) => typeof item === 'object' && item !== null,
         ) as ReviewLogEntry[])
       : [];
-  } catch {
-    // Missing on the first run, or hand-edited into invalid JSON — start over.
-    // 首次运行时文件不存在，或被人改成非法 JSON —— 从零开始。
-    entries = [];
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      // Hand-edited into invalid JSON — starting over is the documented recovery.
+      // 被人改成非法 JSON —— 从零开始是既定的恢复方式。
+      entries = [];
+    } else {
+      throw error;
+    }
   }
   reviewLogCache.set(file, entries);
   return entries;

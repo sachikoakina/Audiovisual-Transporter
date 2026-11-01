@@ -643,7 +643,7 @@ export function coverageFromReport(report) {
       ids: new Set(
         (Array.isArray(path.scannedIds) ? path.scannedIds : []).map((id) => String(id)),
       ),
-      complete: !path.capped && !path.aborted,
+      complete: !path.capped && !path.aborted && !path.truncated,
       // Used only to tell a genuine "everything is fixed" round (report says 0 unresolved) from
       // a parser break (report counted some, the log yielded none).
       // 只用来区分真正的「全部修好」（报表计 0 条未匹配）与解析器失效（报表计了，日志却没解析到）。

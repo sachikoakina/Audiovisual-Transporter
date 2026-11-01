@@ -421,7 +421,15 @@ const DEFAULT_TMDB_SHELF_TYPES: readonly ShelfType[] = [
 ];
 
 function envInt(name: string, defaultValue: number, min = 0): number {
-  const raw = Number(process.env[name]);
+  const text = process.env[name];
+  // `Number('')` is 0, which silently turned an empty `SYNC_MAX_ITEMS=` into "no limit" and an
+  // empty `SYNC_YEAR_TOLERANCE=` into strict matching. Absent and empty both mean "use default".
+  // `Number('')` 是 0，会把空的 `SYNC_MAX_ITEMS=` 变成「不限量」、空的 `SYNC_YEAR_TOLERANCE=`
+  // 变成严格匹配。未设置与空串都应当表示「用默认值」。
+  if (text === undefined || text.trim() === '') {
+    return defaultValue;
+  }
+  const raw = Number(text);
   if (!Number.isFinite(raw) || raw < min) {
     return defaultValue;
   }

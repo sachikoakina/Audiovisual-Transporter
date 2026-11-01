@@ -43,7 +43,7 @@ import {
   listBangumiCollections,
   type BangumiCollection,
 } from '../clients/bangumi';
-import { neodbToken, neodbVisibility } from '../clients/neodb-http';
+import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
 import { resolveNeodbItemForBangumiUrl } from '../clients/neodb-catalog';
 import {
   getNeodbMark,
@@ -148,6 +148,10 @@ export default async function syncBangumiToNeodb(
 
   if (subjectTypes && subjectTypes.length === 0) {
     consola.warn('Bangumi → NeoDB category allowlist is empty; skip.');
+    // Every other early guard prints the per-path summary; this one silently produced no line at
+    // all, so a misconfigured allowlist looked like a path that never ran.
+    // 其余早退守卫都会打印逐链路摘要；只有这里什么都不打，配置错误看起来就像链路根本没运行。
+    printPathSummary(report);
     return report;
   }
 
@@ -300,6 +304,11 @@ export default async function syncBangumiToNeodb(
             error instanceof Error ? error.message : error,
           );
         }
+        // One collection fans out to several NeoDB calls (resolve, read mark, write mark, optional
+        // progress). ④ never throttled those, unlike ⑤, so a full sync could burst the instance.
+        // 每条收藏会扇出多次 NeoDB 调用（解析、读标记、写标记、可选进度）。④ 从不对它们节流，
+        // 与 ⑤ 不同，全量同步可能把实例打出突发流量。
+        await neodbThrottle();
         await bangumiThrottle();
       }
 
