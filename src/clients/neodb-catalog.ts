@@ -24,6 +24,20 @@ export type NeodbSearchCategory =
  * 按外部站点 URL（豆瓣、Bangumi 等）从 NeoDB 拉取目录条目。
  * 当 NeoDB 返回 202（尚无 uuid，正在抓取）时重试。
  */
+function errorStatus(error: unknown): number | undefined {
+  const response = (error as { response?: { statusCode?: number } }).response;
+  return response?.statusCode;
+}
+
+function retryAfterMs(error: unknown): number | undefined {
+  const headers = (error as { response?: { headers?: Record<string, string> } })
+    .response?.headers;
+  const raw = headers?.['retry-after'];
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : undefined;
+}
+
 export async function fetchNeodbItemByUrl(
   url: string,
   retries = 3,
@@ -47,6 +61,16 @@ export async function fetchNeodbItemByUrl(
     await sleep(1500);
     return fetchNeodbItemByUrl(url, retries - 1);
   } catch (error) {
+    const status = errorStatus(error);
+    if ((status === 429 || (status != null && status >= 500)) && retries > 0) {
+      const delay = retryAfterMs(error) ?? Math.min(2000 * 2 ** (3 - retries), 8000);
+      consola.warn(
+        `NeoDB catalog fetch returned ${status}; retrying in ${delay}ms: `,
+        url,
+      );
+      await sleep(delay);
+      return fetchNeodbItemByUrl(url, retries - 1);
+    }
     consola.error('Fetch NeoDB item with error: ', neodbFailureCode(error));
     return null;
   }
@@ -232,10 +256,27 @@ export async function searchNeodbCatalog(
  * 当从 Bangumi 取到的条目其 `external_resources` 里没有豆瓣 URL 时，按标题精确匹配寻找
  * 一条带豆瓣外链的「孪生条目」。
  */
+function itemYear(item: NeodbItem): number | undefined {
+  return item.year ?? item.pub_year;
+}
+
+function yearMatches(
+  expectedYear: number | undefined,
+  actualYear: number | undefined,
+): boolean {
+  if (expectedYear == null || actualYear == null) {
+    // A missing year on either side is not evidence against the match.
+    // 任一侧缺年份都不构成反对匹配的证据。
+    return true;
+  }
+  return Math.abs(expectedYear - actualYear) <= 1;
+}
+
 export async function findDoubanLinkedTwinByTitle(
   fromBangumi: NeodbItem,
   titles: Array<string | null | undefined>,
   category?: NeodbSearchCategory,
+  expectedYear?: number,
 ): Promise<NeodbItem | null> {
   const queries = uniqueNonEmptyTitles([
     ...titles,
@@ -247,8 +288,13 @@ export async function findDoubanLinkedTwinByTitle(
   }
 
   const queryKeys = new Set(queries.map(normalizeTitleKey));
+  // Never widen the search beyond the category implied by the Bangumi subject type. A novel or
+  // manga with the same title as a film must not resolve to that film just because the book
+  // category had no Douban-linked hit.
+  // 绝不把搜索扩大到 Bangumi subject type 对应的分类之外。与电影同名的小说/漫画，不能因为书
+  // 分类没有豆瓣孪生就命中那部电影。
   const categories: Array<NeodbSearchCategory | undefined> = category
-    ? [category, undefined]
+    ? [category]
     : [undefined];
   const seenUuid = new Set<string>([fromBangumi.uuid]);
 
@@ -269,6 +315,7 @@ export async function findDoubanLinkedTwinByTitle(
           }
         }
         if (!matched) continue;
+        if (!yearMatches(expectedYear, itemYear(hit))) continue;
 
         consola.info(
           'NeoDB Douban twin found via title search: ',
@@ -286,6 +333,15 @@ export type ResolveBangumiNeodbOptions = {
   /** Candidate titles from Bangumi (`name_cn` / `name`). / Bangumi 给出的候选标题（`name_cn` / `name`）。 */
   titles?: Array<string | null | undefined>;
   subjectType?: BangumiSubjectType;
+  /** Release year when known, used to reject same-title remakes. / 已知发行年，用于拒绝同名翻拍。 */
+  expectedYear?: number;
+};
+
+export type NeodbResolutionVia = 'direct' | 'douban-twin' | 'title-twin' | 'none';
+
+export type NeodbResolution = {
+  item: NeodbItem | null;
+  via: NeodbResolutionVia;
 };
 
 /**
@@ -302,13 +358,13 @@ export type ResolveBangumiNeodbOptions = {
  * 1) 优先使用从 Bangumi 取到的条目 `external_resources` 上已有的豆瓣 URL
  * 2) 否则按标题搜索目录，寻找标题完全相同且带豆瓣外链的结果
  */
-export async function resolveNeodbItemForBangumiUrl(
+export async function resolveNeodbItemForBangumiUrlDetailed(
   bangumiUrl: string,
   options: ResolveBangumiNeodbOptions = {},
-): Promise<NeodbItem | null> {
+): Promise<NeodbResolution> {
   const fromBangumi = await fetchNeodbItemByUrl(bangumiUrl);
   if (!fromBangumi?.uuid) {
-    return null;
+    return { item: null, via: 'none' };
   }
 
   const doubanUrl = extractDoubanUrlFromNeodb(fromBangumi);
@@ -319,9 +375,9 @@ export async function resolveNeodbItemForBangumiUrl(
         'NeoDB has separate Douban/Bangumi catalog entries; prefer Douban twin: ',
         `${fromBangumi.uuid} → ${fromDouban.uuid}`,
       );
-      return fromDouban;
+      return { item: fromDouban, via: 'douban-twin' };
     }
-    return fromBangumi;
+    return { item: fromBangumi, via: 'direct' };
   }
 
   const category =
@@ -333,6 +389,16 @@ export async function resolveNeodbItemForBangumiUrl(
     fromBangumi,
     options.titles || [],
     category,
+    options.expectedYear,
   );
-  return twin || fromBangumi;
+  return twin
+    ? { item: twin, via: 'title-twin' }
+    : { item: fromBangumi, via: 'direct' };
+}
+
+export async function resolveNeodbItemForBangumiUrl(
+  bangumiUrl: string,
+  options: ResolveBangumiNeodbOptions = {},
+): Promise<NeodbItem | null> {
+  return (await resolveNeodbItemForBangumiUrlDetailed(bangumiUrl, options)).item;
 }
