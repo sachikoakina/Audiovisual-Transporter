@@ -582,27 +582,49 @@ async function syncMark(
   // 4) Resolve to a concrete TMDB item.
   const resolution = await resolveTmdbTarget(item, mediaType, ctx);
   if (!resolution.target) {
-    ctx.counters.unmatched += 1;
-    ctx.unmatchedTitles.push(label);
-    ctx.unmatchedItems.push({
-      title: label,
-      url: itemUrl,
-      reason: resolution.reason,
-      category: normalizeReviewCategory(category),
-      shelf: normalizeReviewShelf(shelfType),
-    });
-    // The prefix is locked by `scripts/review-queue.mjs` and `verify-log-contract`. The link and
-    // the `{category|shelf}` suffix are appended after it: the list groups by both, and ⑤ used to
-    // print a title with no address at all.
-    // 前缀被名单解析器与日志契约锁住；链接与 `{category|shelf}` 后缀追加在其后 —— 名单要按这两
-    // 者分组，而 ⑤ 过去只打标题、连地址都没有。
-    consola.warn(
-      `No TMDB match; skip ${label}[${itemUrl}] ${reviewMetaSuffix(category, shelfType)}.`,
-    );
-    if (resolution.reason !== 'no-tmdb-match') {
-      consola.debug(
-        `  ${label}: ${resolution.reason} — title search was not attempted.`,
+    const suffix = reviewMetaSuffix(category, shelfType);
+    const link = itemUrl ? `[${itemUrl}]` : '';
+    // A year lookup that failed is an error, not a data gap: TMDB was never asked, and a re-run can
+    // answer it. Counting it as `unresolved` kept the run green while telling the reader the item
+    // had no counterpart — the one thing the counter must not lie about.
+    // 年份查询失败是错误，不是数据缺口：TMDB 根本没被问过，重跑就能回答。把它记成 `unresolved`
+    // 会让本轮保持绿色，却告诉读者「没有对应条目」—— 正是计数最不该说谎的地方。
+    if (resolution.reason === 'no-neodb-year-fetch-failed') {
+      ctx.counters.failed += 1;
+      ctx.failedItems.push({
+        title: label,
+        url: itemUrl,
+        reason: resolution.reason,
+        category: normalizeReviewCategory(category),
+        shelf: normalizeReviewShelf(shelfType),
+      });
+      // Its own sentinel: reusing `No TMDB match; skip` would make the queue file it as
+      // unresolved, splitting the report and the list into two different stories.
+      // 专用哨兵：复用 `No TMDB match; skip` 会让名单把它记成 unresolved，报表与名单各说一套。
+      consola.warn(
+        `NeoDB year fetch failed; counting as failed: ${label}${link} ${suffix}.`,
       );
+    } else {
+      ctx.counters.unmatched += 1;
+      ctx.unmatchedTitles.push(label);
+      ctx.unmatchedItems.push({
+        title: label,
+        url: itemUrl,
+        reason: resolution.reason,
+        category: normalizeReviewCategory(category),
+        shelf: normalizeReviewShelf(shelfType),
+      });
+      // The prefix is locked by `scripts/review-queue.mjs` and `verify-log-contract`. The link and
+      // the `{category|shelf}` suffix are appended after it: the list groups by both, and ⑤ used to
+      // print a title with no address at all.
+      // 前缀被名单解析器与日志契约锁住；链接与 `{category|shelf}` 后缀追加在其后 —— 名单要按这两
+      // 者分组，而 ⑤ 过去只打标题、连地址都没有。
+      consola.warn(`No TMDB match; skip ${label}${link} ${suffix}.`);
+      if (resolution.reason !== 'no-tmdb-match') {
+        consola.debug(
+          `  ${label}: ${resolution.reason} — title search was not attempted.`,
+        );
+      }
     }
     const logged = upsertReviewEntry(neodbTmdbConfig.unmatchedLogFile, {
       source: 'neodb→tmdb',

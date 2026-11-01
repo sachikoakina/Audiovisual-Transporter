@@ -272,6 +272,7 @@ const DETAIL_REASONS = new Map([
   ['bangumi-read-failed', ['failed', 'douban→bangumi']],
   ['item-threw', ['failed', 'bangumi→neodb']],
   ['tmdb-item-threw', ['failed', 'neodb→tmdb']],
+  ['no-neodb-year-fetch-failed', ['failed', 'neodb→tmdb']],
   ['no-catalog-item', ['failed', 'neodb→tmdb']],
   ['tmdb-write-failed', ['failed', 'neodb→tmdb']],
 ]);
@@ -367,6 +368,22 @@ export function parseLogs(logsDir) {
       }
 
       // ── ⑤ NeoDB → TMDB ────────────────────────────────────────────────
+      const yearFailed = line.indexOf('NeoDB year fetch failed; counting as failed: ');
+      if (yearFailed >= 0) {
+        const { text, category, shelf } = splitMeta(
+          line.slice(
+            yearFailed + 'NeoDB year fetch failed; counting as failed: '.length,
+          ),
+        );
+        const label = splitLabel(text);
+        add('failed', 'neodb→tmdb', 'no-neodb-year-fetch-failed', {
+          url: label ? label.url : '',
+          title: label ? label.title : text.replace(/\.$/, '').trim(),
+          category,
+          shelf,
+        });
+        continue;
+      }
       const noMatch = line.indexOf('No TMDB match; skip ');
       if (noMatch >= 0) {
         const raw = line.slice(noMatch + 'No TMDB match; skip '.length);

@@ -46,6 +46,7 @@ const SENTINELS = [
   'NeoDB could not resolve Bangumi URL, skip: ',
   'NeoDB has Douban-absent status, skip overwrite: ',
   'No TMDB match; skip ',
+  'NeoDB year fetch failed; counting as failed: ',
   'Item failed, continuing: ',
   'TMDB write threw, continuing: ',
 ];

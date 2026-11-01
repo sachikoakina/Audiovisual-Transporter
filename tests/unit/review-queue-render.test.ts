@@ -299,4 +299,47 @@ describe('parseLogs — 类型与状态', () => {
       shelf: 'unknown',
     });
   });
+
+  it('routes a failed year fetch to the failed group, with link and meta', () => {
+    const [entry] = parse(
+      '[warn] NeoDB year fetch failed; counting as failed: Medalist[https://neodb.social/movie/1] {movie|dropped}.\n',
+    );
+
+    expect(entry).toMatchObject({
+      kind: 'failed',
+      source: 'neodb→tmdb',
+      reason: 'no-neodb-year-fetch-failed',
+      title: 'Medalist',
+      url: 'https://neodb.social/movie/1',
+      category: 'movie',
+      shelf: 'dropped',
+    });
+  });
+
+  it('reads the threw line link and meta before the error tail', () => {
+    const items = parse(
+      '[error] TMDB write threw, continuing: Medalist[https://neodb.social/movie/1] {movie|dropped} — HTTP 500\n',
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: 'failed',
+      reason: 'tmdb-item-threw',
+      title: 'Medalist',
+      url: 'https://neodb.social/movie/1',
+      category: 'movie',
+      shelf: 'dropped',
+    });
+  });
+
+  it('collapses the per-item and detail forms of one failure into one entry', () => {
+    const items = parse(
+      [
+        '[error] TMDB write threw, continuing: Medalist[https://neodb.social/movie/1] {movie|dropped} — HTTP 500',
+        '[warn]   · Medalist[https://neodb.social/movie/1] — tmdb-item-threw: HTTP 500',
+      ].join('\n'),
+    );
+
+    expect(items).toHaveLength(1);
+  });
 });

@@ -246,7 +246,12 @@ describe('⑤ no year means no title search / ⑤ 没有年份就不搜标题', 
     const report = await runNeodbToTmdb(false);
 
     expect(searchTmdb).not.toHaveBeenCalled();
-    expect(report.unresolved).toBe(1);
+    // The catalogue read failed, so this is an error, not a data gap: `failed` turns the run red
+    // and the item lands in the failed group, where a retry is the obvious action.
+    // 目录读取失败了，这是错误而不是数据缺口：`failed` 会让本轮变红，条目落进 failed 组，
+    // 而重跑是显然的处置。
+    expect(report.failed).toBe(1);
+    expect(report.unresolved).toBe(0);
     // An outage must not be filed as "TMDB has no counterpart": the fix for each is different.
     // 故障不能被记成「TMDB 没有对应物」：两者的处置方式完全不同。
     expect(lastReviewEntry().reason).toBe('no-neodb-year-fetch-failed');
