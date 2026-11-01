@@ -11,8 +11,9 @@ import { newPathReport, pathHasFailed } from './types';
  * NeoDB 书架到 TMDB 的全量同步。
  * 用于首次导入与 `workflow_dispatch`，而不是常规定时任务。
  *
- * Difference from the cron path: `paths/neodb-to-tmdb.ts` stops after `SYNC_MAX_ITEMS` items and
- * at most `NEODB_MAX_PAGES` pages per shelf; this entry passes `fullSync = true`, which lifts both
+ * Difference from the cron path: `paths/neodb-to-tmdb.ts` stops every shelf×category after
+ * `SYNC_MAX_ITEMS` items and at most `NEODB_MAX_PAGES` pages; this entry passes `fullSync = true`,
+ * which lifts both
  * caps and turns the incremental store off for the run. Shelf and category selections still apply,
  * and `SYNC_DRY_RUN` is still honoured — a full dry run is the recommended first step.
  *

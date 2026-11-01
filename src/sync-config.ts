@@ -404,14 +404,14 @@ export const unmatchedLogFile =
  * Shelves processed by default.
  *
  * `dropped` is included and listed last: it maps to the watchlist exactly like `progress`, so
- * leaving it out would mean a shelf the mapping can handle is never read. Last place matters for
- * capped runs — the first three shelves finish before dropped items can eat into `SYNC_MAX_ITEMS`.
+ * leaving it out would mean a shelf the mapping can handle is never read. The order no longer
+ * decides who gets the item budget — `SYNC_MAX_ITEMS` is per shelf×category now.
  *
  * 默认处理的书架。
  *
  * `dropped` 在列，且排在最后：它与 `progress` 一样映射到 watchlist，排除它等于让一个映射
- * 得了的书架永远不被读取。放在最后是为受上限约束的运行考虑 —— 前三个书架先跑完，dropped
- * 条目才可能吃进 `SYNC_MAX_ITEMS`。
+ * 得了的书架永远不被读取。顺序不再决定谁能拿到条目配额 —— `SYNC_MAX_ITEMS` 现在按
+ * 「书架×分类」独立计算。
  */
 const DEFAULT_TMDB_SHELF_TYPES: readonly ShelfType[] = [
   'wishlist',
@@ -505,7 +505,7 @@ export const neodbTmdbConfig = {
   /** Category allowlist. Empty → all syncable categories (movie, tv). / 分类白名单；空 → 全部可同步分类（movie、tv）。 */
   categories: splitCategoryTokens(process.env.SYNC_CATEGORIES),
   dryRun: envEnabled('SYNC_DRY_RUN', false),
-  maxItems: envInt('SYNC_MAX_ITEMS', 200, 1),
+  maxItems: envInt('SYNC_MAX_ITEMS', 50, 1),
   ratingProfile: resolveRatingProfile(),
   yearTolerance: envInt('SYNC_YEAR_TOLERANCE', 1, 0),
   /** Incremental de-duplication store. Empty string disables it. / 增量去重存储；空字符串表示关闭。 */
@@ -532,14 +532,14 @@ export const neodbTmdbConfig = {
    *
    * Note the trap this exists to remove: `envInt(name, default, min)` returns the default for any
    * value below `min`, and both caps use `min = 1` — so `SYNC_MAX_ITEMS=0` is *not* "unlimited",
-   * it silently falls back to 200.
+   * it silently falls back to 50.
    *
    * 环境变量里的全量意图，与 `BANGUMI_FULL_SYNC` 同一思路。它取消两道单轮上限
    * （`SYNC_MAX_ITEMS`、`NEODB_MAX_PAGES`）并关闭增量存储；专用的全量入口会在该次运行中显式
    * 传入 `true` 覆盖它。
    *
    * 注意它要消除的那个陷阱：`envInt(name, default, min)` 对任何小于 `min` 的值都返回默认值，
-   * 而两道上限的 `min` 都是 `1` —— 所以 `SYNC_MAX_ITEMS=0` **不是**「无限」，而是静默回落到 200。
+   * 而两道上限的 `min` 都是 `1` —— 所以 `SYNC_MAX_ITEMS=0` **不是**「无限」，而是静默回落到 50。
    */
   fullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
   /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */

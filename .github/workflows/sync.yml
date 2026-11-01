@@ -131,7 +131,7 @@ jobs:
       SYNC_CATEGORIES: ${{ vars.SYNC_CATEGORIES || 'movie,tv' }}
       SYNC_RATING_PROFILE: ${{ vars.SYNC_RATING_PROFILE || 'tmdb_prefer' }}
       SYNC_YEAR_TOLERANCE: ${{ vars.SYNC_YEAR_TOLERANCE || '1' }}
-      SYNC_MAX_ITEMS: ${{ vars.SYNC_MAX_ITEMS || '200' }}
+      SYNC_MAX_ITEMS: ${{ vars.SYNC_MAX_ITEMS || '50' }}
       SYNC_DRY_RUN: ${{ vars.SYNC_DRY_RUN || '0' }}
       # Runners are ephemeral — no .cache/ survives between runs, so the
       # incremental state file is useless here. Fall back to TMDB-side

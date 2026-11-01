@@ -268,7 +268,7 @@ stateDiagram-v2
 | `SYNC_DRY_RUN`         | `0`                                  | `1` 时只打印计划，不写目标端                      |
 | `SYNC_SHELF_TYPES`     | `wishlist,progress,complete,dropped` | ⑤ 处理的书架                                      |
 | `SYNC_CATEGORIES`      | `movie,tv`                           | ⑤ 处理的分类                                      |
-| `SYNC_MAX_ITEMS`       | `200`                                | ⑤ 单轮上限                                        |
+| `SYNC_MAX_ITEMS`       | `50`                                 | ⑤ 每个书架×分类的条目上限（默认 4×2×50=400）      |
 | `SYNC_RATING_PROFILE`  | `tmdb_prefer`                        | 评分冲突时保留 TMDB；`neodb_prefer` 用 NeoDB 覆盖 |
 | `SYNC_INCREMENTAL`     | `1`                                  | ⑤ 跳过内容未变的条目；CI 固定为 `0`               |
 | `SYNC_DOUBAN_REQUIRED` | `1`                                  | `0` 时豆瓣失败不参与退出码                        |
