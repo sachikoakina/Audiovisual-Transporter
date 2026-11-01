@@ -504,7 +504,7 @@ export type PathReport = {
    * looks exactly like a run in which every reachable item was repaired.
    *
    * 本轮真正检查过的条目身份 —— 与待核对名单 key 的身份段同形：①②③ 用豆瓣链接，④ 用
-   * Bangumi 条目 URL（另加标题，供按标题建 key 的失败行），⑤ 用展示标题。未检查任何条目时为空。
+   * Bangumi 条目 URL（另加标题，供按标题建 key 的失败行），⑤ 用绝对化后的 NeoDB URL。未检查任何条目时为空。
    *
    * 它正是「修好了」与「根本没看」的分界。被配额截断、分页上限或凭据中止的一轮，集合里自然
    * 少一些身份，名单因此可以冻结没走到的条目，而不是把它们删掉。没有它时，一轮只走前 200 条

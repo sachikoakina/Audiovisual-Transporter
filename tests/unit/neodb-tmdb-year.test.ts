@@ -74,6 +74,13 @@ vi.mock('../../src/clients/tmdb', () => ({
 }));
 
 vi.mock('../../src/sync-config', () => ({
+  // `neodb-http` now reads the shared NeoDB config at module load; the partial mock must provide it.
+  // `neodb-http` 现在在模块加载时读取共享的 NeoDB 配置；部分 mock 必须提供它。
+  neodbConfig: {
+    baseUrl: 'https://neodb.social',
+    requestDelayMs: 0,
+    maxPages: 10,
+  },
   neodbTmdbConfig: {
     enabled: true,
     shelfTypes: ['complete'],

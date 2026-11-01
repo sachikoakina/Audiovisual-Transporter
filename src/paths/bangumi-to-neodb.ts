@@ -170,7 +170,7 @@ export default async function syncBangumiToNeodb(
   // 只有全量才续跑。常规运行每次必须从头部开始，这是刻意的：它的窗口**就是**最新那一页，
   // 在那里沿用残留游标会静默藏掉这一轮本来要抓的新标记。游标也从不决定要不要写 —— 每次写入本来
   // 都要先比对 —— 因此旧值最多只让某一页重走一遍。
-  const cursorFile = fullSync ? syncConfig.bangumiFullSyncState : '';
+  const cursorFile = fullSync ? syncConfig.bangumiFullSyncCursor : '';
   const cursor = readFullSyncCursor(cursorFile);
 
   // null = mixed fetch (all types); otherwise one pass per subject_type

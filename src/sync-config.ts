@@ -186,7 +186,7 @@ function formatAllowlist<T extends string>(allowlist: CategoryAllowlist<T>): str
  * Bangumi → NeoDB 全量遍历的游标落点。只有全量读它 —— 为何常规 cron 必须每次从头部开始，
  * 见 `paths/bangumi-to-neodb.ts` 里的说明。
  */
-export const bangumiFullSyncState =
+export const bangumiFullSyncCursor =
   process.env.BANGUMI_FULL_SYNC_STATE ?? '.cache/bangumi-full-sync.json';
 
 export const syncConfig = {
@@ -201,7 +201,7 @@ export const syncConfig = {
   /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
   bangumiNeodbProgress: envEnabled('SYNC_BANGUMI_NEODB_PROGRESS', false),
   /** Cursor for a full Bangumi → NeoDB walk. Only full runs read it. / 全量遍历的游标，仅全量读取。 */
-  bangumiFullSyncState,
+  bangumiFullSyncCursor,
 
   /**
    * Whether a Douban RSS failure must fail the whole run.
@@ -487,6 +487,17 @@ function resolveRatingProfile(): RatingProfile {
   return 'tmdb_prefer';
 }
 
+/**
+ * NeoDB connection settings, shared by ②③④⑤ — not specific to the TMDB path.
+ * NeoDB 连接配置，由 ②③④⑤ 共用 —— 它并不属于 TMDB 链路。
+ */
+export const neodbConfig = {
+  /** Self-hosted instances: point this at your server. / 自建实例：把它指向你自己的服务器。 */
+  baseUrl: stripTrailingSlash(process.env.NEODB_BASE_URL || 'https://neodb.social'),
+  requestDelayMs: envInt('NEODB_REQUEST_DELAY_MS', 300),
+  maxPages: envInt('NEODB_MAX_PAGES', 10, 1),
+};
+
 export const neodbTmdbConfig = {
   /** Default OFF: a new path must not change behaviour until explicitly enabled. / 默认关闭：新链路在显式启用前不得改变行为。 */
   enabled: envEnabled('SYNC_NEODB_TMDB', false),
@@ -533,13 +544,6 @@ export const neodbTmdbConfig = {
   fullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
   /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
   unmatchedLogFile,
-
-  neodb: {
-    /** Self-hosted instances: point this at your server. / 自建实例：把它指向你自己的服务器。 */
-    baseUrl: stripTrailingSlash(process.env.NEODB_BASE_URL || 'https://neodb.social'),
-    requestDelayMs: envInt('NEODB_REQUEST_DELAY_MS', 300),
-    maxPages: envInt('NEODB_MAX_PAGES', 10, 1),
-  },
 
   tmdb: {
     apiKey: process.env.TMDB_API_KEY,
@@ -600,7 +604,7 @@ export function resolveNeodbTmdbRunMode(fullSync: boolean): NeodbTmdbRunMode {
     return {
       fullSync: false,
       maxItems: neodbTmdbConfig.maxItems,
-      maxPages: neodbTmdbConfig.neodb.maxPages,
+      maxPages: neodbConfig.maxPages,
       incremental: neodbTmdbConfig.incremental,
     };
   }

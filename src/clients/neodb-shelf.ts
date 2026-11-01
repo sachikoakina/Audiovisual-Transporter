@@ -10,7 +10,7 @@
 import { HTTPError } from 'got';
 import { consola } from 'consola';
 import { doubanStarsToTenPoint } from '../rules/douban';
-import { neodbTmdbConfig } from '../sync-config';
+import { neodbConfig } from '../sync-config';
 import {
   logNeodbUnauthorized,
   neodbAuthHeaders,
@@ -372,7 +372,7 @@ export async function fetchShelfPage(options: {
 export async function fetchShelf(
   shelfType: ShelfType,
   category?: string,
-  maxPages: number = neodbTmdbConfig.neodb.maxPages,
+  maxPages: number = neodbConfig.maxPages,
 ): Promise<{ marks: NeodbPagedMark['data']; truncated: boolean }> {
   const collected: NeodbPagedMark['data'] = [];
   let truncated = false;

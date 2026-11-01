@@ -112,7 +112,7 @@ function printFrame(title: string, body: string[]): void {
  * `failed` 是「出错了」，`skipped` 是「代码决定不写」—— 而这些决定里只有一部分值得人工过目。
  */
 const DETAIL_HEADINGS: Record<'failed' | 'skipped', (total: number) => string> = {
-  failed: (total) => `${total} failed item(s) — the write was attempted and rejected:`,
+  failed: (total) => `${total} failed item(s) — the item could not be read or written:`,
   skipped: (total) => `${total} skipped item(s) — deliberately not written:`,
 };
 

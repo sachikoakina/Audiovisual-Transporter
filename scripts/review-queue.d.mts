@@ -92,7 +92,6 @@ export type MergeResult = {
 export type ParsedLogs = {
   items: ReviewItem[];
   unattributable: number;
-  sawPathSummary: boolean;
 };
 
 export function parseLogs(logsDir: string): ParsedLogs;

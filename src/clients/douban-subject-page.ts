@@ -23,7 +23,7 @@ import { ItemCategory } from '../types';
  * 一次被拦通常两个客户端同时中招，而「同一个决定配两个变量」正是它们开始互相矛盾的方式。
  * 变量名是历史原因 —— RSS 客户端先把它写进了文档。
  */
-const DOUBAN_SUBJECT_UA =
+const DOUBAN_PAGE_UA =
   process.env.DOUBAN_RSS_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 import { sleep } from '../utils';
@@ -133,7 +133,7 @@ export default async function scrapeDoubanSubjectPage(
       // when it decides against you the fix must not require a code change.
       // 与 RSS 客户端的 UA 同理可覆盖：豆瓣的 WAF 就是按它判断的，而它一旦判你不通过，
       // 修复方式不该是改代码。
-      'User-Agent': DOUBAN_SUBJECT_UA,
+      'User-Agent': DOUBAN_PAGE_UA,
       Referer: link,
     },
     followRedirect: true,

@@ -34,7 +34,7 @@ import {
   getNeodbMe,
   verifyNeodbToken,
 } from '../src/clients/neodb-shelf';
-import { neodbTmdbConfig, validateNeodbTmdbCredentials } from '../src/sync-config';
+import { neodbConfig, validateNeodbTmdbCredentials } from '../src/sync-config';
 import { SHELF_TYPES, type ShelfType } from '../src/types';
 
 const OUT_DIR = '.cache';
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
     consola.warn('Credential notes:', credentials.problems.join(' | '));
   }
 
-  consola.info(`NeoDB base URL: ${neodbTmdbConfig.neodb.baseUrl}`);
+  consola.info(`NeoDB base URL: ${neodbConfig.baseUrl}`);
 
   // 1) token + account
   const tokenOk = await verifyNeodbToken();

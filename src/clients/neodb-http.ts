@@ -27,7 +27,7 @@ import dotenv from 'dotenv';
 import got, { HTTPError } from 'got';
 import { consola } from 'consola';
 import { sleep } from '../utils';
-import { neodbTmdbConfig } from '../sync-config';
+import { neodbConfig } from '../sync-config';
 
 dotenv.config();
 
@@ -73,7 +73,7 @@ if (
  * `neodb-shelf.ts` 的重定向重试正是依赖这一点。
  */
 export const neodbClient = got.extend({
-  prefixUrl: neodbTmdbConfig.neodb.baseUrl,
+  prefixUrl: neodbConfig.baseUrl,
 });
 
 /** Auth + accept headers for an authenticated NeoDB call. / 需鉴权的 NeoDB 调用所用的请求头。 */
@@ -86,7 +86,7 @@ export function neodbAuthHeaders(): Record<string, string> {
 
 /** Wait one configured NeoDB request interval. / 等待一个已配置的 NeoDB 请求间隔。 */
 export async function neodbThrottle(): Promise<void> {
-  await sleep(neodbTmdbConfig.neodb.requestDelayMs);
+  await sleep(neodbConfig.requestDelayMs);
 }
 
 /** Compact `${status} ${message}` for logs; plain text for non-HTTP errors. / 用于日志的 `${status} ${message}` 紧凑形式；非 HTTP 错误则取纯文本。 */
@@ -114,7 +114,7 @@ export function absoluteNeodbUrl(url: string): string {
   if (url.startsWith('http')) {
     return url;
   }
-  return new URL(url, `${neodbTmdbConfig.neodb.baseUrl}/`).toString();
+  return new URL(url, `${neodbConfig.baseUrl}/`).toString();
 }
 
 /**

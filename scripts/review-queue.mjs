@@ -306,7 +306,6 @@ export function parseLogs(logsDir) {
   /** @type {Map<string, any>} */
   const items = new Map();
   let unattributable = 0;
-  let sawPathSummary = false;
 
   const add = (kind, source, reason, { url, id, title, category, shelf }) => {
     const cleanTitle = (title || '').trim();
@@ -563,15 +562,10 @@ export function parseLogs(logsDir) {
         unattributable += 1;
         continue;
       }
-
-      // ── Cross-path summary lines ──────────────────────────────────────
-      if (line.includes('unresolved item(s) — no counterpart at the destination')) {
-        sawPathSummary = true;
-      }
     }
   }
 
-  return { items: [...items.values()], unattributable, sawPathSummary };
+  return { items: [...items.values()], unattributable };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
