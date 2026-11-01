@@ -339,6 +339,10 @@ npm run verify:all
 
 - [`docs/reference.md`](docs/reference.md)：平台边界、接口依据、数据格式、运行输出与留档契约。
 
+## 致谢
+
+本项目的想法与技术路线来自 [bambooom/douban-backup](https://github.com/bambooom/douban-backup) 与 [viazure/douban-backup](https://github.com/viazure/douban-backup)，感谢两个项目的作者与贡献者。
+
 ## License
 
 MIT
