@@ -47,9 +47,19 @@ vi.mock('../../src/clients/neodb-shelf', () => ({
   // adapts it to the new `{ marks, truncated }` contract instead of rewriting every fixture.
   // 测试仍以裸数组 stub `fetchShelf`（它的旧形状）；这里适配成新的 `{ marks, truncated }`，
   // 免得逐个改夹具。
-  fetchShelf: async (...args: unknown[]) => {
-    const result = await fetchShelf(...args);
-    return Array.isArray(result) ? { marks: result, truncated: false } : result;
+  // The path now consumes pages through a visitor. Tests keep stubbing `fetchShelf` with a plain
+  // array and this adapter hands that array to the visitor once.
+  // 链路现在通过访问者逐页消费。测试仍以裸数组 stub `fetchShelf`，这里把数组交给访问者一次。
+  walkShelfPages: async (
+    shelf: string,
+    category: string | undefined,
+    maxPages: number,
+    visit: (marks: unknown[]) => boolean | Promise<boolean>,
+  ) => {
+    const result = await fetchShelf(shelf, category, maxPages);
+    const marks = Array.isArray(result) ? result : result.marks;
+    const keepGoing = await visit(marks);
+    return { truncated: keepGoing ? Boolean(result?.truncated) : false };
   },
   getNeodbMe: async () => ({ username: 'tester' }),
   verifyNeodbToken: async () => true,

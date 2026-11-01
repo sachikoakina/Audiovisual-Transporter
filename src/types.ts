@@ -340,7 +340,8 @@ export type SyncCounters = {
   scanned: number;
   /**
    * Marks that actually reached TMDB: past the shelf/category gates **and** past the incremental
-   * skip. `SYNC_MAX_ITEMS` is compared against this counter, not against `scanned`.
+   * skip. `SYNC_MAX_ITEMS` is compared against the per-shelf×category counter, not against
+   * `scanned` or this run-wide total.
    *
    * Why it cannot be `scanned`:
    *   1. `scanned` is the left-hand side of the per-path self-check

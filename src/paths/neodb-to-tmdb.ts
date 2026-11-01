@@ -53,7 +53,7 @@ import {
   type NeodbTmdbRunMode,
 } from '../sync-config';
 import { absoluteNeodbUrl, neodbThrottle } from '../clients/neodb-http';
-import { fetchShelf, getNeodbMe, verifyNeodbToken } from '../clients/neodb-shelf';
+import { walkShelfPages, getNeodbMe, verifyNeodbToken } from '../clients/neodb-shelf';
 import { getNeodbItemDetail } from '../clients/neodb-catalog';
 import {
   findTmdbByImdbId,
@@ -143,11 +143,20 @@ type SyncContext = {
   itemYears: ItemYearCache;
   itemYearsDirty: boolean;
   /**
-   * `SYNC_MAX_ITEMS` cut the run short; more items remain unwalked and roll over to the next run.
+   * At least one shelf×category reached `SYNC_MAX_ITEMS`. The other combinations still run; there
+   * is no roll-over, so the report says "capped" rather than claiming a future pass will continue.
    *
-   * `SYNC_MAX_ITEMS` 提前中止了本轮；仍有条目未走到，顺延到下一轮。
+   * 至少一个「书架×分类」达到了 `SYNC_MAX_ITEMS`。其他组合仍会执行；没有顺延机制，因此报告只标
+   * `capped`，不声称下一轮会接着跑。
    */
   capped: boolean;
+  /**
+   * Items this shelf×category has sent to TMDB. `SYNC_MAX_ITEMS` is a per-combination budget, so
+   * it resets at the start of every category; `counters.processed` stays global for the summary.
+   * 本书架×分类送到 TMDB 的条数。`SYNC_MAX_ITEMS` 按组合计数，每个分类开始时清零；
+   * `counters.processed` 仍是整轮的全局计数，供汇总使用。
+   */
+  categoryProcessed: number;
   /**
    * A shelf walk stopped before its natural end (failed page, malformed response, page budget).
    * Unlike `capped`, this is not a configured limit, and it must freeze ageing for the whole path.
@@ -269,6 +278,7 @@ export default async function runNeodbToTmdb(
     itemYears: readItemYearCache(neodbTmdbConfig.itemYearCacheFile),
     itemYearsDirty: false,
     capped: false,
+    categoryProcessed: 0,
     truncated: false,
     unmatchedTitles: [],
     unmatchedItems: [],
@@ -351,108 +361,113 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
  * 同步一个书架。返回 `true` 表示整轮必须停下 —— 凭据失效了，剩下的标记都会产生同一个错误。
  */
 async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolean> {
-  // Once the cap is hit, the remaining shelves have nothing to do. Checking here avoids one
-  // paginated request per shelf just to rediscover the same wall.
-  // 配额一旦撞到，剩下的书架无事可做。在这里判断可以避免为每个书架各发一轮分页请求去重新发现
-  // 同一面墙。
-  if (ctx.capped) {
-    return false;
-  }
   consola.start(`Shelf "${shelfType}"`);
 
   for (const category of resolveTargetCategories()) {
-    if (ctx.capped) {
-      break;
-    }
-    const { marks, truncated } = await fetchShelf(
+    // `SYNC_MAX_ITEMS` is a shelf×category budget: every combination starts from zero, so one
+    // category cannot starve the next, and a capped shelf cannot skip the shelves after it.
+    // `SYNC_MAX_ITEMS` 是「书架×分类」预算：每个组合从零开始，一个分类吃不满下一个，封顶的书架
+    // 也不会跳过后面的书架。
+    ctx.categoryProcessed = 0;
+    let fetched = 0;
+    let aborted = false;
+
+    const { truncated } = await walkShelfPages(
       shelfType,
       category,
       ctx.mode.maxPages,
+      async (marks) => {
+        fetched += marks.length;
+        for (const mark of marks) {
+          // The cap counts items that reached TMDB (`processed`), not marks walked (`scanned`):
+          // counting `scanned` lets unchanged marks at the head of a shelf fill the quota without any
+          // of them being processed, so an incremental run would never get past them.
+          // Full mode sets `maxItems` to Infinity, so this branch never fires there.
+          //
+          // 配额计的是真正进入 TMDB 的条数（`processed`），不是走过的标记数（`scanned`）：用 `scanned`
+          // 会让书架头部那些「未变化」的标记在一条都没被处理的情况下吃满配额，增量运行永远推不过它们。
+          // 全量模式把 `maxItems` 设为 Infinity，因此这里不会触发。
+          if (ctx.categoryProcessed >= ctx.mode.maxItems) {
+            ctx.capped = true;
+            // Only this shelf×category stops; the loop continues with the next combination. Saying
+            // "roll over to the next run" was false — there is no rotation, and the first shelf would
+            // eat the same budget every time.
+            // 只停当前「书架×分类」；循环继续下一个组合。过去那句「留到下一轮」是假的 —— 没有轮转，
+            // 第一个书架每轮都会吃掉同样的配额。
+            consola.warn(
+              `Shelf "${shelfType}" / category "${category}" reached SYNC_MAX_ITEMS ` +
+                `(${ctx.mode.maxItems}); continuing with the remaining combinations. ` +
+                'For a one-off full import set NEODB_TMDB_FULL_SYNC=1 (or run `npm run sync:neodb-tmdb-full`).',
+            );
+            return false;
+          }
+
+          // One bad item must never abort the batch.
+          try {
+            await syncMark(mark, shelfType, ctx);
+          } catch (error) {
+            if (error instanceof PathAbortedError) {
+              // The credentials are gone, not the item: stop right here so the remaining shelves and
+              // their marks do not repeat the same failure once each.
+              // 坏的是凭据而不是条目：就地停下，免得剩下的书架与标记各把同一个失败重放一遍。
+              consola.error(`NeoDB → TMDB aborted: ${error.message}`);
+              aborted = true;
+              return false;
+            }
+
+            ctx.counters.failed += 1;
+            const thrown = error instanceof Error ? error.message : String(error);
+            const failedTitle =
+              mark.item?.display_title ||
+              mark.item?.title ||
+              mark.item?.uuid ||
+              '(unknown)';
+            // The catalogue URL arrives relative (`/movie/<uuid>`), and this catch used to keep it
+            // that way — the detail line then rendered `title[/movie/…]`, which the queue cannot split,
+            // so the address got glued to the title and the entry was keyed by the whole string.
+            // 目录 URL 是相对路径（`/movie/<uuid>`），这个 catch 过去原样保留 —— 明细行于是渲染成
+            // `标题[/movie/…]`，名单拆不开，地址被粘进标题，条目也就按整串建 key。
+            const failedUrl = mark.item?.url ? absoluteNeodbUrl(mark.item.url) : '';
+            ctx.failedItems.push({
+              title: failedTitle,
+              url: failedUrl,
+              // `tmdb-` prefix, not a bare `item-threw`: ④ prints exactly the same prefix and reason,
+              // so a bare slug made every failure here get filed under Bangumi → NeoDB. The prefix is
+              // what lets a single-line rule tell the two paths apart.
+              // 前缀 `tmdb-` 而不是裸 `item-threw`：④ 打的是同一个前缀、同一个 reason，裸 slug 会让
+              // 这里的每一条失败都被记到 Bangumi → NeoDB 名下。前缀正是「一行规则区分两条链路」的依据。
+              reason: `tmdb-item-threw: ${thrown}`,
+              category: normalizeReviewCategory(mark.item?.category),
+              shelf: normalizeReviewShelf(mark.shelf_type),
+            });
+            // Deliberately not "Item failed, continuing": ④ uses that wording, and the review list
+            // routes by it. The link and `{category|shelf}` keep this failure identifiable by the same
+            // key as its detail line, so the two log forms collapse to one entry.
+            // 刻意不用「Item failed, continuing」：④ 用的是那句，待核对名单正是按它路由的。链接与
+            // `{category|shelf}` 让这条失败与它的明细行共用同一个 key，两种日志形态因此只产生一条。
+            consola.error(
+              `TMDB write threw, continuing: ${failedTitle}${
+                failedUrl ? `[${failedUrl}]` : ''
+              } ${reviewMetaSuffix(mark.item?.category, mark.shelf_type)} —`,
+              error instanceof Error ? error.message : error,
+            );
+          }
+          await tmdbThrottle();
+        }
+        return true;
+      },
     );
+
     if (truncated) {
       // A partial read must freeze ageing for this path: entries that were never reached would
       // otherwise look "absent" and be dropped from the review list.
       // 读取不完整必须冻结本链路的老化：没走到的条目否则会被当成「未出现」而从名单里淘汰。
       ctx.truncated = true;
     }
-    consola.info(`  ${shelfType}/${category}: ${marks.length} mark(s).`);
-
-    for (const mark of marks) {
-      // The cap counts items that reached TMDB (`processed`), not marks walked (`scanned`):
-      // counting `scanned` lets unchanged marks at the head of a shelf fill the quota without any
-      // of them being processed, so an incremental run would never get past them.
-      // Full mode sets `maxItems` to Infinity, so this branch never fires there.
-      //
-      // 配额计的是真正进入 TMDB 的条数（`processed`），不是走过的标记数（`scanned`）：用 `scanned`
-      // 会让书架头部那些「未变化」的标记在一条都没被处理的情况下吃满配额，增量运行永远推不过它们。
-      // 全量模式把 `maxItems` 设为 Infinity，因此这里不会触发。
-      if (ctx.counters.processed >= ctx.mode.maxItems) {
-        // Warn once: every remaining shelf hits the same wall, and repeating the message for each
-        // of them would bury the number that explains what happened.
-        // 只警告一次：其余书架会撞到同一面墙，逐个重复只会把解释原因的那个数字淹没。
-        if (!ctx.capped) {
-          ctx.capped = true;
-          consola.warn(
-            `Reached SYNC_MAX_ITEMS (${ctx.mode.maxItems}) after ${ctx.counters.processed} item(s); ` +
-              'the remaining shelves/categories roll over to the next run. ' +
-              'For a one-off full import set NEODB_TMDB_FULL_SYNC=1 (or run `npm run sync:neodb-tmdb-full`).',
-          );
-        }
-        return false;
-      }
-
-      // One bad item must never abort the batch.
-      try {
-        await syncMark(mark, shelfType, ctx);
-      } catch (error) {
-        if (error instanceof PathAbortedError) {
-          // The credentials are gone, not the item: stop right here so the remaining shelves and
-          // their marks do not repeat the same failure once each.
-          // 坏的是凭据而不是条目：就地停下，免得剩下的书架与标记各把同一个失败重放一遍。
-          consola.error(`NeoDB → TMDB aborted: ${error.message}`);
-          return true;
-        }
-
-        ctx.counters.failed += 1;
-        const thrown = error instanceof Error ? error.message : String(error);
-        const failedTitle =
-          mark.item?.display_title ||
-          mark.item?.title ||
-          mark.item?.uuid ||
-          '(unknown)';
-        // The catalogue URL arrives relative (`/movie/<uuid>`), and this catch used to keep it
-        // that way — the detail line then rendered `title[/movie/…]`, which the queue cannot split,
-        // so the address got glued to the title and the entry was keyed by the whole string.
-        // 目录 URL 是相对路径（`/movie/<uuid>`），这个 catch 过去原样保留 —— 明细行于是渲染成
-        // `标题[/movie/…]`，名单拆不开，地址被粘进标题，条目也就按整串建 key。
-        const failedUrl = mark.item?.url ? absoluteNeodbUrl(mark.item.url) : '';
-        ctx.failedItems.push({
-          title: failedTitle,
-          url: failedUrl,
-          // `tmdb-` prefix, not a bare `item-threw`: ④ prints exactly the same prefix and reason,
-          // so a bare slug made every failure here get filed under Bangumi → NeoDB. The prefix is
-          // what lets a single-line rule tell the two paths apart.
-          // 前缀 `tmdb-` 而不是裸 `item-threw`：④ 打的是同一个前缀、同一个 reason，裸 slug 会让
-          // 这里的每一条失败都被记到 Bangumi → NeoDB 名下。前缀正是「一行规则区分两条链路」的依据。
-          reason: `tmdb-item-threw: ${thrown}`,
-          category: normalizeReviewCategory(mark.item?.category),
-          shelf: normalizeReviewShelf(mark.shelf_type),
-        });
-        // Deliberately not "Item failed, continuing": ④ uses that wording, and the review list
-        // routes by it. The link and `{category|shelf}` keep this failure identifiable by the same
-        // key as its detail line, so the two log forms collapse to one entry.
-        // 刻意不用「Item failed, continuing」：④ 用的是那句，待核对名单正是按它路由的。链接与
-        // `{category|shelf}` 让这条失败与它的明细行共用同一个 key，两种日志形态因此只产生一条。
-        consola.error(
-          `TMDB write threw, continuing: ${failedTitle}${
-            failedUrl ? `[${failedUrl}]` : ''
-          } ${reviewMetaSuffix(mark.item?.category, mark.shelf_type)} —`,
-          error instanceof Error ? error.message : error,
-        );
-      }
-      await tmdbThrottle();
+    consola.info(`  ${shelfType}/${category}: ${fetched} mark(s).`);
+    if (aborted) {
+      return true;
     }
-    await neodbThrottle();
   }
 
   return false;
@@ -578,6 +593,7 @@ async function syncMark(
   // 这条标记将真正拿去 TMDB 解析，因此计入 `SYNC_MAX_ITEMS`。刻意放在各闸门与增量跳过之后 ——
   // 原因见 `processed` 上的注释。
   ctx.counters.processed += 1;
+  ctx.categoryProcessed += 1;
 
   // 4) Resolve to a concrete TMDB item.
   const resolution = await resolveTmdbTarget(item, mediaType, ctx);

@@ -10,7 +10,6 @@
 import { HTTPError } from 'got';
 import { consola } from 'consola';
 import { doubanStarsToTenPoint } from '../rules/douban';
-import { neodbConfig } from '../sync-config';
 import {
   logNeodbUnauthorized,
   neodbAuthHeaders,
@@ -331,7 +330,7 @@ export async function fetchShelfPage(options: {
     // 防御性处理：结构已实测，但代理或分支实现可能不同。
     if (!Array.isArray(result?.data)) {
       // Not an empty page: the response did not have the shape we walk. Returning `null` lets
-      // `fetchShelf` mark the walk as truncated instead of silently pretending the shelf ended.
+      // `walkShelfPages` mark the walk as truncated instead of silently pretending the shelf ended.
       // 这不是空页：响应的结构根本不对。返回 `null` 让 `fetchShelf` 把这次遍历标成截断，而不是
       // 悄悄假装书架到头了。
       consola.warn(
@@ -369,42 +368,63 @@ export async function fetchShelfPage(options: {
  * 只有链路⑤调用它。`maxPages` 默认取 `NEODB_MAX_PAGES`；全量模式传入 `Infinity`，一直走到
  * API 自己表示没有下一页为止。
  */
-export async function fetchShelf(
-  shelfType: ShelfType,
-  category?: string,
-  maxPages: number = neodbConfig.maxPages,
-): Promise<{ marks: NeodbPagedMark['data']; truncated: boolean }> {
-  const collected: NeodbPagedMark['data'] = [];
-  let truncated = false;
+export type ShelfPageVisitor = (
+  marks: NeodbPagedMark['data'],
+) => boolean | Promise<boolean>;
 
+/**
+ * Walk the pages of one shelf, handing each page to `visit`.
+ *
+ * `visit` returns `false` to stop intentionally (the item budget is full). That is **not**
+ * truncation: the walk stopped because the caller decided so, not because a page failed or the
+ * page budget ran out. Keeping those apart matters — `truncated` drives the job summary's
+ * `partial` label and `coverage.complete`, and a deliberately capped run is not a broken read.
+ *
+ * 遍历某个书架的分页，把每一页交给 `visit`。
+ *
+ * `visit` 返回 `false` 表示主动停止（条目配额已满）。这**不是**截断：遍历是因为调用方决定停下，
+ * 而不是因为页失败或页数预算耗尽。区分两者很重要 —— `truncated` 决定摘要的 `partial` 标签与
+ * `coverage.complete`，主动封顶不是读取故障。
+ */
+export async function walkShelfPages(
+  shelfType: ShelfType,
+  category: string | undefined,
+  maxPages: number,
+  visit: ShelfPageVisitor,
+  fetchPage: typeof fetchShelfPage = fetchShelfPage,
+): Promise<{ truncated: boolean }> {
   for (let page = 1; page <= maxPages; page += 1) {
-    const result = await fetchShelfPage({ shelfType, category, page });
+    const result = await fetchPage({ shelfType, category, page });
     if (result === null) {
       // A failed or malformed page means the walk is incomplete, not that the shelf is empty.
       // 失败或畸形的页意味着这次遍历不完整，而不是书架为空。
       consola.warn(`Aborting shelf "${shelfType}" at page ${page} after an error.`);
-      truncated = true;
-      break;
+      return { truncated: true };
     }
     if (result.data.length === 0) {
-      break;
+      return { truncated: false };
     }
 
-    collected.push(...result.data);
+    // The visitor runs before the page-budget check on purpose: if it stops because the item
+    // budget is full, that decision wins over "we reached page 10".
+    // 刻意先跑 visitor 再判断页数预算：如果它因为条目配额已满而停，这个决定优先于「走到第 10 页」。
+    const keepGoing = await visit(result.data);
+    if (!keepGoing) {
+      return { truncated: false };
+    }
 
     const reportedPages = Number(result.pages);
     if (Number.isFinite(reportedPages) && page >= reportedPages) {
-      break;
+      return { truncated: false };
     }
     if (page === maxPages) {
       consola.warn(
         `Shelf "${shelfType}" hit NEODB_MAX_PAGES (${maxPages}); more items remain.`,
       );
-      truncated = true;
-      break;
+      return { truncated: true };
     }
     await neodbThrottle();
   }
 
-  return { marks: collected, truncated };
+  return { truncated: false };
 }
