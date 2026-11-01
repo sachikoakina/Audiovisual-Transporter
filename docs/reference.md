@@ -492,6 +492,7 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 |                    | failed  | `bangumi-read-failed`            | 现有收藏读取失败（401 除外）。这一条**没有写入**，Bangumi 保持原样                                          |
 |                    | failed  | `bangumi-item-threw: <错误>`     | 单条处理抛错（预料之外的异常），不影响其余条目                                                              |
 | ④ Bangumi → NeoDB  | skipped | `platform-mismatch`              | 漫画白名单下，该书的 Bangumi 平台不是「漫画」                                                               |
+|                    | skipped | `duplicate-target`               | 另一个 Bangumi subject 已认领同一个 NeoDB uuid，本轮不再写第二个                                            |
 |                    | failed  | `item-threw: <错误>`             | 单条处理抛错（网络/解析）或 NeoDB 拒绝标记写入，不影响其余条目                                              |
 | ⑤ NeoDB → TMDB     | skipped | `shelf-not-mapped`               | 防御性兜底：当前四种书架都有映射（`dropped` 也加入 watchlist），正常不会出现                                |
 |                    | skipped | `no-tmdb-category: <分类>`       | 分类 TMDB 装不了（游戏等），零请求                                                                          |
@@ -503,7 +504,18 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 |                    | failed  | `tmdb-item-threw: <错误>`        | 单条处理抛错（刻意与 ④ 的 `item-threw` 分开：两条链路原先用同一个 slug，待核对名单只能记到其中一条名下）    |
 
 > **与计数的一一对应**：`failedItems.length` 必须等于 `failed`、`skippedItems.length` 必须等于 `skipped`。⑤ 是唯一「一个条目贡献两条明细」的地方 —— 评分与 watchlist 各失败一次就是 2 条明细、2 个 `failed`，与它按字段计数的口径一致。
->
+
+### ④ 的身份解析与同 uuid 冲突
+
+1. Bangumi URL 直接解析到 NeoDB 条目（最高）；
+2. 直接条目带豆瓣外链时优先豆瓣孪生（高）；
+3. 无豆瓣外链时按**同分类**精确标题找孪生（中），分类由 `subject_type` 决定：书/漫画只搜 `book`，动画/真人搜 `movie,tv`；**禁止跨分类回退**；
+4. 都没有则使用直接条目；直接条目不存在才 `unresolved`。
+
+同一轮内同一 NeoDB uuid 被多个 Bangumi subject 认领时，按“解析置信度 → 状态等级（看过 > 在看 > 想看，抛弃最低）→ subject id”选一个；落败者记 `duplicate-target`。同一 subject 的主动降级不受影响。
+
+可选 `SYNC_BANGUMI_NEODB_STATUS_GUARD=no-downgrade`：目标端已是“看过”时，拒绝 Bangumi 的“在看/想看”覆盖状态；评分/短评仍由 `SYNC_BANGUMI_NEODB_MERGE` 决定（默认 `neodb_prefer` = 保留目标端）。
+
 > `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④），以及 ⑤ 的两种 —— `no-tmdb-match`（搜过了，没有）、`no-neodb-year`（没年份，根本没搜）。⑤ 的第三种 `no-neodb-year-fetch-failed`（取年份失败）不是数据缺口，计入 `failed` 并走失败的明细与哨兵行。
 >
 > 每条链路还会把本轮检查过的条目身份写进 `PathReport.scannedIds`。待核对名单的淘汰规则依赖它：只有身份在集合里、且日志里不再出现的条目才计入缺席；被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断或链路未运行的部分不会进入集合，名单因此冻结而不是误删。

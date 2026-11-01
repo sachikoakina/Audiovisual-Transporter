@@ -263,17 +263,18 @@ stateDiagram-v2
 
 完整变量与默认值见 [`.env.example`](.env.example)。常用项：
 
-| 变量                   | 默认                                 | 说明                                              |
-| ---------------------- | ------------------------------------ | ------------------------------------------------- |
-| `SYNC_DRY_RUN`         | `0`                                  | `1` 时只打印计划，不写目标端                      |
-| `SYNC_SHELF_TYPES`     | `wishlist,progress,complete,dropped` | ⑤ 处理的书架                                      |
-| `SYNC_CATEGORIES`      | `movie,tv`                           | ⑤ 处理的分类                                      |
-| `SYNC_MAX_ITEMS`       | `50`                                 | ⑤ 每个书架×分类的条目上限（默认 4×2×50=400）      |
-| `SYNC_RATING_PROFILE`  | `tmdb_prefer`                        | 评分冲突时保留 TMDB；`neodb_prefer` 用 NeoDB 覆盖 |
-| `SYNC_INCREMENTAL`     | `1`                                  | ⑤ 跳过内容未变的条目；CI 固定为 `0`               |
-| `SYNC_DOUBAN_REQUIRED` | `1`                                  | `0` 时豆瓣失败不参与退出码                        |
+| 变量                              | 默认                                 | 说明                                              |
+| --------------------------------- | ------------------------------------ | ------------------------------------------------- |
+| `SYNC_DRY_RUN`                    | `0`                                  | `1` 时只打印计划，不写目标端                      |
+| `SYNC_SHELF_TYPES`                | `wishlist,progress,complete,dropped` | ⑤ 处理的书架                                      |
+| `SYNC_CATEGORIES`                 | `movie,tv`                           | ⑤ 处理的分类                                      |
+| `SYNC_MAX_ITEMS`                  | `50`                                 | ⑤ 每个书架×分类的条目上限（默认 4×2×50=400）      |
+| `SYNC_RATING_PROFILE`             | `tmdb_prefer`                        | 评分冲突时保留 TMDB；`neodb_prefer` 用 NeoDB 覆盖 |
+| `SYNC_INCREMENTAL`                | `1`                                  | ⑤ 跳过内容未变的条目；CI 固定为 `0`               |
+| `SYNC_DOUBAN_REQUIRED`            | `1`                                  | `0` 时豆瓣失败不参与退出码                        |
+| `SYNC_BANGUMI_NEODB_STATUS_GUARD` | `off`                                | `no-downgrade` 时不让 Bangumi 的想看/在读覆盖已看 |
 
-注意 `neodb_prefer` 在两处的含义不同：⑤ 的 `SYNC_RATING_PROFILE` 表示用 NeoDB 覆盖 TMDB；②④ 的 `SYNC_*_NEODB_MERGE` 表示保留 NeoDB 已有的非空值。
+注意 `neodb_prefer` 在两处的含义不同：⑤ 的 `SYNC_RATING_PROFILE` 表示用 NeoDB 覆盖 TMDB；②④ 的 `SYNC_*_NEODB_MERGE` 表示保留 NeoDB 已有的非空值。默认的 `neodb_prefer` 是**目标端优先**，只有 `overwrite` 才是源端覆盖。
 
 ## 目录结构
 
