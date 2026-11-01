@@ -238,6 +238,13 @@ export const syncConfig = {
 
   doubanNeodbMerge: parseMergeProfile('SYNC_DOUBAN_NEODB_MERGE'),
   bangumiNeodbMerge: parseMergeProfile('SYNC_BANGUMI_NEODB_MERGE'),
+  // Opt-in only: same-subject downgrades must stay possible; this guard is for users who treat
+  // their archive as append-only. / 默认关闭：同一 subject 的降级必须仍可发生；只有把归档当作
+  // 只增不减的用户才需要开启。
+  bangumiNeodbStatusGuard:
+    process.env.SYNC_BANGUMI_NEODB_STATUS_GUARD === 'no-downgrade'
+      ? ('no-downgrade' as const)
+      : ('off' as const),
 };
 
 export function needsDoubanRss(): boolean {

@@ -44,7 +44,7 @@ import {
   type BangumiCollection,
 } from '../clients/bangumi';
 import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
-import { resolveNeodbItemForBangumiUrl } from '../clients/neodb-catalog';
+import { resolveNeodbItemForBangumiUrlDetailed } from '../clients/neodb-catalog';
 import {
   getNeodbMark,
   getNeodbProgress,
@@ -52,6 +52,11 @@ import {
   setNeodbProgress,
 } from '../clients/neodb-shelf';
 import { mergeNeodbMark } from '../rules/neodb-mark-merge';
+import {
+  applyStatusGuard,
+  shouldSkipClaim,
+  type TargetClaim,
+} from '../rules/bangumi-target-conflict';
 import {
   bangumiSubjectTypesForAllowlist,
   needsBangumiMangaPlatformCheck,
@@ -84,7 +89,8 @@ const LABEL = 'Bangumi → NeoDB';
  * What happened to one collection. The four cases partition every scanned
  * collection, which is what lets `printPathSummary` self-check the totals.
  */
-type CollectionOutcome = 'written' | 'unchanged' | 'skipped-platform' | 'unresolved';
+type CollectionOutcome =
+  'written' | 'unchanged' | 'skipped-platform' | 'skipped-duplicate' | 'unresolved';
 
 /** Counters for this path, mirroring the shape of `SyncCounters`. */
 type BangumiCounters = {
@@ -93,6 +99,8 @@ type BangumiCounters = {
   unchanged: number;
   /** Non-manga books dropped by a manga-only category allowlist. */
   skippedPlatform: number;
+  /** A different Bangumi subject claimed the same NeoDB uuid first. */
+  skippedDuplicate: number;
   /** Collections NeoDB has no catalog entry for. */
   unresolved: number;
   /** Collections that threw — a bug or an outage, not a data gap. */
@@ -105,6 +113,7 @@ function newBangumiCounters(): BangumiCounters {
     written: 0,
     unchanged: 0,
     skippedPlatform: 0,
+    skippedDuplicate: 0,
     unresolved: 0,
     failed: 0,
   };
@@ -185,6 +194,18 @@ export default async function syncBangumiToNeodb(
   // `item-threw` 与 `platform-mismatch` 按标题建 key（日志行不带链接）。两个都记，两类条目才能
   // 各自独立老化。
   const scanned = new Set<string>();
+  // One target may be claimed by several Bangumi subjects (a manga and its anime, two duplicate
+  // subjects, …). The first claim is remembered for the whole run so a lower-confidence or
+  // lower-status subject cannot overwrite it later in the same run.
+  // 一个 NeoDB 目标可能被多个 Bangumi subject 认领（漫画与动画、重复条目等）。整轮记住第一个
+  // 认领者，避免后续更低置信度/更低状态的 subject 在同一轮里覆盖它。
+  const targetClaims = new Map<string, TargetClaim>();
+  // Successful resolutions only; failures are retried next run instead of being cached as absent.
+  // 只缓存成功解析；失败留给下一轮重试，不把瞬时错误固化成「不存在」。
+  const resolutionCache = new Map<
+    string,
+    Awaited<ReturnType<typeof resolveNeodbItemForBangumiUrlDetailed>>
+  >();
 
   for (const subjectType of typePasses) {
     // One cursor per pass: a full sync can run several, and each has its own offset.
@@ -234,13 +255,27 @@ export default async function syncBangumiToNeodb(
         break;
       }
 
-      for (const collection of page.data) {
+      // Complete first: when two subjects claim one uuid, the winner writes and the lower claim is
+      // skipped, instead of the lower one writing first and being overwritten later in the run.
+      // 先处理“看过”：两个 subject 认领同一 uuid 时，胜者先写、低状态者被跳过，而不是低状态
+      // 先写、随后又被覆盖。
+      const ordered = [...page.data].sort((a, b) => {
+        const rank = (c: BangumiCollection) =>
+          c.type === 2 ? 3 : c.type === 3 || c.type === 4 ? 2 : c.type === 1 ? 1 : 0;
+        return rank(b) - rank(a) || a.subject_id - b.subject_id;
+      });
+      for (const collection of ordered) {
         counters.scanned += 1;
         scanned.add(bangumiSubjectUrl(collection.subject_id));
         scanned.add(collectionTitle(collection));
         // One bad item must never abort the batch.
         try {
-          const outcome = await syncCollectionToNeodb(collection, mangaPlatformCheck);
+          const outcome = await syncCollectionToNeodb(
+            collection,
+            mangaPlatformCheck,
+            targetClaims,
+            resolutionCache,
+          );
           switch (outcome) {
             case 'written':
               counters.written += 1;
@@ -259,6 +294,16 @@ export default async function syncBangumiToNeodb(
                 title: collectionTitle(collection),
                 url: bangumiSubjectUrl(collection.subject_id),
                 reason: 'platform-mismatch',
+                category: normalizeReviewCategory(collection.subject_type),
+                shelf: normalizeReviewShelf(collection.type),
+              });
+              break;
+            case 'skipped-duplicate':
+              counters.skippedDuplicate += 1;
+              report.skippedItems.push({
+                title: collectionTitle(collection),
+                url: bangumiSubjectUrl(collection.subject_id),
+                reason: 'duplicate-target',
                 category: normalizeReviewCategory(collection.subject_type),
                 shelf: normalizeReviewShelf(collection.type),
               });
@@ -347,7 +392,7 @@ export default async function syncBangumiToNeodb(
   report.scannedIds = [...scanned].sort();
   report.written = counters.written;
   report.unchanged = counters.unchanged;
-  report.skipped = counters.skippedPlatform;
+  report.skipped = counters.skippedPlatform + counters.skippedDuplicate;
   report.unresolved = counters.unresolved;
   report.failed = counters.failed;
 
@@ -401,6 +446,11 @@ function collectionTitle(collection: BangumiCollection): string {
 async function syncCollectionToNeodb(
   collection: BangumiCollection,
   mangaPlatformCheck: boolean,
+  targetClaims: Map<string, TargetClaim>,
+  resolutionCache: Map<
+    string,
+    Awaited<ReturnType<typeof resolveNeodbItemForBangumiUrlDetailed>>
+  >,
 ): Promise<CollectionOutcome> {
   const url = bangumiSubjectUrl(collection.subject_id);
   const title = collectionTitle(collection);
@@ -414,10 +464,19 @@ async function syncCollectionToNeodb(
     return 'skipped-platform';
   }
 
-  const neodbItem = await resolveNeodbItemForBangumiUrl(url, {
-    titles: [collection.subject?.name_cn, collection.subject?.name],
-    subjectType: collection.subject_type,
-  });
+  const expectedYear = Number(collection.subject?.date?.slice(0, 4)) || undefined;
+  let resolution = resolutionCache.get(url);
+  if (!resolution) {
+    resolution = await resolveNeodbItemForBangumiUrlDetailed(url, {
+      titles: [collection.subject?.name_cn, collection.subject?.name],
+      subjectType: collection.subject_type,
+      expectedYear,
+    });
+    if (resolution.item?.uuid) {
+      resolutionCache.set(url, resolution);
+    }
+  }
+  const neodbItem = resolution.item;
   if (!neodbItem?.uuid) {
     // The title leads and the URL follows, instead of the URL alone. The review list has to name
     // the entry it is asking about, and a bare `bgm.tv/subject/N` is only an address — the list
@@ -433,6 +492,29 @@ async function syncCollectionToNeodb(
     return 'unresolved';
   }
 
+  const claim: TargetClaim = {
+    subjectId: collection.subject_id,
+    subjectType: collection.subject_type,
+    collectionType: collection.type as BangumiCollectionType,
+    title,
+    via: resolution.via,
+  };
+  const existingClaim = targetClaims.get(neodbItem.uuid);
+  if (existingClaim && shouldSkipClaim(existingClaim, claim)) {
+    // Two different Bangumi subjects resolve to one NeoDB item. Writing both is what made
+    // "看过" and "在看/想看" overwrite each other; keep the stronger claim and make the loser
+    // visible in the report instead of silently writing.
+    // 两个不同的 Bangumi subject 解析到同一个 NeoDB 条目。两个都写正是「看过」被「在看/想看」
+    // 覆盖的原因；保留更强的认领者，并让落败者在报表里可见，而不是静默写入。
+    consola.warn(
+      `duplicate target: subject ${existingClaim.subjectId}(${existingClaim.via}, type=${existingClaim.collectionType}) ` +
+        `and ${claim.subjectId}(${claim.via}, type=${claim.collectionType}) both map to ${neodbItem.uuid}; ` +
+        `keeping the first.`,
+    );
+    return 'skipped-duplicate';
+  }
+  targetClaims.set(neodbItem.uuid, claim);
+
   const shelfType = BANGUMI_TO_NEODB_STATUS[collection.type as BangumiCollectionType];
   const ratingGrade = collection.rate || 0;
   const comment = collection.comment || '';
@@ -443,6 +525,15 @@ async function syncCollectionToNeodb(
   // mistaken for "not marked yet" and created over.
   // 读取失败会抛出：标记原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
   const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
+  const effectiveShelf = applyStatusGuard(
+    (mark?.shelf_type as Parameters<typeof applyStatusGuard>[0]) ?? null,
+    shelfType,
+    syncConfig.bangumiNeodbStatusGuard,
+  );
+  consola.debug(
+    `NeoDB mark plan: subject=${collection.subject_id} type=${collection.type} ` +
+      `via=${resolution.via} before=${mark?.shelf_type ?? 'none'} after=${effectiveShelf}`,
+  );
   // Left `false` only when there was nothing to write. A write NeoDB *refused* throws instead,
   // so `false` here can never mean "the mark did not land".
   // 只在「本来就没东西要写」时保持 `false`。NeoDB *拒绝*的写入改为抛错，
@@ -452,7 +543,7 @@ async function syncCollectionToNeodb(
   if (!mark) {
     if (
       !(await markNeodbItem(neodbItem, {
-        shelfType,
+        shelfType: effectiveShelf,
         comment,
         ratingGrade,
         createdTime,
@@ -467,7 +558,7 @@ async function syncCollectionToNeodb(
   } else {
     const merged = mergeNeodbMark(
       mark,
-      { shelfType, ratingGrade, comment },
+      { shelfType: effectiveShelf, ratingGrade, comment },
       syncConfig.bangumiNeodbMerge,
       neodbVisibility,
     );

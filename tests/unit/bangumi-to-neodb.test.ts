@@ -52,8 +52,10 @@ vi.mock('../../src/clients/neodb-http', () => ({
 }));
 
 vi.mock('../../src/clients/neodb-catalog', () => ({
-  resolveNeodbItemForBangumiUrl: (...args: unknown[]) =>
-    resolveNeodbItemForBangumiUrl(...args),
+  resolveNeodbItemForBangumiUrlDetailed: async (...args: unknown[]) => ({
+    item: await resolveNeodbItemForBangumiUrl(...args),
+    via: 'direct',
+  }),
 }));
 
 vi.mock('../../src/clients/neodb-shelf', () => ({
@@ -231,6 +233,40 @@ describe('④ full-sync cursor / 全量游标', () => {
     const saved = JSON.parse(fs.readFileSync(cursorPath.value, 'utf8'));
     expect(saved.offsets).toEqual({});
     expect(saved.version).toBe(1);
+  });
+});
+
+describe('④ duplicate target / 同一 NeoDB uuid 多个 Bangumi subject', () => {
+  it('keeps the complete claim and skips the manga progress claim', async () => {
+    getNeodbMark.mockResolvedValue({ status: 'absent' });
+    markNeodbItem.mockResolvedValue(true);
+    resolveNeodbItemForBangumiUrl.mockResolvedValue({
+      uuid: 'shared-uuid',
+      title: '标题',
+      display_title: '标题',
+    });
+
+    const manga = {
+      ...collection,
+      subject_id: 999,
+      subject_type: 1,
+      type: 3,
+      subject: { id: 999, type: 1, name: 'Title', name_cn: '标题' },
+    };
+    listBangumiCollections.mockResolvedValue({
+      total: 2,
+      data: [manga, collection],
+    });
+
+    const report = await syncBangumiToNeodb(true);
+
+    expect(markNeodbItem).toHaveBeenCalledTimes(1);
+    expect(markNeodbItem.mock.calls[0][1]).toMatchObject({
+      shelfType: 'complete',
+    });
+    expect(report.written).toBe(1);
+    expect(report.skipped).toBe(1);
+    expect(selfCheckHolds(report)).toBe(true);
   });
 });
 
