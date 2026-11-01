@@ -53,3 +53,6 @@ db-*.json
 tmp*
 /test.*
 assets
+
+# assistant project data, not source
+.codebuddy/
