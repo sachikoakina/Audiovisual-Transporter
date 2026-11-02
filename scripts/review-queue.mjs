@@ -272,6 +272,7 @@ const DETAIL_REASONS = new Map([
   ['bangumi-read-failed', ['failed', 'douban→bangumi']],
   ['item-threw', ['failed', 'bangumi→neodb']],
   ['duplicate-target', ['skipped', 'bangumi→neodb']],
+  ['tmdb-known-absent', ['skipped', 'neodb→tmdb']],
   ['tmdb-item-threw', ['failed', 'neodb→tmdb']],
   ['no-neodb-year-fetch-failed', ['failed', 'neodb→tmdb']],
   ['no-catalog-item', ['failed', 'neodb→tmdb']],
@@ -311,6 +312,13 @@ export function parseLogs(logsDir) {
   const add = (kind, source, reason, { url, id, title, category, shelf }) => {
     const cleanTitle = (title || '').trim();
     if (!cleanTitle && !url && !id) {
+      unattributable += 1;
+      return;
+    }
+    // Test fixtures and placeholder lines use a bare `标题` with no link and no id. Keeping it
+    // creates an entry nobody can resolve or tick off.
+    // 测试夹具/占位行会用裸「标题」，既无链接也无 id；收下只会得到一条永远无法核对或勾掉的条目。
+    if (!url && !id && cleanTitle === '标题') {
       unattributable += 1;
       return;
     }
@@ -1138,6 +1146,7 @@ export function attachReportMeta(items, report) {
       const meta = {
         category: normalizeCategory(entry.category),
         shelf: normalizeShelf(entry.shelf),
+        reason: entry.reason || '',
       };
       if (entry.url) {
         index.set(`${source}::${entry.url}`, meta);
@@ -1156,6 +1165,7 @@ export function attachReportMeta(items, report) {
       ...item,
       category: item.category !== 'other' ? item.category : hit.category,
       shelf: item.shelf !== 'unknown' ? item.shelf : hit.shelf,
+      reason: hit.reason || item.reason,
     };
   });
 }

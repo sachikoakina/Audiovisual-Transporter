@@ -91,7 +91,12 @@ const LABEL = 'Bangumi → NeoDB';
  * collection, which is what lets `printPathSummary` self-check the totals.
  */
 type CollectionOutcome =
-  'written' | 'unchanged' | 'skipped-platform' | 'skipped-duplicate' | 'unresolved';
+  | 'written'
+  | 'unchanged'
+  | 'skipped-platform'
+  | 'skipped-duplicate'
+  | 'unresolved'
+  | 'unresolved-not-found';
 
 /** Counters for this path, mirroring the shape of `SyncCounters`. */
 type BangumiCounters = {
@@ -311,7 +316,11 @@ export default async function syncBangumiToNeodb(
               break;
             case 'unresolved':
               counters.unresolved += 1;
-              recordUnresolved(collection, report);
+              recordUnresolved(collection, report, 'neodb-unresolved');
+              break;
+            case 'unresolved-not-found':
+              counters.unresolved += 1;
+              recordUnresolved(collection, report, 'neodb-unresolved-404');
               break;
             default: {
               // Compile-time tripwire. Adding a member to `CollectionOutcome` without wiring it
@@ -408,21 +417,25 @@ export default async function syncBangumiToNeodb(
 }
 
 /** Append the entry to the review log and remember it for the closing listing. */
-function recordUnresolved(collection: BangumiCollection, report: PathReport): void {
+function recordUnresolved(
+  collection: BangumiCollection,
+  report: PathReport,
+  reason: string,
+): void {
   const title = collectionTitle(collection);
 
   report.unresolvedTitles.push(title);
   report.unresolvedItems.push({
     title,
     url: bangumiSubjectUrl(collection.subject_id),
-    reason: 'neodb-unresolved',
+    reason,
     category: normalizeReviewCategory(collection.subject_type),
     shelf: normalizeReviewShelf(collection.type),
   });
 
   const written = upsertReviewEntry(unmatchedLogFile, {
     source: 'bangumi→neodb',
-    reason: 'neodb-unresolved',
+    reason,
     title,
     externalId: String(collection.subject_id),
     externalUrl: bangumiSubjectUrl(collection.subject_id),
@@ -490,7 +503,7 @@ async function syncCollectionToNeodb(
       'NeoDB could not resolve Bangumi URL, skip: ',
       `${itemLabel(title, url)} ${reviewMetaSuffix(collection.subject_type, collection.type)}`,
     );
-    return 'unresolved';
+    return resolution.failure === 'not-found' ? 'unresolved-not-found' : 'unresolved';
   }
 
   const claim: TargetClaim = {

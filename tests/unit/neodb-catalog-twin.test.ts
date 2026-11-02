@@ -11,7 +11,8 @@ vi.mock('../../src/clients/neodb-http', () => ({
   neodbFailureCode: () => 'test',
 }));
 
-const { findDoubanLinkedTwinByTitle } = await import('../../src/clients/neodb-catalog');
+const { findDoubanLinkedTwinByTitle, resolveNeodbItemForBangumiUrlDetailed } =
+  await import('../../src/clients/neodb-catalog');
 
 function item(over: Record<string, unknown>) {
   return {
@@ -94,6 +95,21 @@ describe('findDoubanLinkedTwinByTitle', () => {
     );
 
     expect(twin).toBeNull();
+  });
+
+  it('reports a 404 as not-found instead of a generic unresolved', async () => {
+    neodbClient.mockImplementationOnce(() => ({
+      json: async () => {
+        throw { response: { statusCode: 404 } };
+      },
+    }));
+
+    const result = await resolveNeodbItemForBangumiUrlDetailed(
+      'https://bgm.tv/subject/404',
+    );
+
+    expect(result.item).toBeNull();
+    expect(result.failure).toBe('not-found');
   });
 
   it('accepts a same-category twin when the year is within tolerance', async () => {

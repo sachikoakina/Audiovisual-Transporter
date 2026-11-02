@@ -246,6 +246,24 @@ describe('parseLogs — 类型与状态', () => {
     return parseLogs(dir).items;
   }
 
+  it('drops a placeholder entry with no link, id or real title', () => {
+    const result = parseLogs(
+      (() => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-queue-'));
+        dirs.push(dir);
+        fs.writeFileSync(
+          path.join(dir, 'sync.log'),
+          '[error] Item failed, continuing: 标题 — boom\n',
+          'utf8',
+        );
+        return dir;
+      })(),
+    );
+
+    expect(result.items).toEqual([]);
+    expect(result.unattributable).toBe(1);
+  });
+
   it('reads the {category|shelf} suffix from a ③ line', () => {
     const [entry] = parse(
       '[warn] No Bangumi match, skip: 天仙配[https://book.douban.com/subject/2/] {book|wishlist}\n',

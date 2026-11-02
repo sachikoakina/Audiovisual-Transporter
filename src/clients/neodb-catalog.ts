@@ -38,9 +38,14 @@ function retryAfterMs(error: unknown): number | undefined {
   return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : undefined;
 }
 
+export type NeodbFetchFailure = 'not-found' | 'temporary';
+
+type FetchFailureRef = { kind?: NeodbFetchFailure };
+
 export async function fetchNeodbItemByUrl(
   url: string,
   retries = 3,
+  failure: FetchFailureRef = {},
 ): Promise<NeodbItem | null> {
   consola.info('Going to fetch NeoDB item: ', url);
   try {
@@ -54,12 +59,13 @@ export async function fetchNeodbItemByUrl(
     }
 
     if (retries <= 0) {
+      failure.kind ??= 'temporary';
       consola.warn('NeoDB item still not ready after retries: ', url);
       return null;
     }
 
     await sleep(1500);
-    return fetchNeodbItemByUrl(url, retries - 1);
+    return fetchNeodbItemByUrl(url, retries - 1, failure);
   } catch (error) {
     const status = errorStatus(error);
     if ((status === 429 || (status != null && status >= 500)) && retries > 0) {
@@ -69,8 +75,11 @@ export async function fetchNeodbItemByUrl(
         url,
       );
       await sleep(delay);
-      return fetchNeodbItemByUrl(url, retries - 1);
+      return fetchNeodbItemByUrl(url, retries - 1, failure);
     }
+    // Only a real 404 is "catalog entry absent"; every other failure may succeed next run.
+    // 只有真正的 404 才是「目录条目不存在」；其他失败都可能下一轮成功。
+    failure.kind = status === 404 ? 'not-found' : 'temporary';
     consola.error('Fetch NeoDB item with error: ', neodbFailureCode(error));
     return null;
   }
@@ -342,6 +351,7 @@ export type NeodbResolutionVia = 'direct' | 'douban-twin' | 'title-twin' | 'none
 export type NeodbResolution = {
   item: NeodbItem | null;
   via: NeodbResolutionVia;
+  failure?: NeodbFetchFailure;
 };
 
 /**
@@ -362,9 +372,14 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
   bangumiUrl: string,
   options: ResolveBangumiNeodbOptions = {},
 ): Promise<NeodbResolution> {
-  const fromBangumi = await fetchNeodbItemByUrl(bangumiUrl);
+  const failure: FetchFailureRef = {};
+  const fromBangumi = await fetchNeodbItemByUrl(bangumiUrl, 3, failure);
   if (!fromBangumi?.uuid) {
-    return { item: null, via: 'none' };
+    return {
+      item: null,
+      via: 'none',
+      failure: failure.kind ?? 'temporary',
+    };
   }
 
   const doubanUrl = extractDoubanUrlFromNeodb(fromBangumi);
