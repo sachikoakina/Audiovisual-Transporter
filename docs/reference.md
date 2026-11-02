@@ -516,6 +516,16 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 可选 `SYNC_BANGUMI_NEODB_STATUS_GUARD=no-downgrade`：目标端已是“看过”时，拒绝 Bangumi 的“在看/想看”覆盖状态；评分/短评仍由 `SYNC_BANGUMI_NEODB_MERGE` 决定（默认 `neodb_prefer` = 保留目标端）。
 
+标记日期由 `SYNC_BANGUMI_NEODB_CREATED_TIME` 控制：
+
+| 值               | 行为                                                                      |
+| ---------------- | ------------------------------------------------------------------------- |
+| `target`（默认） | 更新时不传 `created_time`，保留 NeoDB 日期；新建时用 Bangumi `updated_at` |
+| `source`         | 每次实际写入都用 Bangumi `updated_at`（ISO UTC），允许日期倒退            |
+| `source-newer`   | 仅当 Bangumi 时间晚于 NeoDB `created_time` 时覆盖；相等/更旧保留目标      |
+
+Bangumi 只有 `updated_at`（收藏最后修改时间），**没有状态标记时间**；`SYNC_DRY_RUN` 目前只作用于 ⑤，④ 没有独立空跑开关。源时间缺失/非法时省略 `created_time`，不写 `now()`。
+
 > `unresolved` 不在这张表里：它没有单独的明细数组，标题直接进 `unresolvedTitles`，同时由 ②③④⑤ 写进上面那个 JSON 留档。它的 reason 只出现在日志行与待核对名单里：`no-neodb-match`（②）、`no-bangumi-match`（③）、`neodb-unresolved`（④），以及 ⑤ 的两种 —— `no-tmdb-match`（搜过了，没有）、`no-neodb-year`（没年份，根本没搜）。⑤ 的第三种 `no-neodb-year-fetch-failed`（取年份失败）不是数据缺口，计入 `failed` 并走失败的明细与哨兵行。
 >
 > 每条链路还会把本轮检查过的条目身份写进 `PathReport.scannedIds`。待核对名单的淘汰规则依赖它：只有身份在集合里、且日志里不再出现的条目才计入缺席；被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断或链路未运行的部分不会进入集合，名单因此冻结而不是误删。
