@@ -57,6 +57,7 @@ import {
   shouldSkipClaim,
   type TargetClaim,
 } from '../rules/bangumi-target-conflict';
+import { resolveCreatedTime } from '../rules/bangumi-created-time';
 import {
   bangumiSubjectTypesForAllowlist,
   needsBangumiMangaPlatformCheck,
@@ -518,13 +519,21 @@ async function syncCollectionToNeodb(
   const shelfType = BANGUMI_TO_NEODB_STATUS[collection.type as BangumiCollectionType];
   const ratingGrade = collection.rate || 0;
   const comment = collection.comment || '';
-  // Bangumi updated_at is unreliable; only used when creating a new NeoDB mark.
-  const createdTime = collection.updated_at || undefined;
-
   // A failed read throws: the mark is left alone and the item is counted, instead of being
   // mistaken for "not marked yet" and created over.
   // 读取失败会抛出：标记原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
   const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
+  const createdTime = resolveCreatedTime({
+    mode: syncConfig.bangumiNeodbCreatedTime,
+    isNew: !mark,
+    sourceRaw: collection.updated_at,
+    targetRaw: mark?.created_time,
+  });
+  consola.debug(
+    `NeoDB created_time plan: source=${collection.updated_at ?? 'none'} ` +
+      `target=${mark?.created_time ?? 'none'} mode=${syncConfig.bangumiNeodbCreatedTime} ` +
+      `chosen=${createdTime ?? 'omit'}`,
+  );
   const effectiveShelf = applyStatusGuard(
     (mark?.shelf_type as Parameters<typeof applyStatusGuard>[0]) ?? null,
     shelfType,
@@ -582,6 +591,7 @@ async function syncCollectionToNeodb(
           shelfType: merged.shelfType,
           comment: merged.comment,
           ratingGrade: merged.ratingGrade,
+          createdTime,
         }))
       ) {
         throw new Error('NeoDB rejected the mark update');

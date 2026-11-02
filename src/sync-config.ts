@@ -245,6 +245,16 @@ export const syncConfig = {
     process.env.SYNC_BANGUMI_NEODB_STATUS_GUARD === 'no-downgrade'
       ? ('no-downgrade' as const)
       : ('off' as const),
+  // Bangumi only has `updated_at` (last edit), not a status-marked-at field. Default keeps
+  // NeoDB's own date; `source` / `source-newer` are explicit opt-ins.
+  // Bangumi 只有 `updated_at`（最后修改），没有状态标记时间。默认保留 NeoDB 自己的日期；
+  // `source` / `source-newer` 需要显式开启。
+  bangumiNeodbCreatedTime:
+    process.env.SYNC_BANGUMI_NEODB_CREATED_TIME === 'source'
+      ? ('source' as const)
+      : process.env.SYNC_BANGUMI_NEODB_CREATED_TIME === 'source-newer'
+        ? ('source-newer' as const)
+        : ('target' as const),
 };
 
 export function needsDoubanRss(): boolean {

@@ -71,6 +71,8 @@ vi.mock('../../src/sync-config', () => ({
     bangumiNeodbCategories: { mode: 'all' },
     bangumiNeodbMerge: 'neodb_prefer',
     bangumiNeodbProgress: false,
+    bangumiNeodbStatusGuard: 'off',
+    bangumiNeodbCreatedTime: 'target',
     // A getter, not a value: each test points it at its own temp file.
     // 用 getter 而不是值：每个用例把它指向自己的临时文件。
     get bangumiFullSyncCursor() {
@@ -94,6 +96,7 @@ vi.mock('../../src/sync-report', () => ({
 
 const { default: syncBangumiToNeodb } =
   await import('../../src/paths/bangumi-to-neodb');
+const { syncConfig } = await import('../../src/sync-config');
 
 const collection = {
   subject_id: 12345,
@@ -233,6 +236,30 @@ describe('④ full-sync cursor / 全量游标', () => {
     const saved = JSON.parse(fs.readFileSync(cursorPath.value, 'utf8'));
     expect(saved.offsets).toEqual({});
     expect(saved.version).toBe(1);
+  });
+});
+
+describe('④ created_time / 标记日期', () => {
+  it('passes the normalized Bangumi time through in source mode', async () => {
+    syncConfig.bangumiNeodbCreatedTime = 'source';
+    getNeodbMark.mockResolvedValue({
+      status: 'found',
+      value: {
+        shelf_type: 'progress',
+        created_time: '2024-01-01T00:00:00Z',
+        rating_grade: 0,
+        comment_text: '',
+      },
+    });
+    markNeodbItem.mockResolvedValue(true);
+
+    await syncBangumiToNeodb(false);
+
+    expect(markNeodbItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ createdTime: '2026-01-01T00:00:00.000Z' }),
+    );
+    syncConfig.bangumiNeodbCreatedTime = 'target';
   });
 });
 
