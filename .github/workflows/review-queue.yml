@@ -75,7 +75,7 @@ jobs:
           ID=$(printf '%s' "$LIST" | jq -r '
             [.artifacts[]
              | select(.expired == false)
-             | select(.name == "review-state" or (.name | startswith("review-state-")))]
+             | select(.name | startswith("review-state-"))]
             | sort_by(.created_at) | last | .id // empty')
           if [ -z "$ID" ]; then
             echo "No previous snapshot (first run, or the chain expired); starting from an empty list."
@@ -126,10 +126,10 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100")
-          ID=$(printf '%s' "$LIST" | jq -r --arg exact "sync-report-$RUN_ID" --arg prefix "sync-report-$RUN_ID-" '
+          ID=$(printf '%s' "$LIST" | jq -r --arg prefix "sync-report-$RUN_ID-" '
             [.artifacts[]
              | select(.expired == false)
-             | select(.name == $exact or (.name | startswith($prefix)))]
+             | select(.name | startswith($prefix))]
             | sort_by(.created_at) | last | .id // empty')
           if [ -z "$ID" ]; then
             echo "No run report for run $RUN_ID (older sync, or the upload failed); skipping the cross-check."

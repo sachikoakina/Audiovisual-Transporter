@@ -617,7 +617,7 @@ Bangumi 只有 `updated_at`（收藏最后修改时间），**没有状态标记
 
 ## 待核对名单
 
-`sync.yml` 结束后，`review-queue.yml` 读取该轮日志与 `sync-report.json`，生成 `review-state-<run_id>-<UTC>-stock` artifact，保留 90 天。所有时间字段与文件名统一使用 UTC（`Z`），不混入本地时区。
+`sync.yml` 结束后，`review-queue.yml` 读取该轮日志与 `sync-report.json`，生成 `review-state-<run_id>-<UTC>-stock` artifact，保留 90 天。机器字段与文件名统一使用 UTC（`Z`）；summary 的“本轮运行”在 UTC 后附一条上海本地时间供人阅读，不参与解析或排序。旧命名 artifact 不再读取。
 
 名单按四级分组，只输出非空分组：
 
