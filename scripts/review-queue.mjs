@@ -818,6 +818,14 @@ function diffLine(item, { strike = false } = {}) {
   return `- \`${item.kind}\` ${name}${link} · ${item.reason}`;
 }
 
+/** Human-readable Shanghai wall clock for the UTC run start. / UTC 起点对应的上海本地时间。 */
+function shanghaiTimestamp(utc) {
+  const date = new Date(utc);
+  if (Number.isNaN(date.getTime())) return '';
+  const shifted = new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString();
+  return `${shifted.slice(0, 10)}的${shifted.slice(11, 19)}`;
+}
+
 export function render({
   items,
   added,
@@ -849,8 +857,10 @@ export function render({
   // 名单的单位。两级 H1 会让文档大纲对同一层级给出两种说法。
   out.push(`**待核对名单（${live.length} 条）**`);
   out.push('');
+  const shanghai = shanghaiTimestamp(runStartedAt);
   out.push(
-    `本轮运行（UTC）：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}`,
+    `本轮运行（UTC）：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}` +
+      (shanghai ? `（上海时间为${shanghai}）` : ''),
   );
   out.push('');
   out.push(
