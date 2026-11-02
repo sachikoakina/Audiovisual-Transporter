@@ -366,7 +366,7 @@
 
 ### CI 中的作业摘要
 
-由 `src/sync-report.ts` 先写进 `SYNC_SUMMARY_FILE`（默认 `.cache/sync-summary.md`），再由 `sync.yml` 里一个 `if: always()` 的步骤贴到 `$GITHUB_STEP_SUMMARY`。**同一时刻**还会写出 `SYNC_REPORT_FILE`（默认 `.cache/sync-report.json`）：同一批 `PathReport` 的 JSON 版本，由 `sync.yml` 以 `sync-report-<run_id>` 上传为 artifact，保留 7 天。每条 `PathReport` 还带 `scannedIds`：本轮真正检查过的条目身份（① 豆瓣链接与 `config:<分类>`、②③ 豆瓣链接、④ Bangumi URL 与标题、⑤ 展示标题），待核对名单据此区分「已修好」与「没走到」。两份文件都在确定退出码之前写出，因此失败的那一轮同样会留下它们。运行页顶部会出现一块 **Markdown 面板**，顺序固定为：
+由 `src/sync-report.ts` 先写进 `SYNC_SUMMARY_FILE`（默认 `.cache/sync-summary.md`），再由 `sync.yml` 里一个 `if: always()` 的步骤贴到 `$GITHUB_STEP_SUMMARY`。**同一时刻**还会写出 `SYNC_REPORT_FILE`（默认 `.cache/sync-report.json`）：同一批 `PathReport` 的 JSON 版本，由 `sync.yml` 以 `sync-report-<run_id>-<UTC>` 上传为 artifact，保留 7 天；时间戳一律为 UTC（`YYYYMMDDTHHmmssZ`）。每条 `PathReport` 还带 `scannedIds`：本轮真正检查过的条目身份（① 豆瓣链接与 `config:<分类>`、②③ 豆瓣链接、④ Bangumi URL 与标题、⑤ 展示标题），待核对名单据此区分「已修好」与「没走到」。两份文件都在确定退出码之前写出，因此失败的那一轮同样会留下它们。运行页顶部会出现一块 **Markdown 面板**，顺序固定为：
 
 1. 一行极简的六字段中文说明（含义）；
 2. 一段计数关系说明（谁是谁的划分、哪个链路例外）；
@@ -617,7 +617,7 @@ Bangumi 只有 `updated_at`（收藏最后修改时间），**没有状态标记
 
 ## 待核对名单
 
-`sync.yml` 结束后，`review-queue.yml` 读取该轮日志与 `sync-report.json`，生成 `review-state` artifact，保留 90 天。
+`sync.yml` 结束后，`review-queue.yml` 读取该轮日志与 `sync-report.json`，生成 `review-state-<run_id>-<UTC>-stock` artifact，保留 90 天。所有时间字段与文件名统一使用 UTC（`Z`），不混入本地时区。
 
 名单按四级分组，只输出非空分组：
 

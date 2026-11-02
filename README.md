@@ -217,12 +217,12 @@ sequenceDiagram
     participant M as 待核对名单
     T->>S: 周一/三/五 08:00 UTC 或手动勾选全量
     S->>S: verify:all → 五条链路
-    S->>A: sync-report-<run_id>（保留 7 天）
+    S->>A: sync-report-<run_id>-<UTC>（保留 7 天）
     Note over A: 作业摘要随 run 发布，失败轮也可见
     Q->>A: 取上一轮 review-state + 本轮日志 + 运行报表
     Q->>Q: 解析日志 → 覆盖集合 → 合并 → 渲染
     Q->>M: 名单追加到作业摘要
-    Q->>A: review-state（保留 90 天，供下一轮携带）
+    Q->>A: review-state-<run_id>-<UTC>-stock（保留 90 天，供下一轮携带）
 ```
 
 名单按 `链路 → 结果 → 类型 → 状态` 四级分组，条目保留标题、可点链接、reason 与已存在天数；

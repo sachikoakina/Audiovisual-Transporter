@@ -176,6 +176,9 @@ jobs:
           key: bangumi-full-sync-${{ github.run_id }}
           restore-keys: |
             bangumi-full-sync-
+      - name: Record UTC run start
+        id: run_start
+        run: echo "value=$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
       - run: npm run sync || exit 1
       # Publish the report the sync just wrote, whatever the sync's own outcome was. The per-step
       # `$GITHUB_STEP_SUMMARY` file is attached when its own step ends, so writing the summary from
@@ -211,9 +214,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          # Run-scoped name: sync runs upload every round, and artifact names must not collide.
-          # 名字带 run id：同步每轮都上传，artifact 名不能相撞。
-          name: sync-report-${{ github.run_id }}
+          # Run-scoped name with a UTC timestamp: sync runs upload every round, and artifact
+          # names must not collide. UTC is the single clock for every artifact.
+          # 名字带 run id 与 UTC 时间戳：同步每轮都上传，artifact 名不能相撞；UTC 是所有产物的
+          # 唯一时钟。
+          name: sync-report-${{ github.run_id }}-${{ steps.run_start.outputs.value }}
           path: .cache/sync-report.json
           if-no-files-found: warn
           retention-days: 7

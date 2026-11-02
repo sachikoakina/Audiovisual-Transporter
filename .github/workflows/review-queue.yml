@@ -48,6 +48,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Compute the sync run's UTC stamp
+        id: utc
+        env:
+          RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+        run: echo "value=$(date -u -d "$RUN_STARTED_AT" +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
 
       # ── 1. Carry the previous list over ─────────────────────────────────
       # Artifacts are immutable and names are unique per run, so the snapshot cannot be
@@ -66,8 +71,12 @@ jobs:
           LIST=$(curl -fsSL \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?name=review-state&per_page=100")
-          ID=$(printf '%s' "$LIST" | jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100")
+          ID=$(printf '%s' "$LIST" | jq -r '
+            [.artifacts[]
+             | select(.expired == false)
+             | select(.name == "review-state" or (.name | startswith("review-state-")))]
+            | sort_by(.created_at) | last | .id // empty')
           if [ -z "$ID" ]; then
             echo "No previous snapshot (first run, or the chain expired); starting from an empty list."
             exit 0
@@ -116,8 +125,12 @@ jobs:
           LIST=$(curl -fsSL \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?name=sync-report-$RUN_ID&per_page=100")
-          ID=$(printf '%s' "$LIST" | jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100")
+          ID=$(printf '%s' "$LIST" | jq -r --arg exact "sync-report-$RUN_ID" --arg prefix "sync-report-$RUN_ID-" '
+            [.artifacts[]
+             | select(.expired == false)
+             | select(.name == $exact or (.name | startswith($prefix)))]
+            | sort_by(.created_at) | last | .id // empty')
           if [ -z "$ID" ]; then
             echo "No run report for run $RUN_ID (older sync, or the upload failed); skipping the cross-check."
             exit 0
@@ -157,7 +170,7 @@ jobs:
       # Settings → Actions →「Artifact and log retention」保持在 90 天或以上。
       - uses: actions/upload-artifact@v4
         with:
-          name: review-state
+          name: review-state-${{ github.event.workflow_run.id }}-${{ steps.utc.outputs.value }}-stock
           path: review-state/
           retention-days: 90
           if-no-files-found: error

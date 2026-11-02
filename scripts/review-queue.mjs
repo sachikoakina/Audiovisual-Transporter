@@ -849,7 +849,9 @@ export function render({
   // 名单的单位。两级 H1 会让文档大纲对同一层级给出两种说法。
   out.push(`**待核对名单（${live.length} 条）**`);
   out.push('');
-  out.push(`本轮运行：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}`);
+  out.push(
+    `本轮运行（UTC）：${runUrl ? `[${runStartedAt}](${runUrl})` : runStartedAt}`,
+  );
   out.push('');
   out.push(
     `新增 **${fresh.length}** · ` +

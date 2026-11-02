@@ -123,6 +123,7 @@ describe('render — 链路作为一级标题', () => {
 
     expect(text).toContain('**待核对名单（1 条）**');
     expect(text).not.toContain('# 待核对名单');
+    expect(text).toContain('本轮运行（UTC）：2026-10-26T08:00:00.000Z');
   });
 });
 
