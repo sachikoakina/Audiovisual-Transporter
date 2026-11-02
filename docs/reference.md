@@ -516,6 +516,10 @@ find /d -maxdepth 8 -name 'unmatched.json' 2>/dev/null
 
 可选 `SYNC_BANGUMI_NEODB_STATUS_GUARD=no-downgrade`：目标端已是“看过”时，拒绝 Bangumi 的“在看/想看”覆盖状态；评分/短评仍由 `SYNC_BANGUMI_NEODB_MERGE` 决定（默认 `neodb_prefer` = 保留目标端）。
 
+④ 的 unresolved 分两种 reason：`neodb-unresolved-404`（NeoDB 目录确实不存在）与 `neodb-unresolved`（202/429/超时等临时失败）。日志文案不变，区别只写入 `sync-report`，review-queue 从 report 覆盖显示。
+
+⑤ 的 unresolved 细类包括 `tmdb-link-type-mismatch`、`tmdb-link-fetch-failed`、`imdb-no-match`、`tmdb-search-empty`、`tmdb-ambiguous`、`tmdb-season-parent-missing`、`no-neodb-year`、`no-neodb-year-fetch-failed`。确认 TMDB 缺失的条目可加入 `data/tmdb-known-absent.json`，命中后记为 `tmdb-known-absent` 的 skipped，不再重复搜索；有外链时仍优先尝试外链。
+
 标记日期由 `SYNC_BANGUMI_NEODB_CREATED_TIME` 控制：
 
 | 值               | 行为                                                                      |

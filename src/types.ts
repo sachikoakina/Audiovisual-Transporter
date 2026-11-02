@@ -375,6 +375,8 @@ export type SyncCounters = {
    * it, a duplicate would bump `scanned` and nothing else.
    */
   skippedDuplicate: number;
+  /** Entries in data/tmdb-known-absent.json; skipped without a TMDB search. */
+  skippedKnownAbsent: number;
   matchedTmdbLink: number;
   matchedImdb: number;
   matchedSearch: number;
@@ -407,6 +409,7 @@ export function newSyncCounters(): SyncCounters {
     skippedShelf: 0,
     skippedCached: 0,
     skippedDuplicate: 0,
+    skippedKnownAbsent: 0,
     matchedTmdbLink: 0,
     matchedImdb: 0,
     matchedSearch: 0,

@@ -26,11 +26,14 @@
  *   - 匹配失败记为 `unresolved` 而不是 `failed` —— TMDB 没有对应条目是数据缺口，不是错误，
  *     不应让 CI 变红。
  */
+import { readFileSync } from 'node:fs';
 import { consola } from 'consola';
 import {
   NEODB_CATEGORIES_WITHOUT_TMDB,
   NEODB_TO_TMDB_MEDIA_TYPE,
+  collectSeasonParentTitles,
   collectTitles,
+  looksLikeSeason,
   extractImdbIdFromNeodb,
   extractNeodbYear,
   extractTmdbTargetFromNeodb,
@@ -334,7 +337,11 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   report.dryRun = neodbTmdbConfig.dryRun;
   report.unchanged = c.unchanged;
   report.skipped =
-    c.skippedCategory + c.skippedShelf + c.skippedCached + c.skippedDuplicate;
+    c.skippedCategory +
+    c.skippedShelf +
+    c.skippedCached +
+    c.skippedDuplicate +
+    c.skippedKnownAbsent;
   report.unresolved = c.unmatched;
   report.failed = c.failed;
   report.capped = ctx.capped;
@@ -473,6 +480,30 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
   return false;
 }
 
+let knownAbsent: Set<string> | null = null;
+
+function isKnownAbsent(uuid: string, mediaType: TmdbMediaType): boolean {
+  if (!knownAbsent) {
+    knownAbsent = new Set();
+    try {
+      const raw = JSON.parse(
+        readFileSync('data/tmdb-known-absent.json', 'utf8'),
+      ) as Array<{ neodbUuid?: string; mediaType?: string }>;
+      for (const entry of Array.isArray(raw) ? raw : []) {
+        if (entry.neodbUuid && entry.mediaType) {
+          knownAbsent.add(`${entry.mediaType}:${entry.neodbUuid}`);
+        }
+      }
+    } catch (error) {
+      consola.warn(
+        'Could not load data/tmdb-known-absent.json; treating it as empty: ',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  return knownAbsent.has(`${mediaType}:${uuid}`);
+}
+
 async function syncMark(
   mark: NeodbShelfMark,
   expectedShelf: ShelfType,
@@ -594,6 +625,20 @@ async function syncMark(
   // 原因见 `processed` 上的注释。
   ctx.counters.processed += 1;
   ctx.categoryProcessed += 1;
+
+  if (isKnownAbsent(item.uuid, mediaType)) {
+    const suffix = reviewMetaSuffix(category, shelfType);
+    ctx.counters.skippedKnownAbsent += 1;
+    ctx.skippedItems.push({
+      title: label,
+      url: itemUrl,
+      reason: 'tmdb-known-absent',
+      category: normalizeReviewCategory(category),
+      shelf: normalizeReviewShelf(shelfType),
+    });
+    consola.info(`TMDB known absent; skip ${label} [${itemUrl}] ${suffix}.`);
+    return;
+  }
 
   // 4) Resolve to a concrete TMDB item.
   const resolution = await resolveTmdbTarget(item, mediaType, ctx);
@@ -797,7 +842,16 @@ async function applyPatch(
  * Why an item could not be resolved. Only `no-tmdb-match` means "we looked, and TMDB has nothing".
  * 条目为何没解析出来。只有 `no-tmdb-match` 表示「找过了，TMDB 确实没有」。
  */
-type NoMatchReason = 'no-tmdb-match' | 'no-neodb-year' | 'no-neodb-year-fetch-failed';
+type NoMatchReason =
+  | 'no-tmdb-match'
+  | 'no-neodb-year'
+  | 'no-neodb-year-fetch-failed'
+  | 'tmdb-link-type-mismatch'
+  | 'tmdb-link-fetch-failed'
+  | 'imdb-no-match'
+  | 'tmdb-search-empty'
+  | 'tmdb-ambiguous'
+  | 'tmdb-season-parent-missing';
 
 /**
  * A resolved target, or the reason there is none. Modelled as a union so the caller cannot read
@@ -843,6 +897,7 @@ async function resolveTmdbTarget(
   mediaType: TmdbMediaType,
   ctx: SyncContext,
 ): Promise<TmdbResolution> {
+  let linkFailure: NoMatchReason | null = null;
   const tmdbLink = extractTmdbTargetFromNeodb(item);
   if (tmdbLink) {
     // A cross-type link is not a near miss, it is a different entity: a `category: tv` item cannot
@@ -853,6 +908,7 @@ async function resolveTmdbTarget(
     // `movie/N` 上。外链是书架标称「最可信」的那一级，也是唯一一处完全不做比较就采信的地方 ——
     // 类型一致是采信它之前所需的最低证据。
     if (!isLinkTypeCompatible(tmdbLink.mediaType, mediaType)) {
+      linkFailure = 'tmdb-link-type-mismatch';
       consola.warn(
         `NeoDB TMDB link points at ${tmdbLink.mediaType}:${tmdbLink.id}, ` +
           `but the item is ${mediaType}; ignoring the link and falling through to lookup.`,
@@ -865,9 +921,11 @@ async function resolveTmdbTarget(
         warnOnLinkYearDrift(item, target, ctx);
         return { target };
       }
+      linkFailure = 'tmdb-link-fetch-failed';
     }
   }
 
+  let imdbNoMatch = false;
   const imdbId = extractImdbIdFromNeodb(item);
   if (imdbId) {
     const hits = await findTmdbByImdbId(imdbId);
@@ -883,6 +941,7 @@ async function resolveTmdbTarget(
       consola.info(`Matched via IMDb ${imdbId}: ${targetKey(hit)}`);
       return { target: hit };
     }
+    imdbNoMatch = true;
     consola.warn(
       `IMDb ${imdbId} resolved to no ${mediaType} entry; falling through to title search.`,
     );
@@ -902,8 +961,13 @@ async function resolveTmdbTarget(
     };
   }
 
+  let sawResults = false;
+  let seasonParentMissing = false;
   for (const title of collectTitles(item)) {
     const results = await searchTmdb(mediaType, title, year.year);
+    if (results.length > 0) {
+      sawResults = true;
+    }
     const hit = pickExactTmdbMatch(
       results,
       title,
@@ -918,7 +982,43 @@ async function resolveTmdbTarget(
     await tmdbThrottle();
   }
 
-  return { target: null, reason: 'no-tmdb-match' };
+  if (mediaType === 'tv' && looksLikeSeason(item)) {
+    const parents = collectSeasonParentTitles(item);
+    seasonParentMissing = parents.length === 0;
+    for (const title of parents) {
+      const results = await searchTmdb('tv', title, year.year);
+      if (results.length > 0) {
+        sawResults = true;
+      }
+      const hit = pickExactTmdbMatch(
+        results,
+        title,
+        year.year,
+        neodbTmdbConfig.yearTolerance,
+      );
+      if (hit) {
+        ctx.counters.matchedSearch += 1;
+        consola.info(`Matched season parent via search "${title}": tv:${hit.id}`);
+        return {
+          target: { mediaType: 'tv', id: hit.id, title: hit.title ?? hit.name },
+        };
+      }
+      await tmdbThrottle();
+    }
+  }
+
+  return {
+    target: null,
+    reason:
+      linkFailure ??
+      (imdbNoMatch
+        ? 'imdb-no-match'
+        : seasonParentMissing
+          ? 'tmdb-season-parent-missing'
+          : sawResults
+            ? 'tmdb-ambiguous'
+            : 'tmdb-search-empty'),
+  };
 }
 
 /**
@@ -1026,6 +1126,7 @@ function printCounterBreakdown(ctx: SyncContext): void {
     skippedShelf: c.skippedShelf,
     skippedCached: c.skippedCached,
     skippedDuplicate: c.skippedDuplicate,
+    skippedKnownAbsent: c.skippedKnownAbsent,
     matchedTmdbLink: c.matchedTmdbLink,
     matchedImdb: c.matchedImdb,
     matchedSearch: c.matchedSearch,

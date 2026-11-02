@@ -288,7 +288,7 @@ describe('⑤ no year means no title search / ⑤ 没有年份就不搜标题', 
     // 相差 31 年 —— 那行以前从未被执行的算术。
     expect(report.unresolved).toBe(1);
     expect(getTmdbAccountStates).not.toHaveBeenCalled();
-    expect(lastReviewEntry().reason).toBe('no-tmdb-match');
+    expect(lastReviewEntry().reason).toBe('tmdb-ambiguous');
   });
 });
 

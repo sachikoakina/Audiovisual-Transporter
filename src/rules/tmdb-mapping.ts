@@ -222,6 +222,31 @@ export function collectTitles(item: NeodbItem): string[] {
   return out;
 }
 
+/** Does the title/type look like a season rather than the parent show? / 标题/类型是否像「季」而非父剧。 */
+export function looksLikeSeason(item: NeodbItem): boolean {
+  return (
+    /season/i.test(item.type ?? '') ||
+    /\bseason\s*\d+\b/i.test(item.title ?? '') ||
+    /第[一二三四五六七八九十\d]+季/.test(item.title ?? '')
+  );
+}
+
+/** Parent-show candidates: strip a trailing season marker, never return the original title. / 父剧候选：去掉尾部季标记，不返回原标题。 */
+export function collectSeasonParentTitles(item: NeodbItem): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const title of collectTitles(item)) {
+    const parent = title
+      .replace(/\s*(?:season\s*\d+|第[一二三四五六七八九十\d]+季|\bS\d+)\s*$/i, '')
+      .trim();
+    if (parent && parent !== title && !seen.has(parent)) {
+      seen.add(parent);
+      out.push(parent);
+    }
+  }
+  return out;
+}
+
 /** Normalise a shelf_type value coming from the API. / 规范化 API 返回的 shelf_type 取值。 */
 export function toShelfType(value: string): ShelfType | null {
   return (SHELF_TYPES as readonly string[]).includes(value)
