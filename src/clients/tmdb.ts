@@ -15,7 +15,7 @@ import { tmdbResultYear } from '../rules/tmdb-matching';
 /**
  * TMDB API client.
  *
- * Verified capability boundary (see README for sources):
+ * Verified capability boundary (see `docs/reference.md` for sources):
  *   - only movie / tv exist (no book / music / game)
  *   - the only writable per-item states are watchlist, favorite and rating
  *   - there is NO "watched" or "in progress" state → carried by user lists
@@ -28,7 +28,7 @@ import { tmdbResultYear } from '../rules/tmdb-matching';
  *
  * TMDB API 客户端。
  *
- * 已实测的能力边界（来源见 README）：
+ * 已实测的能力边界（来源见 `docs/reference.md`）：
  *   - 只有 movie / tv（没有 book / music / game）
  *   - 条目级唯一可写的状态是 watchlist、favorite 与 rating
  *   - 没有「已看」或「在看」状态 → 由用户列表代为表达

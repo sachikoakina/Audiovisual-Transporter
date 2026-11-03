@@ -45,7 +45,7 @@ const COLLECTION_RANK: Record<BangumiCollectionType, number> = {
   5: 0,
 };
 
-export function collectionRank(type: BangumiCollectionType): number {
+function collectionRank(type: BangumiCollectionType): number {
   return COLLECTION_RANK[type];
 }
 

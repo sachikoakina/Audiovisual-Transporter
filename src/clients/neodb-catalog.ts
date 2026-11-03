@@ -410,5 +410,3 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
     ? { item: twin, via: 'title-twin' }
     : { item: fromBangumi, via: 'direct' };
 }
-
-

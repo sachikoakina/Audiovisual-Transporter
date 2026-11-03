@@ -108,8 +108,6 @@ export function render(input: {
   coverageAvailable?: boolean;
 }): string;
 
-export function readRunReport(dir: string): RunReport | null;
-
 export function coverageFromReport(report: RunReport | null): Map<string, Coverage>;
 
 export function merge(

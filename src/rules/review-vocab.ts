@@ -15,7 +15,7 @@
  */
 
 /** Display order, and the complete set of groups the list may produce. / 展示顺序，也是名单可能产生的全部分组。 */
-export const REVIEW_CATEGORIES = [
+const REVIEW_CATEGORIES = [
   'movie',
   'tv',
   'anime',
@@ -30,7 +30,7 @@ export const REVIEW_CATEGORIES = [
 export type ReviewCategory = (typeof REVIEW_CATEGORIES)[number];
 
 /** Display order for the user's state; `unknown` is the fallback. / 用户状态的展示顺序；`unknown` 是兜底。 */
-export const REVIEW_SHELVES = [
+const REVIEW_SHELVES = [
   'wishlist',
   'progress',
   'complete',

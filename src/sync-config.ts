@@ -261,7 +261,7 @@ export function needsDoubanRss(): boolean {
   return syncConfig.doubanNotion || syncConfig.doubanNeodb || syncConfig.doubanBangumi;
 }
 
-export function isDoubanCategoryAllowed(
+function isDoubanCategoryAllowed(
   allowlist: CategoryAllowlist<ItemCategory>,
   category: ItemCategory,
 ): boolean {

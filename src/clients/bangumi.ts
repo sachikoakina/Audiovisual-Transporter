@@ -34,7 +34,7 @@ export const bangumiCollectionLimit = Number.isFinite(parsedCollectionLimit)
   ? Math.floor(Math.min(Math.max(parsedCollectionLimit, 1), 50))
   : 50;
 /** Bangumi requires a descriptive UA. / Bangumi 要求带一个可识别的 UA。 */
-export const bangumiUserAgent =
+const bangumiUserAgent =
   process.env.BANGUMI_USER_AGENT ||
   // A descriptive UA with a real URL, which is what Bangumi asks for. The old default
   // (`douban-backup/1.0 (…/bambooom/douban-backup)`) named a different project — and carried its

@@ -190,7 +190,7 @@ export type FailedItem = {
 // NeoDB → TMDB path
 //
 // Shapes below are copied from the verified NeoDB API reference, not guessed.
-// See README "接口依据" for sources.
+// 接口字段的来源与用途见 docs/reference.md。
 // ───────────────────────────────────────────────────────────────────────────
 
 /** `{type}` path variable of GET /api/me/shelf/{type}. Verified: all four exist. */

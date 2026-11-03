@@ -1032,7 +1032,7 @@ export function render({
  * @returns {{paths: Array<{label: string, failed: number, skipped: number, unresolved: number, scanned: number, scannedIds?: string[], capped?: boolean, aborted?: boolean}>} | null}
  * 在 `dir` 下找到运行报表，不管 artifact 被解压到哪一层。
  */
-export function readRunReport(dir) {
+function readRunReport(dir) {
   if (!dir || !fs.existsSync(dir)) {
     return null;
   }
@@ -1127,7 +1127,7 @@ function arg(name, fallback) {
  * 日志后缀是主来源，报表是要求的冗余。旧一轮的日志两者都没有，保持 `other` / `unknown`，
  * 而不是被丢弃。
  */
-export function attachReportMeta(items, report) {
+function attachReportMeta(items, report) {
   if (!report) {
     return items;
   }

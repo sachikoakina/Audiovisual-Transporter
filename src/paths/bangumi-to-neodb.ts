@@ -8,11 +8,8 @@
  * 这是唯一会遍历分页的链路（`while (true)`，以收藏总数为界），也是唯一可以「只跑一页」的链路：
  * 若 `fullSync` 为假，它在第一页之后就退出循环。
  *
- * Deliberately asymmetric with path ② on one point: marks are updated WITHOUT `createdTime`, to
- * preserve the mark date already stored in NeoDB — Bangumi's `updated_at` is not trustworthy
- * enough to overwrite it (see the note inside `syncCollectionToNeodb`).
- * 这里有一处刻意与链路② 不对称：更新标记时**不传** `createdTime`，以保留 NeoDB 里已有的标记
- * 日期 —— Bangumi 的 `updated_at` 不足以可信到可以覆盖它（见 `syncCollectionToNeodb` 内的注释）。
+ * 更新日期由 `SYNC_BANGUMI_NEODB_CREATED_TIME` 决定：默认保留 NeoDB 日期，显式模式才会使用
+ * Bangumi 的 `updated_at`。新建标记在有有效源日期时可用该日期初始化。
  *
  * When resolving a Bangumi URL it prefers the Douban-linked twin, so that marks land on the same
  * NeoDB uuid as path ② (Douban → NeoDB).
@@ -598,7 +595,7 @@ async function syncCollectionToNeodb(
           title,
         );
       }
-      // Do not pass createdTime on update — preserves NeoDB mark date.
+      // 默认模式会让 createdTime 为空，客户端序列化时省略该字段；source 模式按配置更新日期。
       if (
         !(await markNeodbItem(neodbItem, {
           shelfType: merged.shelfType,
