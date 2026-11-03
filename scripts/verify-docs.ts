@@ -202,14 +202,13 @@ function main(): void {
 
   checker.section('README：结构');
   const requiredSections = [
-    '快速开始',
+    '在 GitHub Actions 中运行',
     '五条链路',
+    '关键规则',
+    '运行结果与退出码',
     '配置',
-    '目录结构',
-    '同步规则',
-    '结果与退出码',
-    '已知限制',
-    '开发',
+    '本地运行',
+    '开发校验',
     '文档',
     'License',
   ];
@@ -217,7 +216,7 @@ function main(): void {
     (title) => !readme.includes(`## ${title}`),
   );
   checker.check(
-    'README keeps its ten top-level sections',
+    'README keeps its nine top-level sections',
     missingSections.length === 0,
     missingSections.join(', '),
   );

@@ -13,7 +13,7 @@
 | `full_sync`         | NeoDB → TMDB    | 取消条数/页数上限，并关闭本次增量跳过   |
 | `bangumi_full_sync` | Bangumi → NeoDB | 遍历 Bangumi 全部收藏页，并通过游标续跑 |
 
-两项默认关闭。Sync 作业使用 Node.js 24，权限只有 `contents: read`，并禁止两次同步重叠；review-queue 使用 Node.js 22 和 `actions: read`，不写仓库。
+两项默认关闭。Sync 作业使用 Node.js 24，权限只有 `contents: read`，并禁止两次同步重叠；review-queue 使用 Node.js 22 和 `actions: read`，不写仓库。⑤ 默认书架为 `wishlist,progress,complete,dropped`。
 
 ### 需要的 Secrets
 
