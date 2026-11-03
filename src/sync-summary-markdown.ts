@@ -23,16 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderDetailLines } from './rules/review-detail';
 import { pathHasFailed, type PathReport, type ReviewDetail } from './types';
-
-/**
- * GitHub Actions reads bare `::group::` / `::warning::` lines as *workflow commands*, so they must
- * reach stdout unadorned. Only the review-log sentence depends on the environment here; the rest is
- * pure string building.
- *
- * GitHub Actions 会把裸的 `::group::` / `::warning::` 当成工作流命令，因此必须原样到 stdout。
- * 这里只有留档那句话依赖环境，其余都是纯字符串构造。
- */
-const inActions = process.env.GITHUB_ACTIONS === 'true';
+import { inActions } from './utils';
 
 /**
  * The one word a report's state gets, shared by the console and the summary page.

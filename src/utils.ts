@@ -19,6 +19,9 @@ import { type NeodbShelfMark } from './types';
 
 dotenv.config();
 
+/** True when the process runs inside GitHub Actions. / 进程是否运行在 GitHub Actions 中。 */
+export const inActions = process.env.GITHUB_ACTIONS === 'true';
+
 /**
  * Delay execution for a number of milliseconds.
  * 延迟指定毫秒数。

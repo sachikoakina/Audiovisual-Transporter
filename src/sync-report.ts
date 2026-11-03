@@ -4,6 +4,7 @@ import { consola } from 'consola';
 import { renderDetailLines } from './rules/review-detail';
 import { renderSummaryMarkdown, stateLabel } from './sync-summary-markdown';
 import { pathHasFailed, type PathReport } from './types';
+import { inActions } from './utils';
 
 /**
  * Display layer for sync results.
@@ -24,14 +25,6 @@ import { pathHasFailed, type PathReport } from './types';
  * bury the summary that matters.
  */
 const MAX_LISTED_TITLES = 20;
-
-/**
- * GitHub Actions reads bare `::group::` / `::warning::` lines as *workflow
- * commands*. They must reach stdout completely unadorned — routing them
- * through consola would prepend `[info]` and silently break them — and they
- * are meaningless noise anywhere else, so they are emitted only inside Actions.
- */
-const inActions = process.env.GITHUB_ACTIONS === 'true';
 
 function raw(line: string): void {
   process.stdout.write(`${line}\n`);

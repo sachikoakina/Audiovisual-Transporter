@@ -147,7 +147,7 @@ export function extractBangumiIdFromNeodb(neodbItem: NeodbItem): number | null {
 }
 
 /** Extract a Douban subject/game/drama URL from NeoDB `external_resources`. / 从 NeoDB 的 `external_resources` 中提取豆瓣条目/游戏/舞台剧 URL。 */
-export function extractDoubanUrlFromNeodb(neodbItem: NeodbItem): string | null {
+function extractDoubanUrlFromNeodb(neodbItem: NeodbItem): string | null {
   const resources = neodbItem.external_resources || [];
   for (const resource of resources) {
     const url = resource.url;
@@ -163,7 +163,7 @@ export function extractDoubanUrlFromNeodb(neodbItem: NeodbItem): string | null {
 }
 
 /** Bangumi subject type → the catalog search category that can contain it. / Bangumi subject 类型 → 可能包含它的目录搜索分类。 */
-export function bangumiSubjectTypeToNeodbSearchCategory(
+function bangumiSubjectTypeToNeodbSearchCategory(
   subjectType: BangumiSubjectType,
 ): NeodbSearchCategory | undefined {
   switch (subjectType) {
@@ -234,7 +234,7 @@ function uniqueNonEmptyTitles(titles: Array<string | null | undefined>): string[
 }
 
 /** Search the NeoDB catalog (internal index only; does not fetch external URLs). / 搜索 NeoDB 目录（仅内部索引，不会去抓取外部 URL）。 */
-export async function searchNeodbCatalog(
+async function searchNeodbCatalog(
   query: string,
   category?: NeodbSearchCategory,
 ): Promise<NeodbItem[]> {
@@ -411,9 +411,4 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
     : { item: fromBangumi, via: 'direct' };
 }
 
-export async function resolveNeodbItemForBangumiUrl(
-  bangumiUrl: string,
-  options: ResolveBangumiNeodbOptions = {},
-): Promise<NeodbItem | null> {
-  return (await resolveNeodbItemForBangumiUrlDetailed(bangumiUrl, options)).item;
-}
+

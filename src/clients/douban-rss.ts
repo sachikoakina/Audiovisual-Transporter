@@ -32,10 +32,7 @@ type ItemInfo = {
 
 dotenv.config();
 
-/** Browser-like UA; override with `DOUBAN_RSS_USER_AGENT` when Douban changes its WAF. / 浏览器 UA；豆瓣调整 WAF 时可用 `DOUBAN_RSS_USER_AGENT` 覆盖。 */
-const DOUBAN_RSS_UA =
-  process.env.DOUBAN_RSS_USER_AGENT ||
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+import { DOUBAN_USER_AGENT } from './douban-user-agent';
 
 /**
  * Fetch the user's Douban interests feed as raw feed items.
@@ -58,7 +55,7 @@ export async function fetchRSSFeeds(): Promise<RSSFeedItem[]> {
     // Timeouts / transient 5xx are common on Actions — retry a few times.
     const xml = await got(url, {
       headers: {
-        'User-Agent': DOUBAN_RSS_UA,
+        'User-Agent': DOUBAN_USER_AGENT,
         Accept:
           'application/atom+xml, application/rss+xml, application/xml, text/xml, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
