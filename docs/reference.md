@@ -64,6 +64,10 @@ scanned = written + unchanged + skipped + unresolved + failed
 
 review-queue 工作流另用 Actions artifact 携带待核对名单状态；它与上述 `.cache` 同步状态不是同一文件或同一用途。细节见 [Actions 操作](github-actions.md)。
 
+## 豆瓣 → Bangumi 进度
+
+`SYNC_DOUBAN_BANGUMI_EPISODES=1` 时，③ 只对豆瓣 `complete` 条目补进度。电影标记第一个正片；TV/动画/真人只补 `type!=2` 的正片分集，已有集不写；SP 默认关闭，`SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 才纳入。书籍按 `ep_status`/`vol_status` 是否大于 0 判断未知，只拉满已知维度，总量缺失则跳过。分集 `updated_at` 是 Unix 秒，已有集通过不写入保留，新增集使用服务端时间。
+
 ## 请求节流
 
 NeoDB、Bangumi、TMDB 的请求间隔由对应客户端实现，部分间隔可通过 `.env.example` 中的配置调整。NeoDB 书架读取另有 GET 重试策略；其他目录读取失败不会一概转成“无匹配”。修改节流或重试时应保留“空结果”“未找到”和“请求失败”的区别。

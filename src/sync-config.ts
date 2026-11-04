@@ -196,6 +196,10 @@ export const syncConfig = {
   doubanNeodb: envEnabled('SYNC_DOUBAN_NEODB', true),
   /** Douban RSS → Bangumi / 豆瓣 RSS → Bangumi */
   doubanBangumi: envEnabled('SYNC_DOUBAN_BANGUMI', true),
+  /** Write episode/book progress for completed Douban items. Default off. */
+  doubanBangumiEpisodes: envEnabled('SYNC_DOUBAN_BANGUMI_EPISODES', false),
+  /** Include SP episodes for TV progress. Default off. */
+  doubanBangumiIncludeSp: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_SP', false),
   /** Bangumi collections → NeoDB / Bangumi 收藏 → NeoDB */
   bangumiNeodb: envEnabled('SYNC_BANGUMI_NEODB', true),
   /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
@@ -342,7 +346,7 @@ export function describeSyncConfig(): string {
   const lines = [
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
     `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, merge=${syncConfig.doubanNeodbMerge})`,
-    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)})`,
+    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''})`,
     `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, merge=${syncConfig.bangumiNeodbMerge}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');

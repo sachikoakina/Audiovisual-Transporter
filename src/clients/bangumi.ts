@@ -97,6 +97,24 @@ export type BangumiSubject = {
   air_year?: number;
   air_date?: string;
   date?: string;
+  /** Total chapters for a book. / 书籍总章节数。 */
+  eps?: number;
+  /** Total volumes for a book. / 书籍总卷数。 */
+  volumes?: number;
+};
+
+export type BangumiEpisode = {
+  id: number;
+  /** 0 main, 1 SP, 2 OP, 3 ED. / 0 本篇，1 SP，2 OP，3 ED。 */
+  type: number;
+  sort: number;
+  ep?: number;
+};
+
+export type BangumiEpisodeState = {
+  type: number;
+  /** Unix seconds returned by the API. / API 返回的 Unix 秒。 */
+  updatedAt?: number;
 };
 
 export type BangumiCollection = {
@@ -243,6 +261,9 @@ export async function upsertBangumiCollection(
     rate?: number;
     comment?: string;
     private?: boolean;
+    /** Book-only progress. / 仅书籍使用的进度。 */
+    ep_status?: number;
+    vol_status?: number;
   },
 ): Promise<boolean> {
   if (!bangumiToken) {
@@ -259,6 +280,132 @@ export async function upsertBangumiCollection(
       logUnauthorized();
     } else {
       consola.error(`Failed to upsert Bangumi collection ${subjectId}: `, error);
+    }
+    return false;
+  }
+}
+
+/** Paginated subject episodes. / 分页读取条目分集。 */
+export async function getBangumiEpisodes(
+  subjectId: number,
+): Promise<ReadResult<BangumiEpisode[]>> {
+  if (!bangumiToken) {
+    return {
+      status: 'error',
+      scope: 'auth',
+      message: 'BANGUMI_ACCESS_TOKEN is not set',
+    };
+  }
+  const episodes: BangumiEpisode[] = [];
+  let offset = 0;
+  try {
+    while (true) {
+      await bangumiThrottle();
+      const page = (await got(`${BGM_API}/v0/episodes`, {
+        headers: authHeaders(),
+        searchParams: { subject_id: subjectId, limit: 200, offset },
+      }).json()) as { data?: BangumiEpisode[]; total?: number };
+      const data = page.data ?? [];
+      episodes.push(...data);
+      offset += data.length;
+      if (data.length < 200 || offset >= (page.total ?? offset)) break;
+    }
+    return { status: 'found', value: episodes };
+  } catch (error) {
+    const status = error instanceof HTTPError ? error.response.statusCode : null;
+    if (classifyReadFailure(status) === 'auth') {
+      logUnauthorized();
+      return {
+        status: 'error',
+        scope: 'auth',
+        message: `episodes ${subjectId} returned ${status ?? 'no response'}`,
+      };
+    }
+    consola.error(`Failed to get Bangumi episodes ${subjectId}: `, error);
+    return {
+      status: 'error',
+      scope: 'item',
+      message: `episodes ${subjectId} returned ${status ?? 'no response'}`,
+    };
+  }
+}
+
+/** Current user's per-episode state for one subject. / 当前用户某条目的分集收藏状态。 */
+export async function getBangumiEpisodeStates(
+  subjectId: number,
+): Promise<ReadResult<Map<number, BangumiEpisodeState>>> {
+  if (!bangumiToken) {
+    return {
+      status: 'error',
+      scope: 'auth',
+      message: 'BANGUMI_ACCESS_TOKEN is not set',
+    };
+  }
+  const states = new Map<number, BangumiEpisodeState>();
+  let offset = 0;
+  try {
+    while (true) {
+      await bangumiThrottle();
+      const page = (await got(
+        `${BGM_API}/v0/users/-/collections/${subjectId}/episodes`,
+        {
+          headers: authHeaders(),
+          searchParams: { limit: 1000, offset },
+        },
+      ).json()) as {
+        data?: Array<{ episode?: { id?: number }; type?: number; updated_at?: number }>;
+        total?: number;
+      };
+      const data = page.data ?? [];
+      for (const row of data) {
+        if (row.episode?.id != null && row.type != null) {
+          states.set(row.episode.id, { type: row.type, updatedAt: row.updated_at });
+        }
+      }
+      offset += data.length;
+      if (data.length < 1000 || offset >= (page.total ?? offset)) break;
+    }
+    return { status: 'found', value: states };
+  } catch (error) {
+    const status = error instanceof HTTPError ? error.response.statusCode : null;
+    if (classifyReadFailure(status) === 'auth') {
+      logUnauthorized();
+      return {
+        status: 'error',
+        scope: 'auth',
+        message: `episode states ${subjectId} returned ${status ?? 'no response'}`,
+      };
+    }
+    consola.error(`Failed to get Bangumi episode states ${subjectId}: `, error);
+    return {
+      status: 'error',
+      scope: 'item',
+      message: `episode states ${subjectId} returned ${status ?? 'no response'}`,
+    };
+  }
+}
+
+/** Mark one episode watched; server assigns updated_at. / 标记单集看过，时间由服务端写入。 */
+export async function markBangumiEpisodeWatched(
+  subjectId: number,
+  episodeId: number,
+): Promise<boolean> {
+  if (!bangumiToken) return false;
+  try {
+    await bangumiThrottle();
+    await got.put(`${BGM_API}/v0/users/-/collections/-/episodes/${episodeId}`, {
+      headers: authHeaders(),
+      json: { type: 2 },
+    });
+    return true;
+  } catch (error) {
+    if (isUnauthorized(error)) {
+      logUnauthorized();
+    } else {
+      consola.error(
+        `Failed to mark Bangumi episode ${subjectId}/${episodeId}: `,
+        error,
+      );
     }
     return false;
   }

@@ -46,9 +46,12 @@ import {
   bangumiThrottle,
   exactBangumiCandidates,
   getBangumiCollection,
+  getBangumiEpisodeStates,
+  getBangumiEpisodes,
   getBangumiMe,
   getBangumiSubject,
   isBangumiYearFilterType,
+  markBangumiEpisodeWatched,
   pickExactBangumiMatchByYear,
   searchBangumiSubjects,
   upsertBangumiCollection,
@@ -56,6 +59,7 @@ import {
 } from '../clients/bangumi';
 import { neodbThrottle } from '../clients/neodb-http';
 import { doubanStarsToTenPoint } from '../rules/douban';
+import { planBookProgress, planEpisodeProgress } from '../rules/bangumi-progress';
 import {
   normalizeReviewCategory,
   normalizeReviewShelf,
@@ -330,13 +334,38 @@ async function syncFeedItemToBangumi(
     existing,
   });
 
-  if (plan.unchanged) {
+  const wantsProgress = item.status === 'complete' && syncConfig.doubanBangumiEpisodes;
+  const isBook = item.category === ItemCategory.Book;
+  let bookEpStatus: number | undefined;
+  let bookVolStatus: number | undefined;
+
+  if (wantsProgress && isBook) {
+    const subject = readOptionalOrThrow(
+      await getBangumiSubject(subjectId),
+      'Bangumi subject',
+    );
+    const bookPlan = subject
+      ? planBookProgress(existing ?? ({} as never), subject)
+      : { skip: true as const, reason: 'both-unknown' as const };
+    if (bookPlan.skip) {
+      consola.info(
+        'Bangumi book progress skipped: ',
+        `subject/${subjectId} reason=${bookPlan.reason}`,
+      );
+      if (plan.unchanged) return 'skipped';
+    } else {
+      bookEpStatus = bookPlan.epStatus;
+      bookVolStatus = bookPlan.volStatus;
+    }
+  }
+
+  if (plan.unchanged && !wantsProgress) {
     consola.info('Bangumi collection unchanged, skip: ', `subject/${subjectId}`);
     return 'unchanged';
   }
 
-  if (plan.keepExistingRate) {
-    // Keep this line: without it, "why did my Douban re-rating do nothing" is unanswerable from
+  if (plan.keepExistingRate && !plan.unchanged) {
+    // Keep this line: without it, "why did my Douban re-rating did nothing" is unanswerable from
     // the log alone.
     // 这一行要保留：否则「我在豆瓣改了分，为什么没生效」在日志里根本查不出来。
     consola.info(
@@ -345,18 +374,74 @@ async function syncFeedItemToBangumi(
     );
   }
 
-  consola.info(
-    existing ? 'Updating Bangumi collection: ' : 'Creating Bangumi collection: ',
-    `subject/${subjectId}`,
-  );
+  const needsCollectionWrite =
+    !plan.unchanged || bookEpStatus != null || bookVolStatus != null;
+  if (needsCollectionWrite) {
+    consola.info(
+      existing ? 'Updating Bangumi collection: ' : 'Creating Bangumi collection: ',
+      `subject/${subjectId}`,
+    );
+    const ok = await upsertBangumiCollection(subjectId, {
+      type: plan.type,
+      rate: plan.rate,
+      comment: plan.comment,
+      private: bangumiPrivate,
+      ...(bookEpStatus != null ? { ep_status: bookEpStatus } : {}),
+      ...(bookVolStatus != null ? { vol_status: bookVolStatus } : {}),
+    });
+    if (!ok) return 'failed';
+  }
 
-  const ok = await upsertBangumiCollection(subjectId, {
-    type: plan.type,
-    rate: plan.rate,
-    comment: plan.comment,
-    private: bangumiPrivate,
+  // Books only use ep_status/vol_status; episodes belong to movie/TV/anime/real.
+  if (!wantsProgress || isBook || item.category === ItemCategory.Drama) {
+    return needsCollectionWrite ? 'written' : 'unchanged';
+  }
+
+  const episodes =
+    readOptionalOrThrow(await getBangumiEpisodes(subjectId), 'Bangumi episodes') ?? [];
+  const states =
+    readOptionalOrThrow(
+      await getBangumiEpisodeStates(subjectId),
+      'Bangumi episode states',
+    ) ?? new Map();
+  const mainCount = episodes.filter((episode) => episode.type === 0).length;
+  const isMovie = item.category === ItemCategory.Movie && mainCount <= 1;
+  const progress = planEpisodeProgress(episodes, states, {
+    isMovie,
+    includeSp: syncConfig.doubanBangumiIncludeSp,
+    collected: Boolean(existing) || needsCollectionWrite,
   });
-  return ok ? 'written' : 'failed';
+
+  if (progress.reason === 'no-episodes') {
+    consola.info('Bangumi progress: no episodes, skip: ', `subject/${subjectId}`);
+    return needsCollectionWrite ? 'written' : 'unchanged';
+  }
+
+  if (progress.missing.length === 0) {
+    consola.info(
+      'Bangumi progress: no missing episodes: ',
+      `subject/${subjectId} target=${progress.target.length}`,
+    );
+    return needsCollectionWrite ? 'written' : 'unchanged';
+  }
+
+  let failed = false;
+  let added = 0;
+  for (const episodeId of progress.missing) {
+    if (await markBangumiEpisodeWatched(subjectId, episodeId)) {
+      added += 1;
+    } else {
+      failed = true;
+    }
+  }
+  consola.info(
+    'Bangumi progress: ',
+    `subject/${subjectId} kind=${isMovie ? 'movie' : 'tv'} target=${progress.target.length} ` +
+      `existing=${progress.target.length - progress.missing.length} added=${added} ` +
+      `failed=${progress.missing.length - added}`,
+  );
+  if (failed) return 'failed';
+  return added > 0 || needsCollectionWrite ? 'written' : 'unchanged';
 }
 
 async function resolveBangumiSubjectId(

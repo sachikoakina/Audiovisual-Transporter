@@ -34,6 +34,16 @@ RSS 标题中的状态前缀与条目链接共同确定分类和状态；RSS 正
 
 豆瓣无法表达的 Bangumi `on-hold` 与 `dropped` 会保留。Bangumi 已有非零评分时，豆瓣评分不会覆盖它；无评分的豆瓣条目也不会清除现有分数。
 
+### ③ 的 complete 进度同步（可选）
+
+`SYNC_DOUBAN_BANGUMI_EPISODES=1` 时，只对豆瓣 `complete` 条目补 Bangumi 进度：
+
+- **电影**：正片第 1 集未看则标记 `type=2`；没有正片时只写“看过”，不伪造格子。
+- **TV/动画/真人**：读取全部分集与分集收藏，只对不在 `type=2` 的正片逐集 PUT；已看集不写，保留原 `updated_at`；新增集使用服务端时间。
+- **SP**：默认不处理；`SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 时才纳入 TV/动画/真人的 `type=1`，电影永不自动处理 SP。
+- **书籍**：`ep_status`/`vol_status` 都为 0 视为未知，跳过进度；只有一个维度已知时，把该维度拉满到 subject 的 `eps`/`volumes`，另一维度不发送；两个维度都已知时都处理；总量缺失时跳过对应维度。
+- 条目 `type=2` 不等于分集已看；代码始终用分集 `type=2` 判断，不使用 `ep_status` 作为正片进度依据。
+
 ## ④ Bangumi → NeoDB
 
 先按 Bangumi subject URL 解析 NeoDB 条目。若该条目链接到另一个豆瓣条目，优先选取豆瓣侧的 NeoDB 孪生记录；否则使用 Bangumi 标题在 `subject_type` 对应的 NeoDB 分类中搜索精确标题，**禁止跨分类回退**。已知年份双方相差超过一年时拒绝该候选；年份缺失不作为拒绝依据。
