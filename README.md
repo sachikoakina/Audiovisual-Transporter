@@ -106,6 +106,7 @@ npm run verify:all
 - [架构与模块职责](docs/architecture.md)
 - [五条同步链路](docs/sync-paths.md)
 - [GitHub Actions 与运行配置](docs/github-actions.md)
+- [配置参数说明](docs/configuration.md)
 - [接口、错误与运行数据参考](docs/reference.md)
 
 ## License
