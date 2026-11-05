@@ -52,6 +52,89 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
 
 摘要中的“本轮运行”同时显示 UTC 与上海时间；机器字段、artifact 名和排序只用 UTC。
 
+## 待核对名单的移出规则
+
+名单由 `scripts/review-queue.mjs` 的 `merge()` 维护。条目不会因为“本轮没出现在日志里”就立即删除；必须同时满足：
+
+1. 上一份 `review-state` 中存在该条目；
+2. 本轮日志没有再次出现同一个 key；
+3. 本轮没有触发 `degraded` 冻结；
+4. 该条目所属链路在 `sync-report` 中有 coverage；
+5. 条目身份在该链路的 `scannedIds` 中；
+6. `missedRuns + 1 >= 2`，即连续第二轮“被扫描到但未再出现”。
+
+```text
+上一份条目
+  ├─ 本轮再次出现 → 保留，missedRuns = 0
+  └─ 本轮未出现
+       ├─ degraded → 冻结，不计缺席
+       ├─ 无 coverage / identity 不在 scannedIds → 冻结，missedRuns = 0
+       └─ 有 coverage 且 identity 在 scannedIds
+            ├─ missedRuns = 1 → 保留
+            └─ missedRuns = 2 → 移出
+```
+
+### 会触发移出的场景
+
+| 场景                          | 说明                                             |
+| ----------------------------- | ------------------------------------------------ |
+| 连续两轮扫描到但不再报错      | 条目已修复、已匹配，或不再产生该档位记录         |
+| `unresolved` 变为可匹配       | 日志不再输出 `No ... match` / `neodb-unresolved` |
+| `failed` / `skipped` 恢复正常 | 本轮被扫描到，但没有再次失败或跳过               |
+| 目标端已存在对应条目          | ②③④⑤ 的匹配成功后不再进入名单                    |
+
+`MIN_ROUNDS` 只决定条目何时显示为已入名单，不改变移出条件。
+
+### 不会移出的场景
+
+| 场景                                      | 行为                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------- |
+| 没有 `sync-report.json`                   | `coverage = null`，全部冻结                                          |
+| 链路未启用 / report 中没有该链路          | 无 coverage，全部冻结                                                |
+| identity 不在 `scannedIds`                | 未真正检查到，冻结且 `missedRuns = 0`                                |
+| `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断 | 只有被扫描到的条目可能移出；未扫描的冻结                             |
+| 链路 `aborted` / 401 / 403                | 未扫描的条目冻结；已扫描的仍按规则处理                               |
+| `degraded`                                | 本轮 observed 为空、上一份非空、report 仍统计 unresolved>0；整轮冻结 |
+| 本轮再次出现                              | `missedRuns` 清零，保留                                              |
+| 中间夹一轮未覆盖                          | 未覆盖轮把 streak 清零，需要重新连续两轮                             |
+| 上一份 state 为空                         | 没有可移出条目                                                       |
+| state 丢失/损坏                           | `loadState()` 返回空数组；这是“未恢复”，不是“移出全部”               |
+
+注意：`capped` / `truncated` / `aborted` 不会整体冻结链路；代码只检查该条目是否在 `scannedIds` 中。**被扫描到的条目仍可能移出，没扫描到的才冻结。**
+
+### 判断时应核对
+
+| 字段                | 含义                                                       |
+| ------------------- | ---------------------------------------------------------- |
+| `removed`           | 本轮真正移出的条目                                         |
+| `uncovered`         | 因未扫描而冻结的条目数                                     |
+| `degraded`          | 是否因解析异常整轮冻结                                     |
+| `coverage.sources`  | 有覆盖信息的链路数                                         |
+| `coverage.complete` | 是否所有链路都完整扫描；仅用于摘要说明，不参与单条移出判断 |
+| `missedRuns`        | 单条连续缺席次数                                           |
+| `scannedIds`        | 该链路本轮真正检查过的 identity                            |
+
+快速判断：
+
+```text
+removed > 0
+  → 条目连续两轮在 scannedIds 中但未再出现
+
+removed = 0，uncovered > 0
+  → 多数是没扫描到，不是修好了
+
+removed = 0，degraded 非空
+  → 日志解析异常，整轮冻结
+
+removed = 0，无 coverage
+  → 没有 report，无法判断，全部冻结
+
+removed 很大，missedRuns 普遍为 2
+  → 真实老化/修复，或 scannedIds 覆盖范围异常
+```
+
+没有代码层的“手动移出”入口；直接编辑 `review-state` 或删除 artifact 不属于同步规则。
+
 ## 缓存与游标
 
 同步状态、年份缓存和全量游标在临时 runner 上不会自动持久化。工作流只为 Bangumi 全量模式恢复/保存游标；review-state artifact 承载的是待核对名单状态，与 `.cache` 同步缓存用途不同。
