@@ -8,17 +8,17 @@
 
 ## 一、总开关
 
-| 变量                   | 默认 | 作用                                                              |
-| ---------------------- | ---- | ----------------------------------------------------------------- |
-| `SYNC_DOUBAN_NOTION`   | `0`  | 豆瓣 RSS → Notion；默认关闭                                       |
-| `SYNC_DOUBAN_NEODB`    | `1`  | 豆瓣 RSS → NeoDB；默认开启                                        |
-| `SYNC_DOUBAN_BANGUMI`  | `1`  | 豆瓣 RSS → Bangumi；默认开启                                      |
-| `SYNC_BANGUMI_NEODB`   | `1`  | Bangumi → NeoDB；默认开启                                         |
-| `SYNC_NEODB_TMDB`      | `0`  | NeoDB → TMDB；默认关闭                                            |
-| `SYNC_DOUBAN_REQUIRED` | `1`  | 豆瓣 RSS 失败是否让整轮失败；`0` 只标记 `TOLERATED`，不影响退出码 |
-| `SYNC_DRY_RUN`         | `0`  | 仅 ⑤：只计算并打印计划，不写 TMDB                                 |
-| `BANGUMI_FULL_SYNC`    | `0`  | 仅 ④：遍历 Bangumi 全部收藏页                                     |
-| `NEODB_TMDB_FULL_SYNC` | `0`  | 仅 ⑤：取消条数/页数上限，并关闭本次增量跳过                       |
+| 变量                      | 默认 | 作用                                                              |
+| ------------------------- | ---- | ----------------------------------------------------------------- |
+| `SYNC_DOUBAN_NOTION`      | `0`  | 豆瓣 RSS → Notion；默认关闭                                       |
+| `SYNC_DOUBAN_NEODB`       | `1`  | 豆瓣 RSS → NeoDB；默认开启                                        |
+| `SYNC_DOUBAN_BANGUMI`     | `1`  | 豆瓣 RSS → Bangumi；默认开启                                      |
+| `SYNC_BANGUMI_NEODB`      | `1`  | Bangumi → NeoDB；默认开启                                         |
+| `SYNC_NEODB_TMDB`         | `0`  | NeoDB → TMDB；默认关闭                                            |
+| `SYNC_DOUBAN_REQUIRED`    | `1`  | 豆瓣 RSS 失败是否让整轮失败；`0` 只标记 `TOLERATED`，不影响退出码 |
+| `SYNC_DRY_RUN`            | `0`  | 仅 ⑤：只计算并打印计划，不写 TMDB                                 |
+| `BANGUMI_NEODB_FULL_SYNC` | `0`  | 仅 ④：遍历 Bangumi 全部收藏页                                     |
+| `NEODB_TMDB_FULL_SYNC`    | `0`  | 仅 ⑤：取消条数/页数上限，并关闭本次增量跳过                       |
 
 说明：
 
@@ -161,11 +161,11 @@
 
 ### 6.2 全量分页
 
-| 变量                       | 默认                            | 说明                             |
-| -------------------------- | ------------------------------- | -------------------------------- |
-| `BANGUMI_FULL_SYNC`        | `0`                             | 遍历全部收藏页；只对本次运行生效 |
-| `BANGUMI_FULL_SYNC_STATE`  | `.cache/bangumi-full-sync.json` | 全量 offset 游标文件             |
-| `BANGUMI_COLLECTION_LIMIT` | `50`                            | 每页收藏数，范围 1–50            |
+| 变量                            | 默认                                  | 说明                             |
+| ------------------------------- | ------------------------------------- | -------------------------------- |
+| `BANGUMI_NEODB_FULL_SYNC`       | `0`                                   | 遍历全部收藏页；只对本次运行生效 |
+| `BANGUMI_NEODB_FULL_SYNC_STATE` | `.cache/bangumi-neodb-full-sync.json` | 全量 offset 游标文件             |
+| `BANGUMI_COLLECTION_LIMIT`      | `50`                                  | 每页收藏数，范围 1–50            |
 
 游标只在全量运行读取；常规运行每次从 offset 0 开始。删除游标文件等于下次全量从头走。
 

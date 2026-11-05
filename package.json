@@ -6,8 +6,8 @@
   "private": true,
   "scripts": {
     "sync": "tsx src/index.ts",
-    "sync:bangumi-full": "tsx src/bangumi-to-neodb-full-cli.ts",
-    "sync:neodb-tmdb-full": "tsx src/neodb-to-tmdb-full-cli.ts",
+    "sync:bangumi-neodb-full-sync": "tsx src/bangumi-neodb-full-sync-cli.ts",
+    "sync:neodb-tmdb-full-sync": "tsx src/neodb-tmdb-full-sync-cli.ts",
     "probe:neodb": "tsx scripts/probe-neodb-shelf.ts",
     "verify:mapping": "tsx scripts/verify-tmdb-mapping.ts",
     "verify:rules": "tsx scripts/verify-rules.ts",

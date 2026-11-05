@@ -3,10 +3,10 @@
  * 链路④ —— Bangumi 收藏 → NeoDB。
  *
  * This is the only path that walks pagination (`while (true)` bounded by the collection total),
- * and the only one that can be told to stop after a single page: without `fullSync` it breaks out
+ * and the only one that can be told to stop after a single page: without `bangumiNeodbFullSync` it breaks out
  * of the loop after the first page.
  * 这是唯一会遍历分页的链路（`while (true)`，以收藏总数为界），也是唯一可以「只跑一页」的链路：
- * 若 `fullSync` 为假，它在第一页之后就退出循环。
+ * 若 `bangumiNeodbFullSync` 为假，它在第一页之后就退出循环。
  *
  * 更新日期由 `SYNC_BANGUMI_NEODB_CREATED_TIME` 决定：默认保留 NeoDB 日期，显式模式才会使用
  * Bangumi 的 `updated_at`。新建标记在有有效源日期时可用该日期初始化。
@@ -63,9 +63,9 @@ import {
 } from '../sync-config';
 import {
   itemLabel,
-  readFullSyncCursor,
+  readBangumiNeodbFullSyncCursor,
   upsertReviewEntry,
-  writeFullSyncCursor,
+  writeBangumiNeodbFullSyncCursor,
 } from '../utils';
 import {
   normalizeReviewCategory,
@@ -131,7 +131,7 @@ function newBangumiCounters(): BangumiCounters {
  * `pathHasFailed`.
  */
 export default async function syncBangumiToNeodb(
-  fullSync = false,
+  bangumiNeodbFullSync = false,
 ): Promise<PathReport> {
   const report = newPathReport(LABEL);
   const counters = newBangumiCounters();
@@ -168,7 +168,7 @@ export default async function syncBangumiToNeodb(
   }
 
   consola.start(
-    fullSync
+    bangumiNeodbFullSync
       ? 'Going to full-sync Bangumi → NeoDB...'
       : 'Going to sync recent Bangumi → NeoDB...',
   );
@@ -182,8 +182,8 @@ export default async function syncBangumiToNeodb(
   // 只有全量才续跑。常规运行每次必须从头部开始，这是刻意的：它的窗口**就是**最新那一页，
   // 在那里沿用残留游标会静默藏掉这一轮本来要抓的新标记。游标也从不决定要不要写 —— 每次写入本来
   // 都要先比对 —— 因此旧值最多只让某一页重走一遍。
-  const cursorFile = fullSync ? syncConfig.bangumiFullSyncCursor : '';
-  const cursor = readFullSyncCursor(cursorFile);
+  const cursorFile = bangumiNeodbFullSync ? syncConfig.bangumiNeodbFullSyncCursor : '';
+  const cursor = readBangumiNeodbFullSyncCursor(cursorFile);
 
   // null = mixed fetch (all types); otherwise one pass per subject_type
   const typePasses: Array<BangumiSubjectType | undefined> = subjectTypes
@@ -214,7 +214,7 @@ export default async function syncBangumiToNeodb(
     // One cursor per pass: a full sync can run several, and each has its own offset.
     // 一趟一个游标：一次全量可能跑多趟，每趟有自己的 offset。
     const passKey = subjectType === undefined ? 'mixed' : String(subjectType);
-    let offset = fullSync ? (cursor.offsets[passKey] ?? 0) : 0;
+    let offset = bangumiNeodbFullSync ? (cursor.offsets[passKey] ?? 0) : 0;
     if (offset > 0) {
       consola.info(
         `Resuming the ${passKey} pass at offset ${offset}; earlier collections are already done.`,
@@ -251,9 +251,9 @@ export default async function syncBangumiToNeodb(
         // 空页即本趟结束 —— 而如果我们是带着游标过来的，那个游标此刻已指到末尾之外（书架变短了，
         // 或中断正好落在页中）。丢掉它才不会让这里变成永久空转：没有这一步，之后每次全量都会问
         // 同一个 offset、拿到空、再停下。
-        if (fullSync) {
+        if (bangumiNeodbFullSync) {
           delete cursor.offsets[passKey];
-          writeFullSyncCursor(cursorFile, cursor);
+          writeBangumiNeodbFullSyncCursor(cursorFile, cursor);
         }
         break;
       }
@@ -368,7 +368,7 @@ export default async function syncBangumiToNeodb(
         break;
       }
 
-      if (!fullSync) {
+      if (!bangumiNeodbFullSync) {
         break;
       }
 
@@ -384,7 +384,7 @@ export default async function syncBangumiToNeodb(
       } else {
         cursor.offsets[passKey] = offset;
       }
-      writeFullSyncCursor(cursorFile, cursor);
+      writeBangumiNeodbFullSyncCursor(cursorFile, cursor);
       if (offset >= page.total) {
         break;
       }

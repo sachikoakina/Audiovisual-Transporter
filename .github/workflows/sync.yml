@@ -26,7 +26,7 @@ on:
       # run. Keeping the default `false` means a manual run for a quick check stays capped and cheap.
       # 全量重导：本次运行取消 SYNC_MAX_ITEMS / NEODB_MAX_PAGES 上限，并忽略 SYNC_INCREMENTAL。
       # 默认 `false` 让「手动跑一次做快速检查」仍然受封顶约束、开销可控。
-      full_sync:
+      neodb_tmdb_full_sync:
         description: 'NeoDB → TMDB full sync (no item/page caps, incremental off) — slow'
         type: boolean
         default: false
@@ -38,7 +38,7 @@ on:
       # ④ 的默认窗口是一页（`BANGUMI_COLLECTION_LIMIT`，最多 50），比它更早标记的收藏永远不会被看
       # 一眼。勾选本项即遍历全部页。它与上面那个「全量」不是同一类：④ 没有条目上限可取消、也没有增量
       # 缓存可关闭 —— 它本来每轮都重读并逐条比对 —— 这项只改变「走完多少书架」。
-      bangumi_full_sync:
+      bangumi_neodb_full_sync:
         description: 'Bangumi → NeoDB full sync (all pages, no cap) — slow, may queue the next cron'
         type: boolean
         default: false
@@ -57,11 +57,11 @@ jobs:
     # A hung network call would otherwise burn the default 360-minute budget. A capped cron run is
     # paced by NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS and bounded by SYNC_MAX_ITEMS /
     # NEODB_MAX_PAGES, so an hour is generous. A full import has no such bounds and runs at roughly
-    # 0.6–1.0 s per item, so the manual full_sync run gets its own budget.
+    # 0.6–1.0 s per item, so the manual neodb_tmdb_full_sync run gets its own budget.
     # 否则一次卡住的网络调用会烧掉默认的 360 分钟额度。常规运行已受
     # NEODB_REQUEST_DELAY_MS / TMDB_REQUEST_DELAY_MS 节流，并由 SYNC_MAX_ITEMS / NEODB_MAX_PAGES
     # 封顶，一小时足够宽裕。全量导入没有这些上限，速度约 0.6–1.0 秒/条，因此手动全量单独给预算。
-    timeout-minutes: ${{ (inputs.full_sync || inputs.bangumi_full_sync) && 180 || 60 }}
+    timeout-minutes: ${{ (inputs.neodb_tmdb_full_sync || inputs.bangumi_neodb_full_sync) && 180 || 60 }}
 
     strategy:
       matrix:
@@ -92,7 +92,7 @@ jobs:
       # has to be the only way, which used to mean flipping a sticky switch for a one-off run.
       # 与 NEODB_TMDB_FULL_SYNC 同一优先级：本次运行的输入优先，Variables 的值作为兜底，好让「长期
       # 全量」仍然可配 —— 但它不再是唯一途径，而过去一次性的全量要靠改动一个会残留的开关。
-      BANGUMI_FULL_SYNC: ${{ inputs.bangumi_full_sync && '1' || vars.BANGUMI_FULL_SYNC || '0' }}
+      BANGUMI_NEODB_FULL_SYNC: ${{ inputs.bangumi_neodb_full_sync && '1' || vars.BANGUMI_NEODB_FULL_SYNC || '0' }}
       SYNC_DOUBAN_NOTION: ${{ vars.SYNC_DOUBAN_NOTION || '0' }}
       SYNC_DOUBAN_NEODB: ${{ vars.SYNC_DOUBAN_NEODB || '1' }}
       SYNC_DOUBAN_BANGUMI: ${{ vars.SYNC_DOUBAN_BANGUMI || '1' }}
@@ -114,9 +114,9 @@ jobs:
       # 0, so index.ts never enters the TMDB branch and exits 0 having done
       # nothing — a green run that writes no data.
       SYNC_NEODB_TMDB: ${{ vars.SYNC_NEODB_TMDB || '0' }}
-      # The manual `full_sync` input wins; otherwise fall back to the Variables value (default 0).
-      # 手动 `full_sync` 输入优先；否则取 Variables 的值（默认 0）。
-      NEODB_TMDB_FULL_SYNC: ${{ inputs.full_sync && '1' || vars.NEODB_TMDB_FULL_SYNC || '0' }}
+      # The manual `neodb_tmdb_full_sync` input wins; otherwise fall back to the Variables value (default 0).
+      # 手动 `neodb_tmdb_full_sync` 输入优先；否则取 Variables 的值（默认 0）。
+      NEODB_TMDB_FULL_SYNC: ${{ inputs.neodb_tmdb_full_sync && '1' || vars.NEODB_TMDB_FULL_SYNC || '0' }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       # Writes need a v3 session id or a user-scoped v4 token. A v4 *read*
       # token (scopes: api_read) authenticates reads but fails every write.
@@ -169,13 +169,13 @@ jobs:
       # 键带 run id，因为缓存条目不可变；下面的前缀让最新那份被恢复。只有全量参与：常规运行必须
       # 从头部开始。
       - name: Restore the full-sync cursor
-        if: inputs.bangumi_full_sync
+        if: inputs.bangumi_neodb_full_sync
         uses: actions/cache/restore@v4
         with:
-          path: .cache/bangumi-full-sync.json
-          key: bangumi-full-sync-${{ github.run_id }}
+          path: .cache/bangumi-neodb-full-sync.json
+          key: bangumi-neodb-full-sync-${{ github.run_id }}
           restore-keys: |
-            bangumi-full-sync-
+            bangumi-neodb-full-sync-
       - name: Record UTC run start
         id: run_start
         run: echo "value=$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
@@ -205,11 +205,11 @@ jobs:
       # 对照自己的日志解析，而不必再从控制台文本里重推一遍。与摘要同一条 `always()`：失败的那一轮
       # 才是最值得读的。
       - name: Save the full-sync cursor
-        if: always() && inputs.bangumi_full_sync
+        if: always() && inputs.bangumi_neodb_full_sync
         uses: actions/cache/save@v4
         with:
-          path: .cache/bangumi-full-sync.json
-          key: bangumi-full-sync-${{ github.run_id }}
+          path: .cache/bangumi-neodb-full-sync.json
+          key: bangumi-neodb-full-sync-${{ github.run_id }}
       - name: Upload the run report
         if: always()
         uses: actions/upload-artifact@v4

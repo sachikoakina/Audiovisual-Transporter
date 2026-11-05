@@ -51,14 +51,14 @@ scanned = written + unchanged + skipped + unresolved + failed
 
 ## 状态文件与留档
 
-| 配置项                    | 默认路径                        | 用途                                          |
-| ------------------------- | ------------------------------- | --------------------------------------------- |
-| `SYNC_STATE_FILE`         | `.cache/sync-state.json`        | NeoDB→TMDB 增量指纹，跳过来源标记未变化的条目 |
-| `NEODB_ITEM_YEAR_CACHE`   | `.cache/neodb-item-years.json`  | 缓存 NeoDB uuid 对应的发行年份                |
-| `BANGUMI_FULL_SYNC_STATE` | `.cache/bangumi-full-sync.json` | Bangumi 全量同步的分页游标                    |
-| `SYNC_UNMATCHED_LOG`      | `.cache/unmatched.json`         | 本地记录无法匹配的条目；空值关闭              |
-| `SYNC_SUMMARY_FILE`       | `.cache/sync-summary.md`        | 本轮 Markdown 汇总                            |
-| `SYNC_REPORT_FILE`        | `.cache/sync-report.json`       | 机器可读运行报告                              |
+| 配置项                          | 默认路径                              | 用途                                          |
+| ------------------------------- | ------------------------------------- | --------------------------------------------- |
+| `SYNC_STATE_FILE`               | `.cache/sync-state.json`              | NeoDB→TMDB 增量指纹，跳过来源标记未变化的条目 |
+| `NEODB_ITEM_YEAR_CACHE`         | `.cache/neodb-item-years.json`        | 缓存 NeoDB uuid 对应的发行年份                |
+| `BANGUMI_NEODB_FULL_SYNC_STATE` | `.cache/bangumi-neodb-full-sync.json` | Bangumi 全量同步的分页游标                    |
+| `SYNC_UNMATCHED_LOG`            | `.cache/unmatched.json`               | 本地记录无法匹配的条目；空值关闭              |
+| `SYNC_SUMMARY_FILE`             | `.cache/sync-summary.md`              | 本轮 Markdown 汇总                            |
+| `SYNC_REPORT_FILE`              | `.cache/sync-report.json`             | 机器可读运行报告                              |
 
 这些路径相对于进程工作目录。状态与留档写入采用同目录临时文件再改名，避免进程中断留下半份 JSON。TMDB 状态只在同步写入成功后更新；年份缓存只保存只读目录信息；Bangumi 游标只影响全量分页从哪里继续，不决定是否覆盖目标条目。
 

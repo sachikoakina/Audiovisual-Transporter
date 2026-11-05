@@ -299,7 +299,7 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 
 游标不是数据库游标，而是**全量分页的 offset 续跑位置**：
 
-- 默认文件 `.cache/bangumi-full-sync.json`，可用 `BANGUMI_FULL_SYNC_STATE` 覆盖；
+- 默认文件 `.cache/bangumi-neodb-full-sync.json`，可用 `BANGUMI_NEODB_FULL_SYNC_STATE` 覆盖；
 - 结构：
   ```json
   {

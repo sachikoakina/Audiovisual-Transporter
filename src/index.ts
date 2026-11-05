@@ -119,12 +119,12 @@ async function main(): Promise<void> {
 
   if (syncConfig.bangumiNeodb) {
     // Read through `envEnabled` like every other switch, so `'true'` / `'yes'` / `'on'` work too.
-    // Previously this compared against the literal `'1'`, which made BANGUMI_FULL_SYNC=1 the only
+    // Previously this compared against the literal `'1'`, which made BANGUMI_NEODB_FULL_SYNC=1 the only
     // accepted spelling and quietly ignored the others.
     // 与其他所有开关一样走 `envEnabled`，因此 `'true'` / `'yes'` / `'on'` 同样生效。原先这里是
-    // 与字面量 `'1'` 比较，导致只有 `BANGUMI_FULL_SYNC=1` 这一种写法有效，其余写法被静默忽略。
-    const fullSync = envEnabled('BANGUMI_FULL_SYNC', false);
-    reports.push(await syncBangumiToNeodb(fullSync));
+    // 与字面量 `'1'` 比较，导致只有 `BANGUMI_NEODB_FULL_SYNC=1` 这一种写法有效，其余写法被静默忽略。
+    const bangumiNeodbFullSync = envEnabled('BANGUMI_NEODB_FULL_SYNC', false);
+    reports.push(await syncBangumiToNeodb(bangumiNeodbFullSync));
   }
 
   // NeoDB → TMDB runs last. It reads NeoDB's own shelf rather than the Douban

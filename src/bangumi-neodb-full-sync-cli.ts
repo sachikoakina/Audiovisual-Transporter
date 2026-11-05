@@ -12,9 +12,9 @@ import { newPathReport, pathHasFailed } from './types';
  * 用于手动触发 / `workflow_dispatch`，而不是常规定时任务。
  *
  * Difference from the cron path: `paths/bangumi-to-neodb.ts` stops after one page unless it is
- * told otherwise, so this entry passes `fullSync = true` to make it walk every page.
+ * told otherwise, so this entry passes `bangumiNeodbFullSync = true` to make it walk every page.
  * 与定时任务链路的区别：`paths/bangumi-to-neodb.ts` 默认只走一页，本入口传入
- * `fullSync = true` 让它遍历全部分页。
+ * `bangumiNeodbFullSync = true` 让它遍历全部分页。
  *
  * This entry takes no command-line arguments; run it via its npm script.
  * 本入口不带任何命令行参数，通过对应的 npm script 运行。

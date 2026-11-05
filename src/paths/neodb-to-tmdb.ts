@@ -11,7 +11,7 @@
  * single source of truth for what this path does. Also worth knowing:
  *   - every write is preceded by a read (`getTmdbAccountStates`), which is what makes it idempotent;
  *   - `SYNC_DRY_RUN=1` prints the plan and issues no writes at all, so it is safe to run repeatedly;
- *   - `fullSync` (env `NEODB_TMDB_FULL_SYNC`, or the dedicated full entry) lifts `SYNC_MAX_ITEMS`
+ *   - `neodbTmdbFullSync` (env `NEODB_TMDB_FULL_SYNC`, or the dedicated full entry) lifts `SYNC_MAX_ITEMS`
  *     and `NEODB_MAX_PAGES` and turns incremental off for that run; the shelf and category
  *     selections still apply — "full" means "no per-run truncation", not "ignore your filters";
  *   - matching failures are recorded as `unresolved`, not `failed` — a missing counterpart on TMDB
@@ -20,7 +20,7 @@
  * 改动这里之前请先读 `rules/tmdb-mapping.ts` 的映射表 —— 它是本链路行为的唯一真源。另外值得知道：
  *   - 每次写入之前都先读一次（`getTmdbAccountStates`），这正是它幂等的来源；
  *   - `SYNC_DRY_RUN=1` 只打印计划、完全不写入，因此可以反复运行；
- *   - `fullSync`（环境变量 `NEODB_TMDB_FULL_SYNC`，或专用的全量入口）在该次运行中取消
+ *   - `neodbTmdbFullSync`（环境变量 `NEODB_TMDB_FULL_SYNC`，或专用的全量入口）在该次运行中取消
  *     `SYNC_MAX_ITEMS` 与 `NEODB_MAX_PAGES` 并关闭增量；书架与分类的选择仍然生效 ——
  *     「全量」指的是「单轮不截断」，不是「无视你的过滤条件」；
  *   - 匹配失败记为 `unresolved` 而不是 `failed` —— TMDB 没有对应条目是数据缺口，不是错误，
@@ -206,7 +206,7 @@ type SyncContext = {
  * against the live TMDB state so that re-running is always safe. Nothing here encodes mapping
  * knowledge.
  *
- * `fullSync` lifts `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` and skips the incremental store for this
+ * `neodbTmdbFullSync` lifts `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` and skips the incremental store for this
  * run. It defaults to the `NEODB_TMDB_FULL_SYNC` switch, so `index.ts` needs no argument; the
  * dedicated full entry passes `true` explicitly, which wins over the environment.
  *
@@ -215,7 +215,7 @@ type SyncContext = {
  * 每条标记都先经 `resolveTmdbOperations`（见 mapping.ts）解析成计划，再与 TMDB 的实时状态做差分，
  * 因此重复运行始终安全。这里不包含任何映射知识。
  *
- * `fullSync` 在本次运行中取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 并跳过增量存储。默认取
+ * `neodbTmdbFullSync` 在本次运行中取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 并跳过增量存储。默认取
  * `NEODB_TMDB_FULL_SYNC` 开关，因此 `index.ts` 无需传参；专用的全量入口显式传入 `true`，
  * 优先级高于环境变量。
  *
@@ -223,10 +223,10 @@ type SyncContext = {
  *   and `index.ts` folds it into the closing summary.
  */
 export default async function runNeodbToTmdb(
-  fullSync: boolean = neodbTmdbConfig.fullSync,
+  neodbTmdbFullSync: boolean = neodbTmdbConfig.neodbTmdbFullSync,
 ): Promise<PathReport> {
   const report = newPathReport(LABEL);
-  const mode = resolveNeodbTmdbRunMode(fullSync);
+  const mode = resolveNeodbTmdbRunMode(neodbTmdbFullSync);
 
   consola.info('NeoDB → TMDB sync: ', describeNeodbTmdbConfig(mode));
 
@@ -404,7 +404,7 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
             consola.warn(
               `Shelf "${shelfType}" / category "${category}" reached SYNC_MAX_ITEMS ` +
                 `(${ctx.mode.maxItems}); continuing with the remaining combinations. ` +
-                'For a one-off full import set NEODB_TMDB_FULL_SYNC=1 (or run `npm run sync:neodb-tmdb-full`).',
+                'For a one-off full import set NEODB_TMDB_FULL_SYNC=1 (or run `npm run sync:neodb-tmdb-full-sync`).',
             );
             return false;
           }

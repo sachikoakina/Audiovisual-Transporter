@@ -8,10 +8,10 @@
 
 手动运行有两个相互独立的选项：
 
-| 输入                | 影响链路        | 行为                                    |
-| ------------------- | --------------- | --------------------------------------- |
-| `full_sync`         | NeoDB → TMDB    | 取消条数/页数上限，并关闭本次增量跳过   |
-| `bangumi_full_sync` | Bangumi → NeoDB | 遍历 Bangumi 全部收藏页，并通过游标续跑 |
+| 输入                      | 影响链路        | 行为                                    |
+| ------------------------- | --------------- | --------------------------------------- |
+| `neodb_tmdb_full_sync`    | NeoDB → TMDB    | 取消条数/页数上限，并关闭本次增量跳过   |
+| `bangumi_neodb_full_sync` | Bangumi → NeoDB | 遍历 Bangumi 全部收藏页，并通过游标续跑 |
 
 两项默认关闭。Sync 作业使用 Node.js 24，权限只有 `contents: read`，并禁止两次同步重叠；review-queue 使用 Node.js 22 和 `actions: read`，不写仓库。⑤ 默认书架为 `wishlist,progress,complete,dropped`。
 
@@ -134,7 +134,7 @@ cp .env.example .env
 npm run sync
 ```
 
-单独跑全量入口：`npm run sync:bangumi-full`、`npm run sync:neodb-tmdb-full`。两者都会访问目标服务并可能写入数据；首次执行前先确认账号、凭据与 dry-run 设置。
+单独跑全量入口：`npm run sync:bangumi-neodb-full-sync`、`npm run sync:neodb-tmdb-full-sync`。两者都会访问目标服务并可能写入数据；首次执行前先确认账号、凭据与 dry-run 设置。
 
 ## 开发校验
 

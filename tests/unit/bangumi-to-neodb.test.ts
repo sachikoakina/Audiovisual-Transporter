@@ -75,7 +75,7 @@ vi.mock('../../src/sync-config', () => ({
     bangumiNeodbCreatedTime: 'target',
     // A getter, not a value: each test points it at its own temp file.
     // 用 getter 而不是值：每个用例把它指向自己的临时文件。
-    get bangumiFullSyncCursor() {
+    get bangumiNeodbFullSyncCursor() {
       return cursorPath.value;
     },
   },

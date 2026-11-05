@@ -175,28 +175,32 @@ function pruneState(state: SyncState): SyncState {
  * 它是**游标**而不是缓存：它从不决定要不要写。旧值的最坏后果是多重走一页，因为写入本身已经幂等
  * （`mergeNeodbMark`）。
  */
-export type FullSyncCursor = {
+export type BangumiNeodbFullSyncCursor = {
   version: 1;
   updatedAt: string;
   /** Pass key → collections of that pass already processed. / 趟 键 → 该趟已处理的收藏数。 */
   offsets: Record<string, number>;
 };
 
-function emptyFullSyncCursor(): FullSyncCursor {
+function emptyBangumiNeodbFullSyncCursor(): BangumiNeodbFullSyncCursor {
   return { version: 1, updatedAt: '', offsets: {} };
 }
 
-export function readFullSyncCursor(file: string): FullSyncCursor {
+export function readBangumiNeodbFullSyncCursor(
+  file: string,
+): BangumiNeodbFullSyncCursor {
   if (!file) {
-    return emptyFullSyncCursor();
+    return emptyBangumiNeodbFullSyncCursor();
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as FullSyncCursor;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf8'),
+    ) as BangumiNeodbFullSyncCursor;
     if (parsed?.version !== 1 || typeof parsed.offsets !== 'object') {
       consola.warn(
         `Cursor file ${file} has an unexpected shape; starting from the first page.`,
       );
-      return emptyFullSyncCursor();
+      return emptyBangumiNeodbFullSyncCursor();
     }
     return parsed;
   } catch (error) {
@@ -204,11 +208,14 @@ export function readFullSyncCursor(file: string): FullSyncCursor {
     if (code !== 'ENOENT') {
       consola.warn(`Could not read the full-sync cursor ${file}: ${text}`);
     }
-    return emptyFullSyncCursor();
+    return emptyBangumiNeodbFullSyncCursor();
   }
 }
 
-export function writeFullSyncCursor(file: string, cursor: FullSyncCursor): void {
+export function writeBangumiNeodbFullSyncCursor(
+  file: string,
+  cursor: BangumiNeodbFullSyncCursor,
+): void {
   if (!file) {
     return;
   }

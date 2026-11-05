@@ -8,15 +8,15 @@
 
 手动输入：
 
-| 输入                | 影响链路        | 行为                                                                |
-| ------------------- | --------------- | ------------------------------------------------------------------- |
-| `full_sync`         | NeoDB → TMDB    | 取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，并在本次运行关闭增量跳过 |
-| `bangumi_full_sync` | Bangumi → NeoDB | 遍历全部收藏页，并通过游标续跑                                      |
+| 输入                      | 影响链路        | 行为                                                                |
+| ------------------------- | --------------- | ------------------------------------------------------------------- |
+| `neodb_tmdb_full_sync`    | NeoDB → TMDB    | 取消 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES`，并在本次运行关闭增量跳过 |
+| `bangumi_neodb_full_sync` | Bangumi → NeoDB | 遍历全部收藏页，并通过游标续跑                                      |
 
 两项默认关闭；它们解决的是不同的“全量”：
 
-- ⑤ 的 `full_sync` 取消条数/页数上限并关闭增量；
-- ④ 的 `bangumi_full_sync` 只改变分页范围，④ 本来每轮就逐条比对。
+- ⑤ 的 `neodb_tmdb_full_sync` 取消条数/页数上限并关闭增量；
+- ④ 的 `bangumi_neodb_full_sync` 只改变分页范围，④ 本来每轮就逐条比对。
 
 工作流权限只有 `contents: read`，并设置 `concurrency: sync`、`cancel-in-progress: false`，避免两次同步争用 `.cache` 状态或重复写入。
 
@@ -189,11 +189,11 @@ review-queue 需要 `npm ci` 和只读凭据；配置见 [配置说明](configur
 
 ## 常见失败分类
 
-| 现象               | 含义               | 处理                                            |
-| ------------------ | ------------------ | ----------------------------------------------- |
-| `401/403`          | 凭据失效           | 更新对应 Secret；该路径本轮中止                 |
-| `failed`           | 单条请求/写入失败  | 看 reason；可重跑                               |
-| `unresolved`       | 目标端没有确认匹配 | 人工核对/补目录；不单独失败                     |
-| `capped`           | 本轮达到条数预算   | 属正常；需要全量时手动触发 `full_sync`          |
-| `truncated`        | 分页未走完         | 看 `NEODB_MAX_PAGES` 或分页错误；该路径冻结老化 |
-| `review-state` 404 | 旧 artifact 不兼容 | 从新命名 `review-state-*` 开始                  |
+| 现象               | 含义               | 处理                                              |
+| ------------------ | ------------------ | ------------------------------------------------- |
+| `401/403`          | 凭据失效           | 更新对应 Secret；该路径本轮中止                   |
+| `failed`           | 单条请求/写入失败  | 看 reason；可重跑                                 |
+| `unresolved`       | 目标端没有确认匹配 | 人工核对/补目录；不单独失败                       |
+| `capped`           | 本轮达到条数预算   | 属正常；需要全量时手动触发 `neodb_tmdb_full_sync` |
+| `truncated`        | 分页未走完         | 看 `NEODB_MAX_PAGES` 或分页错误；该路径冻结老化   |
+| `review-state` 404 | 旧 artifact 不兼容 | 从新命名 `review-state-*` 开始                    |

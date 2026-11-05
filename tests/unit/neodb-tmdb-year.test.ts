@@ -100,7 +100,7 @@ vi.mock('../../src/sync-config', () => ({
     ratingProfile: 'overwrite',
     yearTolerance: 1,
     incremental: false,
-    fullSync: false,
+    neodbTmdbFullSync: false,
     unmatchedLogFile: '',
     // Getters, not values: each test points them at its own temp files.
     // 用 getter 而不是值：每个用例把它们指向自己的临时文件。
@@ -114,8 +114,8 @@ vi.mock('../../src/sync-config', () => ({
     tmdb: { apiKey: 'k', baseUrl: '', language: 'zh-CN', requestDelayMs: 0 },
   },
   describeNeodbTmdbConfig: () => 'test-config',
-  resolveNeodbTmdbRunMode: (fullSync: boolean) => ({
-    fullSync,
+  resolveNeodbTmdbRunMode: (neodbTmdbFullSync: boolean) => ({
+    neodbTmdbFullSync,
     maxItems: 200,
     maxPages: 10,
     incremental: false,

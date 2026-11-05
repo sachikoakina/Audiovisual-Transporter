@@ -80,13 +80,13 @@ scanned = written + unchanged + skipped + unresolved + failed
 
 ## 状态文件
 
-| 文件                            | 用途                       |
-| ------------------------------- | -------------------------- |
-| `.cache/sync-state.json`        | NeoDB→TMDB 增量指纹        |
-| `.cache/neodb-item-years.json`  | NeoDB uuid → 发行年份      |
-| `.cache/bangumi-full-sync.json` | Bangumi 全量分页游标       |
-| `.cache/unmatched.json`         | 本地未匹配留档（空值关闭） |
-| `.cache/sync-report.json`       | 本轮机器可读报告           |
-| `.cache/sync-summary.md`        | 本轮 Markdown 摘要         |
+| 文件                                  | 用途                       |
+| ------------------------------------- | -------------------------- |
+| `.cache/sync-state.json`              | NeoDB→TMDB 增量指纹        |
+| `.cache/neodb-item-years.json`        | NeoDB uuid → 发行年份      |
+| `.cache/bangumi-neodb-full-sync.json` | Bangumi 全量分页游标       |
+| `.cache/unmatched.json`               | 本地未匹配留档（空值关闭） |
+| `.cache/sync-report.json`             | 本轮机器可读报告           |
+| `.cache/sync-summary.md`              | 本轮 Markdown 摘要         |
 
 写入采用同目录临时文件再改名，避免中断留下半份 JSON。review-queue 的 `review-state` artifact 是另一套跨轮状态，不使用这些文件。

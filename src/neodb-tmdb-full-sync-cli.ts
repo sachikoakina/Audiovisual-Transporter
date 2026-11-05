@@ -12,13 +12,13 @@ import { newPathReport, pathHasFailed } from './types';
  * 用于首次导入与 `workflow_dispatch`，而不是常规定时任务。
  *
  * Difference from the cron path: `paths/neodb-to-tmdb.ts` stops every shelf×category after
- * `SYNC_MAX_ITEMS` items and at most `NEODB_MAX_PAGES` pages; this entry passes `fullSync = true`,
+ * `SYNC_MAX_ITEMS` items and at most `NEODB_MAX_PAGES` pages; this entry passes `neodbTmdbFullSync = true`,
  * which lifts both
  * caps and turns the incremental store off for the run. Shelf and category selections still apply,
  * and `SYNC_DRY_RUN` is still honoured — a full dry run is the recommended first step.
  *
  * 与定时任务链路的区别：`paths/neodb-to-tmdb.ts` 受 `SYNC_MAX_ITEMS` 与 `NEODB_MAX_PAGES` 限制；
- * 本入口传入 `fullSync = true`，取消这两个上限并在本轮关闭增量存储。书架与分类的选择仍然生效，
+ * 本入口传入 `neodbTmdbFullSync = true`，取消这两个上限并在本轮关闭增量存储。书架与分类的选择仍然生效，
  * `SYNC_DRY_RUN` 也仍然有效 —— 全量空跑正是推荐的第一步。
  *
  * This entry takes no command-line arguments; run it via its npm script.
