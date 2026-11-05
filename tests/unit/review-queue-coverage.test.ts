@@ -200,6 +200,20 @@ describe('merge — observed entries', () => {
   });
 });
 
+describe('merge — verification deferral', () => {
+  it('keeps a two-miss entry when removal is deferred', () => {
+    const previous = entry({ missedRuns: 1 });
+    // @ts-expect-error the JS module's inferred signature predates the options bag.
+    const result = merge([previous], [], RUN_AT, coverage([TMDB_URL]), {
+      deferRemoval: true,
+    });
+
+    expect(result.removed).toHaveLength(0);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.missedRuns).toBe(2);
+  });
+});
+
 // The one-time ⑤ migration is gone: the 2026-11-01 snapshot held 771 entries and zero
 // `neodb→tmdb::title:` keys, so there is nothing left to re-baseline — and keeping the pass would
 // delete a future empty-URL entry on the next round, resetting its `firstSeenAt`.

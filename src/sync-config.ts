@@ -590,6 +590,21 @@ export const neodbTmdbConfig = {
   fullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
   /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
   unmatchedLogFile,
+  /** Read-only verification of review candidates. / 待核对候选的只读复核。 */
+  reviewVerify: {
+    mode:
+      process.env.REVIEW_VERIFY_MODE === 'enforce'
+        ? ('enforce' as const)
+        : process.env.REVIEW_VERIFY_MODE === 'shadow'
+          ? ('shadow' as const)
+          : ('off' as const),
+    sources: splitCategoryTokens(process.env.REVIEW_VERIFY_SOURCES).length
+      ? splitCategoryTokens(process.env.REVIEW_VERIFY_SOURCES)
+      : ['douban-neodb', 'douban-bangumi', 'bangumi-neodb', 'neodb-tmdb'],
+    limit: envInt('REVIEW_VERIFY_LIMIT', 100, 1),
+    concurrency: envInt('REVIEW_VERIFY_CONCURRENCY', 2, 1),
+    retryDays: envInt('REVIEW_VERIFY_RETRY_DAYS', 7, 0),
+  },
 
   tmdb: {
     apiKey: process.env.TMDB_API_KEY,

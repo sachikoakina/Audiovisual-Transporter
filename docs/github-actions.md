@@ -135,6 +135,44 @@ removed 很大，missedRuns 普遍为 2
 
 没有代码层的“手动移出”入口；直接编辑 `review-state` 或删除 artifact 不属于同步规则。
 
+### 定向复核（可选）
+
+`REVIEW_VERIFY_MODE` 开启后，review-queue 在 `merge` 之后、写 state 之前复核候选：
+
+```text
+只读日志 + report
+  → 选出“已覆盖但未再出现”的 unresolved 候选
+  → 调 scripts/review-verify.ts（tsx）
+  → 逐条查目标端
+  → 写回结果
+```
+
+| 模式      | 行为                                       |
+| --------- | ------------------------------------------ |
+| `off`     | 不执行，保持现有两轮规则                   |
+| `shadow`  | 查询并记录统计，不修改名单                 |
+| `enforce` | resolved 移出；其余保留并重置 `missedRuns` |
+
+复核条件：
+
+- `kind = unresolved`；
+- 本轮 `scannedIds` 覆盖；
+- 日志未再次出现；
+- 未达到 `REVIEW_VERIFY_RETRY_DAYS` 的条目不重复查询；
+- 无 `sync-report`、`degraded`、sync 未成功时不执行。
+
+结果：
+
+| 结果               | 动作                 |
+| ------------------ | -------------------- |
+| `resolved`         | 移出                 |
+| `still-unresolved` | `missedRuns=0`，保留 |
+| `ambiguous`        | 保留，标记歧义       |
+| `error`            | 保留，下一轮重试     |
+
+复核只读，不写 NeoDB/Bangumi/TMDB/Notion；失败不阻断 state 上传。  
+review-queue 需要 `npm ci` 和只读凭据；配置见 [配置说明](configuration.md)。
+
 ## 缓存与游标
 
 同步状态、年份缓存和全量游标在临时 runner 上不会自动持久化。工作流只为 Bangumi 全量模式恢复/保存游标；review-state artifact 承载的是待核对名单状态，与 `.cache` 同步缓存用途不同。

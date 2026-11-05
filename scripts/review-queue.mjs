@@ -23,6 +23,7 @@
  *      仅在条目消失时删除），而不是对文件做原地补丁。
  */
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -667,9 +668,16 @@ export function coverageFromReport(report) {
  * 「连续」才有意义。
  *
  * @param {Map<string, {ids: Set<string>, complete: boolean, unresolved: number}> | null} coverage
+ * @param {{ deferRemoval?: boolean }} [options]
  * @returns {{ items: Array, added: Array, removed: Array, degraded: string, uncovered: Array }}
  */
-export function merge(previous, observed, runStartedAt, coverage = null) {
+export function merge(
+  previous,
+  observed,
+  runStartedAt,
+  coverage = null,
+  { deferRemoval = false } = {},
+) {
   const observedByKey = new Map(observed.map((item) => [item.key, item]));
   const previousByKey = new Map(previous.map((item) => [item.key, item]));
   const added = [];
@@ -728,7 +736,7 @@ export function merge(previous, observed, runStartedAt, coverage = null) {
     }
 
     const missedRuns = (entry.missedRuns || 0) + 1;
-    if (missedRuns >= MISSES_BEFORE_REMOVAL) {
+    if (missedRuns >= MISSES_BEFORE_REMOVAL && !deferRemoval) {
       removed.push(entry);
       continue;
     }
@@ -1203,12 +1211,125 @@ function main() {
   const observed = attachReportMeta(parsed.items, report);
   const unattributable = parsed.unattributable;
   const coverage = coverageFromReport(report);
-  const { items, added, removed, degraded, uncovered } = merge(
-    previous,
-    observed,
-    runStartedAt,
-    coverage,
+  const verifyMode = process.env.REVIEW_VERIFY_MODE || 'off';
+  const verifySourceTokens = (process.env.REVIEW_VERIFY_SOURCES || '')
+    .split(/[,，\s]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const verifySources = new Set(
+    (verifySourceTokens.length
+      ? verifySourceTokens
+      : ['douban-neodb', 'douban-bangumi', 'bangumi-neodb', 'neodb-tmdb']
+    ).map(
+      (value) =>
+        ({
+          'douban-neodb': 'douban→neodb',
+          'douban-bangumi': 'douban→bangumi',
+          'bangumi-neodb': 'bangumi→neodb',
+          'neodb-tmdb': 'neodb→tmdb',
+        })[value] || value,
+    ),
   );
+  const syncSucceeded =
+    !process.env.SYNC_CONCLUSION || process.env.SYNC_CONCLUSION === 'success';
+  const verifyEnabled =
+    (verifyMode === 'shadow' || verifyMode === 'enforce') && syncSucceeded;
+  const verifyLimit = Math.max(1, Number(process.env.REVIEW_VERIFY_LIMIT) || 100);
+  const verifyRetryDays = Math.max(
+    0,
+    Number(process.env.REVIEW_VERIFY_RETRY_DAYS) || 7,
+  );
+
+  const merged = merge(previous, observed, runStartedAt, coverage, {
+    deferRemoval: verifyMode === 'enforce',
+  });
+  let { items, added, removed } = merged;
+  const { degraded, uncovered } = merged;
+
+  let verified = [];
+  let verifyCandidateCount = 0;
+  if (verifyEnabled && report && !degraded) {
+    const retryMs = verifyRetryDays * 86_400_000;
+    const due = (entry) => {
+      const last = Date.parse(entry.lastVerifiedAt || '');
+      return !Number.isFinite(last) || Date.parse(runStartedAt) - last >= retryMs;
+    };
+    const candidates = items
+      .filter(
+        (entry) =>
+          entry.kind === 'unresolved' &&
+          (entry.missedRuns || 0) >= 1 &&
+          verifySources.has(entry.source) &&
+          due(entry),
+      )
+      .sort((a, b) => (b.missedRuns || 0) - (a.missedRuns || 0))
+      .slice(0, verifyLimit);
+
+    verifyCandidateCount = candidates.length;
+    if (candidates.length) {
+      fs.mkdirSync(outDir, { recursive: true });
+      const inputFile = path.join(outDir, '.review-candidates.json');
+      const outputFile = path.join(outDir, '.review-verification.json');
+      fs.writeFileSync(inputFile, `${JSON.stringify(candidates, null, 2)}\n`, 'utf8');
+      const cli = path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
+      const child = spawnSync(
+        process.execPath,
+        [
+          cli,
+          path.join(process.cwd(), 'scripts', 'review-verify.ts'),
+          '--input',
+          inputFile,
+          '--output',
+          outputFile,
+        ],
+        { encoding: 'utf8', stdio: 'pipe' },
+      );
+      if (child.status === 0 && fs.existsSync(outputFile)) {
+        verified = JSON.parse(fs.readFileSync(outputFile, 'utf8'));
+      } else {
+        console.warn(
+          'review verification failed; keeping candidates:',
+          child.stderr || child.status,
+        );
+      }
+    }
+
+    if (verifyMode === 'enforce') {
+      const byKey = new Map(verified.map((entry) => [entry.key, entry]));
+      const candidateKeys = new Set(candidates.map((entry) => entry.key));
+      const next = [];
+      for (const entry of items) {
+        const result = byKey.get(entry.key);
+        if (result?.status === 'resolved') {
+          removed.push(entry);
+          continue;
+        }
+        if (result && result.status !== 'resolved') {
+          next.push({
+            ...entry,
+            missedRuns: 0,
+            lastVerifiedAt: runStartedAt,
+            verification: result.status,
+          });
+          continue;
+        }
+        if (candidateKeys.has(entry.key)) {
+          next.push({ ...entry, missedRuns: 1 });
+          continue;
+        }
+        if ((entry.missedRuns || 0) >= MISSES_BEFORE_REMOVAL) {
+          if (verifySources.has(entry.source)) {
+            next.push({ ...entry, missedRuns: 1 });
+          } else {
+            removed.push(entry);
+          }
+          continue;
+        }
+        next.push(entry);
+      }
+      items = next;
+    }
+  }
 
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(
@@ -1258,6 +1379,16 @@ function main() {
             }
           : null,
         runReport: report ? { paths: report.paths.length } : null,
+        verification: verifyEnabled
+          ? {
+              mode: verifyMode,
+              candidates: verifyCandidateCount,
+              results: verified.reduce((counts, entry) => {
+                counts[entry.status] = (counts[entry.status] || 0) + 1;
+                return counts;
+              }, {}),
+            }
+          : null,
       },
       null,
       2,

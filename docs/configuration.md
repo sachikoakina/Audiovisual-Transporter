@@ -254,7 +254,30 @@ NeoDB 侧（同 ②）：
 
 ---
 
-## 九、推荐最小配置
+## 九、待核对候选的定向复核
+
+仅由 `review-queue` 使用，不在 sync 作业中执行。
+
+| 变量                        | 默认     | 说明                                                         |
+| --------------------------- | -------- | ------------------------------------------------------------ |
+| `REVIEW_VERIFY_MODE`        | `off`    | `off` 关闭；`shadow` 只查询并记录；`enforce` 按结果移出/保留 |
+| `REVIEW_VERIFY_SOURCES`     | 四条链路 | `douban-neodb,douban-bangumi,bangumi-neodb,neodb-tmdb`       |
+| `REVIEW_VERIFY_LIMIT`       | `100`    | 每轮最多复核条数                                             |
+| `REVIEW_VERIFY_CONCURRENCY` | `2`      | 复核并发数，避免目标端限流                                   |
+| `REVIEW_VERIFY_RETRY_DAYS`  | `7`      | “仍未解决”条目的复核间隔                                     |
+
+行为：
+
+- 只复核 `unresolved`；
+- `resolved` 移出；
+- `still-unresolved` 重置 `missedRuns=0`，不会因日志缺席被老化删除；
+- `ambiguous` / `error` 保留；
+- 需要 review-queue 具备 NeoDB/Bangumi/TMDB 只读凭据；
+- `off` 时完全走现有两轮规则。
+
+---
+
+## 十、推荐最小配置
 
 ### 本地只跑 ②③
 
