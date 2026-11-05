@@ -64,7 +64,7 @@
 | ② 豆瓣→NeoDB    | 目标非 0 分优先           | `SYNC_DOUBAN_NEODB_RATING=overwrite`   | 目标非空短评优先          | `SYNC_DOUBAN_NEODB_COMMENT=overwrite`   |
 | ③ 豆瓣→Bangumi  | 目标非 0 分优先           | `SYNC_DOUBAN_BANGUMI_RATING=overwrite` | 目标非空短评优先          | `SYNC_DOUBAN_BANGUMI_COMMENT=overwrite` |
 | ④ Bangumi→NeoDB | 目标非 0 分优先           | `SYNC_BANGUMI_NEODB_RATING=overwrite`  | 目标非空短评优先          | `SYNC_BANGUMI_NEODB_COMMENT=overwrite`  |
-| ⑤ NeoDB→TMDB    | 目标已有评分优先          | `SYNC_RATING_PROFILE=overwrite`        | 不写                      | 无                                      |
+| ⑤ NeoDB→TMDB    | 目标非 0 分优先           | `SYNC_RATING_PROFILE=overwrite`        | 不写                      | 无                                      |
 
 默认的“目标优先”含义：
 

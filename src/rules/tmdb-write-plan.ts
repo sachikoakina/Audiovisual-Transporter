@@ -86,7 +86,8 @@ export function planTmdbWrites(
     reasons.push('rating untouched');
   } else {
     const existingRating = extractTmdbRating(current);
-    const keepExisting = profile === 'tmdb_prefer' && existingRating !== null;
+    const keepExisting =
+      profile === 'tmdb_prefer' && existingRating !== null && existingRating > 0;
     const effective = keepExisting ? existingRating : plan.rating;
 
     if (effective === existingRating) {
