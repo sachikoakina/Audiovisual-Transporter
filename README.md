@@ -53,7 +53,11 @@
 - **状态**：Bangumi `1/2/3/4/5` 映射 NeoDB `wishlist/complete/progress/progress/dropped`；NeoDB `wishlist/progress/dropped` 都映射 TMDB watchlist。`complete` 有评分时写评分并移出 watchlist，无评分时只能加入 watchlist。
 - **进度**：仅 ④ 写入。Bangumi 动画/真人 → `episode`，书籍 → `chapter`，音乐 → `track`，游戏不写；零值不会清除已有进度，默认关闭。
 - **年份**：③④⑤ 的标题匹配都要求双方年份可用时不超过 1 年；年份缺失不会退化成“只按标题写”。
-- **评分**：④ 默认 `neodb_prefer` 保留 NeoDB 已有评分；⑤ 默认 `tmdb_prefer` 保留 TMDB 已有评分。只有显式 `overwrite` 才由来源覆盖目标。
+- **评分**：评分与状态、短评分开合并，但共用一次写请求；只有最终评分与目标不同，或状态/短评触发写入时才会提交。
+  - ②④ 默认 `neodb_prefer`：目标已有非 0 分 → 保留；目标为 0 → 才用豆瓣/Bangumi 分填充；来源无分不会清空目标。`overwrite` 才由来源覆盖，包括把目标改成 0。
+  - ③ 没有评分覆盖档：Bangumi 已有非 0 分永远优先，豆瓣分只填 0；`SYNC_DOUBAN_BANGUMI_MERGE=overwrite` 只影响短评，不影响评分。
+  - ⑤ 默认 `tmdb_prefer`：TMDB 已有评分保留；`overwrite` 才用 NeoDB 分。`complete` 无评分时只加 watchlist，不删除已有评分。
+  - ① 只在新页面创建时写入 RSS 评分；已有页面不更新。评分触发写入后，状态/短评仍按各自规则合并，不会因评分变化绕过目标保护。
 - **短评**：短评与状态、评分分开合并，但共用一次写请求；只有最终短评与目标不同（或状态/评分触发写入）时才会提交。
   - ②④ 默认 `neodb_prefer`：目标已有非空短评 → 保留；目标为空 → 才用豆瓣/Bangumi 短评填充；空源不会清空目标。
   - ②④ 设置 `overwrite`：源短评覆盖目标，包括空短评。
