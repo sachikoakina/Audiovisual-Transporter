@@ -4,7 +4,7 @@
 
 ## `sync` 工作流
 
-`.github/workflows/sync.yml` 每周一、三、五 **08:00 UTC** 定时运行，也支持手动触发。作业使用 Node.js 24，执行 `npm ci` 与 `npm run verify:all`，验证通过后才运行同步。
+`.github/workflows/sync.yml` 每天**上海时间 03:15**（前一日 19:15 UTC）定时运行，也支持手动触发。作业使用 Node.js 24，执行 `npm ci` 与 `npm run verify:all`，验证通过后才运行同步。
 
 手动输入：
 

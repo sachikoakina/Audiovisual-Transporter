@@ -44,12 +44,12 @@ on:
         default: false
   schedule:
     # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events
-    # Mon / Wed / Fri at 08:00 UTC. Three runs a week instead of one: the Douban RSS feed only
-    # carries about ten entries, so a weekly run can miss a burst of marks made early in the week.
-    # This narrows the loss window; it does not close it — entries still roll out after ten.
-    # 每周一、三、五 08:00 UTC。每周三次而非一次：豆瓣 RSS 只保留约十条，一周跑一次可能漏掉周初
-    # 集中标记的条目。这只是缩小丢失窗口，并不能消除它 —— 超过十条仍会滚出 feed。
-    - cron: '0 8 * * 1,3,5'
+    # Daily at 03:15 Shanghai time. Shanghai is UTC+8 with no DST, so this is 19:15 UTC
+    # on the previous calendar day. Running daily narrows the Douban RSS loss window; it
+    # still cannot close it because the feed only carries about ten entries.
+    # 每天上海时间 03:15。上海为 UTC+8 且无夏令时，因此对应前一日 19:15 UTC。每日运行可
+    # 缩小豆瓣 RSS 的丢失窗口，但 feed 只保留约十条，仍无法完全消除。
+    - cron: '15 19 * * *'
 
 jobs:
   build:

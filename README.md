@@ -4,7 +4,7 @@
 
 ## 在 GitHub Actions 中运行
 
-`.github/workflows/sync.yml` 每周一、三、五 **08:00 UTC** 运行，也可在 Actions 页面手动触发。运行顺序固定：`npm ci` → `npm run verify:all` → `npm run sync` → 发布作业摘要与 JSON 报告 → `review-queue` 读取日志与报告、更新待核对名单。
+`.github/workflows/sync.yml` 每天**上海时间 03:15**（前一日 19:15 UTC）运行，也可在 Actions 页面手动触发。运行顺序固定：`npm ci` → `npm run verify:all` → `npm run sync` → 发布作业摘要与 JSON 报告 → `review-queue` 读取日志与报告、更新待核对名单。
 
 手动运行有两个相互独立的选项：
 
