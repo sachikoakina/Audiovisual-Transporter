@@ -58,54 +58,13 @@
 
 评分和短评各自独立判断，但共用一次目标端写请求。
 
-<table>
-  <thead>
-    <tr>
-      <th><small>链路</small></th>
-      <th><small>评分默认</small></th>
-      <th><small>评分覆盖开关</small></th>
-      <th><small>短评默认</small></th>
-      <th><small>短评覆盖开关</small></th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><small>① 豆瓣→Notion</small></td>
-      <td><small>仅新建页面时写入 RSS 评分</small></td>
-      <td><small>无</small></td>
-      <td><small>仅新建页面时写入 RSS 短评</small></td>
-      <td><small>无</small></td>
-    </tr>
-    <tr>
-      <td><small>② 豆瓣→NeoDB</small></td>
-      <td><small>目标非 0 分优先</small></td>
-      <td><small><code>SYNC_DOUBAN_NEODB_RATING=overwrite</code></small></td>
-      <td><small>目标非空短评优先</small></td>
-      <td><small><code>SYNC_DOUBAN_NEODB_COMMENT=overwrite</code></small></td>
-    </tr>
-    <tr>
-      <td><small>③ 豆瓣→Bangumi</small></td>
-      <td><small>目标非 0 分优先</small></td>
-      <td><small><code>SYNC_DOUBAN_BANGUMI_RATING=overwrite</code></small></td>
-      <td><small>目标非空短评优先</small></td>
-      <td><small><code>SYNC_DOUBAN_BANGUMI_COMMENT=overwrite</code></small></td>
-    </tr>
-    <tr>
-      <td><small>④ Bangumi→NeoDB</small></td>
-      <td><small>目标非 0 分优先</small></td>
-      <td><small><code>SYNC_BANGUMI_NEODB_RATING=overwrite</code></small></td>
-      <td><small>目标非空短评优先</small></td>
-      <td><small><code>SYNC_BANGUMI_NEODB_COMMENT=overwrite</code></small></td>
-    </tr>
-    <tr>
-      <td><small>⑤ NeoDB→TMDB</small></td>
-      <td><small>目标非 0 分优先</small></td>
-      <td><small><code>SYNC_RATING_PROFILE=overwrite</code></small></td>
-      <td><small>不写</small></td>
-      <td><small>无</small></td>
-    </tr>
-  </tbody>
-</table>
+| 链路            | 评分（默认 / 覆盖）                                             | 短评（默认 / 覆盖）                                               |
+| --------------- | --------------------------------------------------------------- | ----------------------------------------------------------------- |
+| ① 豆瓣→Notion   | 仅新建页面写入 RSS 评分；无覆盖开关                             | 仅新建页面写入 RSS 短评；无覆盖开关                               |
+| ② 豆瓣→NeoDB    | 目标非 0 分优先<br>覆盖：`SYNC_DOUBAN_NEODB_RATING=overwrite`   | 目标非空短评优先<br>覆盖：`SYNC_DOUBAN_NEODB_COMMENT=overwrite`   |
+| ③ 豆瓣→Bangumi  | 目标非 0 分优先<br>覆盖：`SYNC_DOUBAN_BANGUMI_RATING=overwrite` | 目标非空短评优先<br>覆盖：`SYNC_DOUBAN_BANGUMI_COMMENT=overwrite` |
+| ④ Bangumi→NeoDB | 目标非 0 分优先<br>覆盖：`SYNC_BANGUMI_NEODB_RATING=overwrite`  | 目标非空短评优先<br>覆盖：`SYNC_BANGUMI_NEODB_COMMENT=overwrite`  |
+| ⑤ NeoDB→TMDB    | 目标非 0 分优先<br>覆盖：`SYNC_RATING_PROFILE=overwrite`        | 不写；无覆盖开关                                                  |
 
 默认的“目标优先”含义：
 
