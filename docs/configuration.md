@@ -75,16 +75,14 @@
 
 ### 4.1 专属开关
 
-| 变量                           | 默认           | 说明                          |
-| ------------------------------ | -------------- | ----------------------------- |
-| `SYNC_DOUBAN_NEODB`            | `1`            | 总开关                        |
-| `SYNC_DOUBAN_NEODB_CATEGORIES` | 空（全部）     | `movie,music,book,game,drama` |
-| `SYNC_DOUBAN_NEODB_MERGE`      | `neodb_prefer` | 目标已有标记时的评分/短评策略 |
+| 变量                           | 默认           | 说明                                       |
+| ------------------------------ | -------------- | ------------------------------------------ |
+| `SYNC_DOUBAN_NEODB`            | `1`            | 总开关                                     |
+| `SYNC_DOUBAN_NEODB_CATEGORIES` | 空（全部）     | `movie,music,book,game,drama`              |
+| `SYNC_DOUBAN_NEODB_RATING`     | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`  |
+| `SYNC_DOUBAN_NEODB_COMMENT`    | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite` |
 
-`SYNC_DOUBAN_NEODB_MERGE`：
-
-- `neodb_prefer`：保留目标非 0 分/非空短评；源值只填空；
-- `overwrite`：源评分/短评覆盖目标。
+`neodb_prefer`：保留目标非 0 分/非空短评，源值只填空；`overwrite`：对应字段由源覆盖。评分和短评开关彼此独立。
 
 ### 4.2 共享 NeoDB 凭据与网络
 
@@ -109,13 +107,14 @@
 
 ### 5.1 专属开关
 
-| 变量                             | 默认             | 说明                                                                    |
-| -------------------------------- | ---------------- | ----------------------------------------------------------------------- |
-| `SYNC_DOUBAN_BANGUMI`            | `1`              | 总开关                                                                  |
-| `SYNC_DOUBAN_BANGUMI_CATEGORIES` | 空（全部）       | `movie,music,book,game,drama`                                           |
-| `SYNC_DOUBAN_BANGUMI_EPISODES`   | `0`              | 仅 complete 条目：补 Bangumi 分集/书籍进度                              |
-| `SYNC_DOUBAN_BANGUMI_INCLUDE_SP` | `0`              | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP                    |
-| `SYNC_DOUBAN_BANGUMI_MERGE`      | `bangumi_prefer` | `bangumi_prefer` 保留目标非空短评；`overwrite` 用豆瓣短评覆盖（含空值） |
+| 变量                             | 默认             | 说明                                                 |
+| -------------------------------- | ---------------- | ---------------------------------------------------- |
+| `SYNC_DOUBAN_BANGUMI`            | `1`              | 总开关                                               |
+| `SYNC_DOUBAN_BANGUMI_CATEGORIES` | 空（全部）       | `movie,music,book,game,drama`                        |
+| `SYNC_DOUBAN_BANGUMI_EPISODES`   | `0`              | 仅 complete 条目：补 Bangumi 分集/书籍进度           |
+| `SYNC_DOUBAN_BANGUMI_INCLUDE_SP` | `0`              | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP |
+| `SYNC_DOUBAN_BANGUMI_RATING`     | `bangumi_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`            |
+| `SYNC_DOUBAN_BANGUMI_COMMENT`    | `bangumi_prefer` | 短评策略：目标非空短评优先，或 `overwrite`           |
 
 ### 5.2 凭据与 Bangumi 公共项
 
@@ -129,8 +128,8 @@
 ### 5.3 行为
 
 - 优先经 NeoDB 外链匹配；否则按分类精确标题 + 年份搜索；
-- Bangumi 已有非 0 分优先，豆瓣分只填空；
-- 短评默认 `bangumi_prefer`：Bangumi 已有非空短评保留，只填空；`overwrite` 才由豆瓣短评覆盖（含空值）；
+- 评分默认 `bangumi_prefer`：Bangumi 已有非 0 分保留，豆瓣分只填空；`SYNC_DOUBAN_BANGUMI_RATING=overwrite` 才覆盖；
+- 短评默认 `bangumi_prefer`：Bangumi 已有非空短评保留，只填空；`SYNC_DOUBAN_BANGUMI_COMMENT=overwrite` 才覆盖（含空值）；
 - Bangumi 已有 4/5 状态保留，不被豆瓣覆盖；
 - 进度默认关闭；开启后：
   - 电影补第一个正片；
@@ -149,7 +148,8 @@
 | `SYNC_BANGUMI_NEODB`              | `1`            | 总开关                                                                  |
 | `SYNC_BANGUMI_NEODB_CATEGORIES`   | 空（全部）     | `anime,manga,book,music,game,real`；`manga` 仅漫画平台，`book` 全部书籍 |
 | `SYNC_BANGUMI_NEODB_PROGRESS`     | `0`            | 是否写 NeoDB 进度                                                       |
-| `SYNC_BANGUMI_NEODB_MERGE`        | `neodb_prefer` | 目标已有评分/短评时：保留目标或 `overwrite`                             |
+| `SYNC_BANGUMI_NEODB_RATING`       | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                               |
+| `SYNC_BANGUMI_NEODB_COMMENT`      | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                              |
 | `SYNC_BANGUMI_NEODB_STATUS_GUARD` | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖              |
 | `SYNC_BANGUMI_NEODB_CREATED_TIME` | `target`       | NeoDB 标记日期策略                                                      |
 

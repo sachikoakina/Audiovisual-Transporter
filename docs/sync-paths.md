@@ -97,21 +97,28 @@ item.link（豆瓣 URL）
 
 ## 写入字段
 
-| 字段           | 规则                                                                     |
-| -------------- | ------------------------------------------------------------------------ |
-| `shelf_type`   | 跟随豆瓣源状态；现有 `dropped` 除外                                      |
-| `rating_grade` | 默认 `neodb_prefer`：目标非 0 分保留，源分只填空；`overwrite` 才由源覆盖 |
-| `comment_text` | 默认保留目标非空短评；`overwrite` 才由源覆盖                             |
-| `visibility`   | 与配置的目标可见性比较，不一致才写                                       |
-| `created_time` | 新建和更新都传豆瓣 RSS `time`；更新时可能改变标记日期                    |
+| 字段           | 规则                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| `shelf_type`   | 跟随豆瓣源状态；现有 `dropped` 除外                                                       |
+| `rating_grade` | `SYNC_DOUBAN_NEODB_RATING`：默认 `neodb_prefer` 保留目标非 0 分；`overwrite` 才由源覆盖   |
+| `comment_text` | `SYNC_DOUBAN_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才由源覆盖 |
+| `visibility`   | 与配置的目标可见性比较，不一致才写                                                        |
+| `created_time` | 新建和更新都传豆瓣 RSS `time`；更新时可能改变标记日期                                     |
 
 ## 是否写入
 
-先算“最终要写入的值”：
+先算“最终要写入的值”，评分和短评各看自己的开关：
 
 ```text
-writeRating  = 目标已有非 0 分 ? 目标现值 : 源评分
-writeComment = 目标已有非空短评 ? 目标现值 : 源短评
+SYNC_DOUBAN_NEODB_RATING=neodb_prefer（默认）:
+  目标已有非 0 分 → 保留目标分；否则用源评分
+SYNC_DOUBAN_NEODB_RATING=overwrite:
+  始终用源评分
+
+SYNC_DOUBAN_NEODB_COMMENT=neodb_prefer（默认）:
+  目标已有非空短评 → 保留；否则用源短评
+SYNC_DOUBAN_NEODB_COMMENT=overwrite:
+  始终用源短评
 ```
 
 以下全部成立才 `unchanged`：
@@ -184,13 +191,13 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 
 ## 写入字段
 
-| 字段      | 规则                                                                                  |
-| --------- | ------------------------------------------------------------------------------------- |
-| `type`    | 跟随豆瓣映射；现有 4/5 保留                                                           |
-| `rate`    | Bangumi 已有非 0 分优先；豆瓣分只填 0，不清空已有分                                   |
-| `comment` | 默认 `bangumi_prefer`：目标非空短评保留，只填空；`overwrite` 时豆瓣短评覆盖（含空值） |
-| `private` | 写入配置的 `BANGUMI_PRIVATE`                                                          |
-| 更新时间  | 不传时间字段；仅在实际写请求时由 Bangumi 服务端设置                                   |
+| 字段      | 规则                                                                                                      |
+| --------- | --------------------------------------------------------------------------------------------------------- |
+| `type`    | 跟随豆瓣映射；现有 4/5 保留                                                                               |
+| `rate`    | `SYNC_DOUBAN_BANGUMI_RATING`：默认 `bangumi_prefer` 保留目标非 0 分；`overwrite` 才由豆瓣覆盖             |
+| `comment` | `SYNC_DOUBAN_BANGUMI_COMMENT`：默认 `bangumi_prefer` 保留目标非空短评；`overwrite` 才由豆瓣覆盖（含空值） |
+| `private` | 写入配置的 `BANGUMI_PRIVATE`                                                                              |
+| 更新时间  | 不传时间字段；仅在实际写请求时由 Bangumi 服务端设置                                                       |
 
 ### rate 示例
 
@@ -204,31 +211,38 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 |            0 |  无（0） |        0 | 两边都没有有效评分         |
 |            3 |        6 |        3 | 目标已有非零分，保留 3     |
 
-`unchanged` 比较的是最终写入评分，不是豆瓣原始评分；Bangumi 已有非 0 分时，最终写入评分就是该现有分。
+`unchanged` 比较的是最终写入评分，不是豆瓣原始评分。默认 `bangumi_prefer` 下，Bangumi 已有非 0 分时最终写入评分就是该现有分；切到 `overwrite` 后才按豆瓣分覆盖。
 
 ### 是否写入
 
-先按 merge profile 算出最终短评：
+评分和短评各自先算“最终要写入的值”，再与现有值比较。
 
-- `bangumi_prefer`（默认）：Bangumi 已有非空短评 → 保留；为空才用豆瓣短评填充；
-- `overwrite`：直接使用豆瓣短评，空值也会清空 Bangumi 短评。
+最终评分：
 
-再按顺序判断：
+- `SYNC_DOUBAN_BANGUMI_RATING=bangumi_prefer`（默认）：
+  - Bangumi 已有非 0 分 → 保留现有分；
+  - Bangumi 为 0 分 → 用豆瓣换算分；
+  - 豆瓣无分不会清空已有分。
+- `SYNC_DOUBAN_BANGUMI_RATING=overwrite`：
+  - 始终用豆瓣换算分，包括把目标改成 0。
 
-1. 状态不同 → 要写；
-2. 状态相同、最终短评不同 → 要写；
-3. 状态、最终短评都相同：
-   - Bangumi 已有非 0 分 → 不写，豆瓣评分忽略；
-   - Bangumi 为 0 分：
-     - 豆瓣有分 → 写一次，填入豆瓣分；
-     - 豆瓣无分 → 不写。
+最终短评：
 
-真正写入时：
+- `SYNC_DOUBAN_BANGUMI_COMMENT=bangumi_prefer`（默认）：目标非空短评保留，只填空；
+- `SYNC_DOUBAN_BANGUMI_COMMENT=overwrite`：始终用豆瓣短评，空值也会清空。
 
-- Bangumi 有非 0 分 → 发 Bangumi 当前分；
-- Bangumi 为 0 分 → 发豆瓣换算分。
+写入条件：
 
-因此，Bangumi 的非 0 评分既不会触发写入，也不会被豆瓣覆盖。
+```text
+状态不同
+或 最终评分与现有评分不同
+或 最终短评与现有短评不同
+→ 写入
+
+三者都相同 → unchanged
+```
+
+因此评分和短评互不影响开关：可以只覆盖评分、保留短评，也可以只覆盖短评、保留评分。
 
 ### 更新时间
 
@@ -332,14 +346,14 @@ Bangumi subject URL
 
 ## 写入字段
 
-| 字段           | 规则                                                       |
-| -------------- | ---------------------------------------------------------- |
-| `shelf_type`   | 跟随 Bangumi；`no-downgrade` 时目标 complete 保持 complete |
-| `rating_grade` | 默认 `neodb_prefer`：目标非 0 分保留；`overwrite` 才用源分 |
-| `comment_text` | 默认保留目标非空短评；`overwrite` 才用源短评               |
-| `visibility`   | 与 `NEODB_VISIBILITY` 比较，不一致才写                     |
-| `created_time` | 见下                                                       |
-| 进度           | `SYNC_BANGUMI_NEODB_PROGRESS=1` 时写；0 不清空             |
+| 字段           | 规则                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `shelf_type`   | 跟随 Bangumi；`no-downgrade` 时目标 complete 保持 complete                                 |
+| `rating_grade` | `SYNC_BANGUMI_NEODB_RATING`：默认 `neodb_prefer` 保留目标非 0 分；`overwrite` 才用源分     |
+| `comment_text` | `SYNC_BANGUMI_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才用源短评 |
+| `visibility`   | 与 `NEODB_VISIBILITY` 比较，不一致才写                                                     |
+| `created_time` | 见下                                                                                       |
+| 进度           | `SYNC_BANGUMI_NEODB_PROGRESS=1` 时写；0 不清空                                             |
 
 ### created_time
 
@@ -377,13 +391,13 @@ Bangumi subject URL
 
 ② 先执行，④ 后执行；④ 的 `targetClaims` 不包含 ②。
 
-| 字段         | ② 豆瓣                       | ④ Bangumi                     | 最终结果                                |
-| ------------ | ---------------------------- | ----------------------------- | --------------------------------------- |
-| 状态         | 豆瓣状态                     | Bangumi 状态 + 可选 guard     | ④ 后写；guard 可阻止 complete 降级      |
-| 评分         | 按 `SYNC_DOUBAN_NEODB_MERGE` | 按 `SYNC_BANGUMI_NEODB_MERGE` | ④ 读取 ② 的结果后再合并                 |
-| 短评         | 同上                         | 同上                          | 同上                                    |
-| 可见性       | `NEODB_VISIBILITY`           | 同                            | 最后一次写按配置                        |
-| created_time | 总是豆瓣 `time`              | 按 created_time 模式          | 默认 ④ 保留 ② 的日期；source 模式可能改 |
+| 字段         | ② 豆瓣                        | ④ Bangumi                      | 最终结果                                |
+| ------------ | ----------------------------- | ------------------------------ | --------------------------------------- |
+| 状态         | 豆瓣状态                      | Bangumi 状态 + 可选 guard      | ④ 后写；guard 可阻止 complete 降级      |
+| 评分         | 按 `SYNC_DOUBAN_NEODB_RATING` | 按 `SYNC_BANGUMI_NEODB_RATING` | ④ 读取 ② 的结果后再合并                 |
+| 短评         | 同上                          | 同上                           | 同上                                    |
+| 可见性       | `NEODB_VISIBILITY`            | 同                             | 最后一次写按配置                        |
+| created_time | 总是豆瓣 `time`               | 按 created_time 模式           | 默认 ④ 保留 ② 的日期；source 模式可能改 |
 
 因此，②/④ 都启用时，最终状态通常由 ④ 决定；若只想让 Bangumi 作最终状态源，应关闭 ② 或接受 ④ 后写。
 

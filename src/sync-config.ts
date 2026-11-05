@@ -22,6 +22,7 @@ import {
 } from './types';
 import {
   bangumiSubjectTypesForCategories,
+  type BangumiMergeProfile,
   type BangumiNeodbCategory,
 } from './rules/bangumi-neodb';
 
@@ -119,6 +120,25 @@ export function parseMergeProfile(
   return defaultValue;
 }
 
+/** Bangumi-specific target-first/overwrite switch. / Bangumi 专用的目标优先/覆盖开关。 */
+export function parseBangumiMergeProfile(
+  envName: string,
+  defaultValue: BangumiMergeProfile = 'bangumi_prefer',
+): BangumiMergeProfile {
+  const raw = process.env[envName];
+  if (raw === undefined || raw.trim() === '') {
+    return defaultValue;
+  }
+  const value = raw.trim().toLowerCase();
+  if (value === 'overwrite' || value === 'bangumi_prefer') {
+    return value;
+  }
+  consola.warn(
+    `${envName}=${raw} is invalid (use overwrite|bangumi_prefer); falling back to ${defaultValue}`,
+  );
+  return defaultValue;
+}
+
 function splitCategoryTokens(raw: string | undefined): string[] {
   if (raw === undefined || raw.trim() === '') {
     return [];
@@ -200,11 +220,9 @@ export const syncConfig = {
   doubanBangumiEpisodes: envEnabled('SYNC_DOUBAN_BANGUMI_EPISODES', false),
   /** Include SP episodes for TV progress. Default off. */
   doubanBangumiIncludeSp: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_SP', false),
-  /** Comment/rating profile for Douban → Bangumi. Target-first by default. */
-  doubanBangumiMerge:
-    process.env.SYNC_DOUBAN_BANGUMI_MERGE === 'overwrite'
-      ? ('overwrite' as const)
-      : ('bangumi_prefer' as const),
+  /** Independent rating/comment profiles for Douban → Bangumi. */
+  doubanBangumiRating: parseBangumiMergeProfile('SYNC_DOUBAN_BANGUMI_RATING'),
+  doubanBangumiComment: parseBangumiMergeProfile('SYNC_DOUBAN_BANGUMI_COMMENT'),
   /** Bangumi collections → NeoDB / Bangumi 收藏 → NeoDB */
   bangumiNeodb: envEnabled('SYNC_BANGUMI_NEODB', true),
   /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
@@ -245,8 +263,10 @@ export const syncConfig = {
     BANGUMI_CATEGORY_ALIASES,
   ),
 
-  doubanNeodbMerge: parseMergeProfile('SYNC_DOUBAN_NEODB_MERGE'),
-  bangumiNeodbMerge: parseMergeProfile('SYNC_BANGUMI_NEODB_MERGE'),
+  doubanNeodbRating: parseMergeProfile('SYNC_DOUBAN_NEODB_RATING'),
+  doubanNeodbComment: parseMergeProfile('SYNC_DOUBAN_NEODB_COMMENT'),
+  bangumiNeodbRating: parseMergeProfile('SYNC_BANGUMI_NEODB_RATING'),
+  bangumiNeodbComment: parseMergeProfile('SYNC_BANGUMI_NEODB_COMMENT'),
   // Opt-in only: same-subject downgrades must stay possible; this guard is for users who treat
   // their archive as append-only. / 默认关闭：同一 subject 的降级必须仍可发生；只有把归档当作
   // 只增不减的用户才需要开启。
@@ -350,9 +370,9 @@ export function needsBangumiMangaPlatformCheck(
 export function describeSyncConfig(): string {
   const lines = [
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
-    `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, merge=${syncConfig.doubanNeodbMerge})`,
-    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''})`,
-    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, merge=${syncConfig.bangumiNeodbMerge}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
+    `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment})`,
+    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''})`,
+    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');
 }

@@ -299,8 +299,9 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
       ratingGrade: sourceGrade,
       comment: item.comment || '',
     },
-    syncConfig.doubanNeodbMerge,
+    syncConfig.doubanNeodbRating,
     neodbVisibility,
+    syncConfig.doubanNeodbComment,
   );
 
   if (!merged.shouldWrite) {

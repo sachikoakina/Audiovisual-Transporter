@@ -228,7 +228,8 @@ export function resolveBangumiCollectionWrite(input: {
   desiredType: BangumiCollectionType;
   desiredRate: number;
   desiredComment: string;
-  mergeProfile?: BangumiMergeProfile;
+  ratingProfile?: BangumiMergeProfile;
+  commentProfile?: BangumiMergeProfile;
   existing?: {
     type: BangumiCollectionType;
     rate?: number | null;
@@ -240,20 +241,24 @@ export function resolveBangumiCollectionWrite(input: {
     desiredRate,
     desiredComment,
     existing,
-    mergeProfile = 'bangumi_prefer',
+    ratingProfile = 'bangumi_prefer',
+    commentProfile = 'bangumi_prefer',
   } = input;
 
   const existingRate = existing?.rate ?? 0;
   const existingType = existing?.type;
   const existingComment = existing?.comment ?? '';
-  const keepExistingRate = existingType !== undefined && existingRate > 0;
+  const keepExistingRate =
+    ratingProfile === 'bangumi_prefer' &&
+    existingType !== undefined &&
+    existingRate > 0;
   const rate = keepExistingRate ? existingRate : desiredRate;
 
   // Same target-first rule as NeoDB: an existing non-empty comment wins; only an empty target
   // is filled. Empty source comments never clear an existing Bangumi comment.
   // 与 NeoDB 相同的目标优先规则：已有非空短评优先，只填空；空的源短评不会清空 Bangumi 短评。
   const keepExistingComment =
-    mergeProfile === 'bangumi_prefer' && existingComment !== '';
+    commentProfile === 'bangumi_prefer' && existingComment !== '';
   const comment = keepExistingComment ? existingComment : desiredComment;
 
   const unchanged =

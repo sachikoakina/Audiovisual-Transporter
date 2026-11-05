@@ -56,8 +56,9 @@ type MergedNeodbMark = {
 export function mergeNeodbMark(
   existing: NeodbMarkLike | null,
   source: NeodbMarkSource,
-  profile: NeodbMergeProfile,
+  ratingProfile: NeodbMergeProfile,
   targetVisibility: number,
+  commentProfile: NeodbMergeProfile = ratingProfile,
 ): MergedNeodbMark {
   if (!existing) {
     return {
@@ -75,11 +76,11 @@ export function mergeNeodbMark(
   let keptRating = false;
   let keptComment = false;
 
-  if (profile === 'neodb_prefer') {
-    if ((existing.rating_grade || 0) !== 0) {
-      ratingGrade = existing.rating_grade || 0;
-      keptRating = ratingGrade !== source.ratingGrade;
-    }
+  if (ratingProfile === 'neodb_prefer' && (existing.rating_grade || 0) !== 0) {
+    ratingGrade = existing.rating_grade || 0;
+    keptRating = ratingGrade !== source.ratingGrade;
+  }
+  if (commentProfile === 'neodb_prefer') {
     const existingComment = existing.comment_text || '';
     if (existingComment !== '') {
       comment = existingComment;

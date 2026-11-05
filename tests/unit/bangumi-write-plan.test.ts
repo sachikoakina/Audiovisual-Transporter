@@ -62,7 +62,7 @@ describe('resolveBangumiCollectionWrite', () => {
       desiredType: 2,
       desiredRate: 8,
       desiredComment: '',
-      mergeProfile: 'overwrite',
+      commentProfile: 'overwrite',
       existing: existing(),
     });
 
@@ -76,12 +76,27 @@ describe('resolveBangumiCollectionWrite', () => {
       desiredType: 2,
       desiredRate: 6,
       desiredComment: 'Douban comment',
-      mergeProfile: 'overwrite',
+      commentProfile: 'overwrite',
       existing: existing({ rate: 9, comment: '' }),
     });
 
     expect(plan.rate).toBe(9);
     expect(plan.keepExistingRate).toBe(true);
     expect(plan.comment).toBe('Douban comment');
+  });
+
+  it('can overwrite the rating independently from the comment', () => {
+    const plan = resolveBangumiCollectionWrite({
+      desiredType: 2,
+      desiredRate: 6,
+      desiredComment: 'Douban comment',
+      ratingProfile: 'overwrite',
+      commentProfile: 'bangumi_prefer',
+      existing: existing({ rate: 9, comment: 'Bangumi comment' }),
+    });
+
+    expect(plan.rate).toBe(6);
+    expect(plan.keepExistingRate).toBe(false);
+    expect(plan.comment).toBe('Bangumi comment');
   });
 });

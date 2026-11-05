@@ -331,7 +331,8 @@ async function syncFeedItemToBangumi(
     desiredType,
     desiredRate,
     desiredComment,
-    mergeProfile: syncConfig.doubanBangumiMerge,
+    ratingProfile: syncConfig.doubanBangumiRating,
+    commentProfile: syncConfig.doubanBangumiComment,
     existing,
   });
 

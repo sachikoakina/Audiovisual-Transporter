@@ -578,8 +578,9 @@ async function syncCollectionToNeodb(
     const merged = mergeNeodbMark(
       mark,
       { shelfType: effectiveShelf, ratingGrade, comment },
-      syncConfig.bangumiNeodbMerge,
+      syncConfig.bangumiNeodbRating,
       neodbVisibility,
+      syncConfig.bangumiNeodbComment,
     );
 
     if (!merged.shouldWrite) {
