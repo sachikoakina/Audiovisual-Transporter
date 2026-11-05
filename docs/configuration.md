@@ -109,12 +109,13 @@
 
 ### 5.1 专属开关
 
-| 变量                             | 默认       | 说明                                                 |
-| -------------------------------- | ---------- | ---------------------------------------------------- |
-| `SYNC_DOUBAN_BANGUMI`            | `1`        | 总开关                                               |
-| `SYNC_DOUBAN_BANGUMI_CATEGORIES` | 空（全部） | `movie,music,book,game,drama`                        |
-| `SYNC_DOUBAN_BANGUMI_EPISODES`   | `0`        | 仅 complete 条目：补 Bangumi 分集/书籍进度           |
-| `SYNC_DOUBAN_BANGUMI_INCLUDE_SP` | `0`        | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP |
+| 变量                             | 默认             | 说明                                                                    |
+| -------------------------------- | ---------------- | ----------------------------------------------------------------------- |
+| `SYNC_DOUBAN_BANGUMI`            | `1`              | 总开关                                                                  |
+| `SYNC_DOUBAN_BANGUMI_CATEGORIES` | 空（全部）       | `movie,music,book,game,drama`                                           |
+| `SYNC_DOUBAN_BANGUMI_EPISODES`   | `0`              | 仅 complete 条目：补 Bangumi 分集/书籍进度                              |
+| `SYNC_DOUBAN_BANGUMI_INCLUDE_SP` | `0`              | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP                    |
+| `SYNC_DOUBAN_BANGUMI_MERGE`      | `bangumi_prefer` | `bangumi_prefer` 保留目标非空短评；`overwrite` 用豆瓣短评覆盖（含空值） |
 
 ### 5.2 凭据与 Bangumi 公共项
 
@@ -129,7 +130,7 @@
 
 - 优先经 NeoDB 外链匹配；否则按分类精确标题 + 年份搜索；
 - Bangumi 已有非 0 分优先，豆瓣分只填空；
-- 豆瓣短评覆盖现有短评，空短评也会写空；
+- 短评默认 `bangumi_prefer`：Bangumi 已有非空短评保留，只填空；`overwrite` 才由豆瓣短评覆盖（含空值）；
 - Bangumi 已有 4/5 状态保留，不被豆瓣覆盖；
 - 进度默认关闭；开启后：
   - 电影补第一个正片；

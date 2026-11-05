@@ -195,6 +195,8 @@ export type BangumiWritePlan = {
   comment: string;
   /** True when the Bangumi-side rating was kept instead of the incoming one. / 是否保留了 Bangumi 侧已有评分。 */
   keepExistingRate: boolean;
+  /** True when the Bangumi-side comment was kept instead of the incoming one. / 是否保留了 Bangumi 侧已有短评。 */
+  keepExistingComment: boolean;
   /** True when nothing differs, so no request must be sent. / 是否无差异、无需发送请求。 */
   unchanged: boolean;
 };
@@ -220,17 +222,26 @@ export type BangumiWritePlan = {
  * `unchanged` 必须按**最终生效的**评分计算，而不是按传入值：否则「Bangumi 8 分、豆瓣 6 分」的
  * 条目每轮都会有差异，每轮都发写请求，永远不会记为 `unchanged`。
  */
+export type BangumiMergeProfile = 'bangumi_prefer' | 'overwrite';
+
 export function resolveBangumiCollectionWrite(input: {
   desiredType: BangumiCollectionType;
   desiredRate: number;
   desiredComment: string;
+  mergeProfile?: BangumiMergeProfile;
   existing?: {
     type: BangumiCollectionType;
     rate?: number | null;
     comment?: string | null;
   } | null;
 }): BangumiWritePlan {
-  const { desiredType, desiredRate, desiredComment, existing } = input;
+  const {
+    desiredType,
+    desiredRate,
+    desiredComment,
+    existing,
+    mergeProfile = 'bangumi_prefer',
+  } = input;
 
   const existingRate = existing?.rate ?? 0;
   const existingType = existing?.type;
@@ -238,17 +249,25 @@ export function resolveBangumiCollectionWrite(input: {
   const keepExistingRate = existingType !== undefined && existingRate > 0;
   const rate = keepExistingRate ? existingRate : desiredRate;
 
+  // Same target-first rule as NeoDB: an existing non-empty comment wins; only an empty target
+  // is filled. Empty source comments never clear an existing Bangumi comment.
+  // 与 NeoDB 相同的目标优先规则：已有非空短评优先，只填空；空的源短评不会清空 Bangumi 短评。
+  const keepExistingComment =
+    mergeProfile === 'bangumi_prefer' && existingComment !== '';
+  const comment = keepExistingComment ? existingComment : desiredComment;
+
   const unchanged =
     existingType !== undefined &&
     existingType === desiredType &&
     existingRate === rate &&
-    existingComment === desiredComment;
+    existingComment === comment;
 
   return {
     type: desiredType,
     rate,
-    comment: desiredComment,
+    comment,
     keepExistingRate,
+    keepExistingComment,
     unchanged,
   };
 }

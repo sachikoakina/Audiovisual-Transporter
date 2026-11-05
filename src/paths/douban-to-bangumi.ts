@@ -331,6 +331,7 @@ async function syncFeedItemToBangumi(
     desiredType,
     desiredRate,
     desiredComment,
+    mergeProfile: syncConfig.doubanBangumiMerge,
     existing,
   });
 
@@ -372,6 +373,9 @@ async function syncFeedItemToBangumi(
       'Bangumi keeps existing rate: ',
       `${plan.rate} (Douban ${desiredRate}), subject/${subjectId}`,
     );
+  }
+  if (plan.keepExistingComment && !plan.unchanged) {
+    consola.info('Bangumi keeps existing comment: ', `subject/${subjectId}`);
   }
 
   const needsCollectionWrite =

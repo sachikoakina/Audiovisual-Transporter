@@ -200,6 +200,11 @@ export const syncConfig = {
   doubanBangumiEpisodes: envEnabled('SYNC_DOUBAN_BANGUMI_EPISODES', false),
   /** Include SP episodes for TV progress. Default off. */
   doubanBangumiIncludeSp: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_SP', false),
+  /** Comment/rating profile for Douban → Bangumi. Target-first by default. */
+  doubanBangumiMerge:
+    process.env.SYNC_DOUBAN_BANGUMI_MERGE === 'overwrite'
+      ? ('overwrite' as const)
+      : ('bangumi_prefer' as const),
   /** Bangumi collections → NeoDB / Bangumi 收藏 → NeoDB */
   bangumiNeodb: envEnabled('SYNC_BANGUMI_NEODB', true),
   /** Bangumi → NeoDB progress (episode/chapter/track). Default off. / Bangumi → NeoDB 进度，默认关闭。 */
