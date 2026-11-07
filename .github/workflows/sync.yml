@@ -44,12 +44,12 @@ on:
         default: false
   schedule:
     # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events
-    # Daily at 03:15 Shanghai time. Shanghai is UTC+8 with no DST, so this is 19:15 UTC
-    # on the previous calendar day. Running daily narrows the Douban RSS loss window; it
+    # Daily at 23:30 Shanghai time. Shanghai is UTC+8 with no DST, so this is 15:30 UTC
+    # on the same calendar day. Running daily narrows the Douban RSS loss window; it
     # still cannot close it because the feed only carries about ten entries.
-    # 每天上海时间 03:15。上海为 UTC+8 且无夏令时，因此对应前一日 19:15 UTC。每日运行可
+    # 每天上海时间 23:30。上海为 UTC+8 且无夏令时，因此对应当日 15:30 UTC。每日运行可
     # 缩小豆瓣 RSS 的丢失窗口，但 feed 只保留约十条，仍无法完全消除。
-    - cron: '15 19 * * *'
+    - cron: '30 15 * * *'
 
 jobs:
   build:
