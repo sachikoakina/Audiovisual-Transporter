@@ -258,13 +258,14 @@ NeoDB 侧（同 ②）：
 
 仅由 `review-queue` 使用，不在 sync 作业中执行。
 
-| 变量                        | 默认     | 说明                                                         |
-| --------------------------- | -------- | ------------------------------------------------------------ |
-| `REVIEW_VERIFY_MODE`        | `off`    | `off` 关闭；`shadow` 只查询并记录；`enforce` 按结果移出/保留 |
-| `REVIEW_VERIFY_SOURCES`     | 四条链路 | `douban-neodb,douban-bangumi,bangumi-neodb,neodb-tmdb`       |
-| `REVIEW_VERIFY_LIMIT`       | `100`    | 每轮最多复核条数                                             |
-| `REVIEW_VERIFY_CONCURRENCY` | `2`      | 复核并发数，避免目标端限流                                   |
-| `REVIEW_VERIFY_RETRY_DAYS`  | `7`      | “仍未解决”条目的复核间隔                                     |
+> **这五个变量不由 `src/` 读取，也不由 `npm run sync` 读取。** 唯一消费者是 `scripts/review-queue.mjs`，由 `.github/workflows/review-queue.yml` 直接传入 `process.env`。因此它们**不出现在 `.env.example`**（那个文件记录的是同步进程能读到什么），本地跑 `npm run sync` 时设置它们没有任何效果。
+
+| 变量                       | 默认     | 说明                                                         |
+| -------------------------- | -------- | ------------------------------------------------------------ |
+| `REVIEW_VERIFY_MODE`       | `off`    | `off` 关闭；`shadow` 只查询并记录；`enforce` 按结果移出/保留 |
+| `REVIEW_VERIFY_SOURCES`    | 四条链路 | `douban-neodb,douban-bangumi,bangumi-neodb,neodb-tmdb`       |
+| `REVIEW_VERIFY_LIMIT`      | `100`    | 每轮最多复核条数                                             |
+| `REVIEW_VERIFY_RETRY_DAYS` | `7`      | “仍未解决”条目的复核间隔                                     |
 
 行为：
 
@@ -274,6 +275,8 @@ NeoDB 侧（同 ②）：
 - `ambiguous` / `error` 保留；
 - 需要 review-queue 具备 NeoDB/Bangumi/TMDB 只读凭据；
 - `off` 时完全走现有两轮规则。
+
+> **复核是串行的**：`scripts/review-verify.ts` 逐条 `await`，上限 `REVIEW_VERIFY_LIMIT` 条。按当前 10 分钟作业超时与单条 1–3 次请求的规模，这不构成瓶颈；也**没有**并发数开关 —— 曾有 `REVIEW_VERIFY_CONCURRENCY`，但从未有任何代码读取它，已删除，不要重新引入一个没有消费者的旋钮。
 
 ---
 

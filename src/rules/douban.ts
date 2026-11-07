@@ -9,7 +9,7 @@
  * Absorbed from the former `const.ts`, which bundled four unrelated domains into one file.
  * 由原先的 `const.ts` 吸收而来 —— 那个文件把四个互不相关的域塞在了一处。
  */
-import { ItemStatus } from '../types';
+import { ItemCategory, ItemStatus } from '../types';
 
 /**
  * Matches any Douban RSS status prefix, capturing the status word.
@@ -106,3 +106,61 @@ export function doubanStarsToTenPoint(rating: number | null | undefined): number
   }
   return rating * 2;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// RSS entry → (category, subject id, status)
+// RSS 条目 → (分类, 条目 id, 状态)
+//
+// Lives here, beside the four status tables it is built from, because adding a Douban category
+// means touching both: a new table with no rule row is silently unparseable, and a rule row
+// pointing at a table nobody added is a type error. Keeping them in one file makes that a
+// one-file edit instead of a two-file edit — which is what the RSS client used to require.
+// 放在这里，与它所依赖的四张状态表并列：新增一个豆瓣分类必定同时动到两者 —— 只加状态表没有规则行
+// 就是静默解析不出来，只加规则行指向不存在的表则是类型错误。放在同一个文件里，这件事从「改两个文件」
+// 变成「改一个文件」，而 RSS 客户端原先要求的正是前者。
+// ───────────────────────────────────────────────────────────────────────────
+
+/** One row: a status vocabulary, the category it implies, and the link that identifies that category. / 一行：一套状态词汇、它对应的分类，以及标识该分类的链接形状。 */
+export type DoubanItemRule = {
+  statuses: Record<string, ItemStatus>;
+  category: ItemCategory;
+  idPattern: RegExp;
+};
+
+/**
+ * One row per (status vocabulary, category, link shape). The four `if/else` branches this
+ * replaces were identical apart from those three things, and the COPY is what made the film /
+ * stage-drama split easy to get wrong: `看过` is one vocabulary pointing at two categories.
+ * 每行一个（状态词汇、分类、链接形状）三元组。它替掉的四段 `if/else` 除了这三样之外完全一样，
+ * 而正是**复制**让「电影 / 舞台剧」这一分叉容易出错：`看过` 是同一套词汇指向两个分类。
+ *
+ * Order matters only for `看*`: the film pattern wins because it is listed first.
+ * 顺序只对 `看*` 有意义：电影模式在前，因此它优先。
+ */
+export const DOUBAN_ITEM_RULES: ReadonlyArray<DoubanItemRule> = [
+  {
+    statuses: SEE_STATUS_MAP,
+    category: ItemCategory.Movie,
+    idPattern: /movie\.douban\.com\/subject\/(\d+)\/?/,
+  },
+  {
+    statuses: SEE_STATUS_MAP,
+    category: ItemCategory.Drama,
+    idPattern: /www\.douban\.com\/location\/drama\/(\d+)\/?/,
+  },
+  {
+    statuses: READ_STATUS_MAP,
+    category: ItemCategory.Book,
+    idPattern: /book\.douban\.com\/subject\/(\d+)\/?/,
+  },
+  {
+    statuses: LISTEN_STATUS_MAP,
+    category: ItemCategory.Music,
+    idPattern: /music\.douban\.com\/subject\/(\d+)\/?/,
+  },
+  {
+    statuses: PLAY_STATUS_MAP,
+    category: ItemCategory.Game,
+    idPattern: /www\.douban\.com\/game\/(\d+)\/?/,
+  },
+];

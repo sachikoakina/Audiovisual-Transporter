@@ -162,7 +162,6 @@ jobs:
           REVIEW_VERIFY_MODE: ${{ vars.REVIEW_VERIFY_MODE || 'off' }}
           REVIEW_VERIFY_SOURCES: ${{ vars.REVIEW_VERIFY_SOURCES || 'douban-neodb,douban-bangumi,bangumi-neodb,neodb-tmdb' }}
           REVIEW_VERIFY_LIMIT: ${{ vars.REVIEW_VERIFY_LIMIT || '100' }}
-          REVIEW_VERIFY_CONCURRENCY: ${{ vars.REVIEW_VERIFY_CONCURRENCY || '2' }}
           REVIEW_VERIFY_RETRY_DAYS: ${{ vars.REVIEW_VERIFY_RETRY_DAYS || '7' }}
           NEODB_API_TOKEN: ${{ secrets.NEODB_API_TOKEN }}
           BANGUMI_ACCESS_TOKEN: ${{ secrets.BANGUMI_ACCESS_TOKEN }}

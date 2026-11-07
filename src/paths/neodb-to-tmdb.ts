@@ -26,7 +26,6 @@
  *   - 匹配失败记为 `unresolved` 而不是 `failed` —— TMDB 没有对应条目是数据缺口，不是错误，
  *     不应让 CI 变红。
  */
-import { readFileSync } from 'node:fs';
 import { consola } from 'consola';
 import {
   NEODB_CATEGORIES_WITHOUT_TMDB,
@@ -75,6 +74,7 @@ import { planTmdbWrites, type TmdbPatch } from '../rules/tmdb-write-plan';
 import {
   fingerprintMark,
   readItemYearCache,
+  readKnownAbsentList,
   readState,
   stateKey,
   upsertReviewEntry,
@@ -254,6 +254,12 @@ export default async function runNeodbToTmdb(
       'No usable TMDB credential. Provide TMDB_SESSION_ID, or a user-scoped TMDB_ACCESS_TOKEN.',
     );
     report.aborted = true;
+    // Printed here for the same reason as the two guards above: every aborted path must leave the
+    // same `scanned 0 … aborted` line behind, or this one path fails silently in the log while the
+    // other four announce themselves.
+    // 与上面两个守卫同理：每一条 aborted 的链路都必须留下同样的 `scanned 0 … aborted` 行，否则这一条
+    // 会在日志里静默失败，而另外四条都会自我声明。
+    printPathSummary(report);
     return report;
   }
 
@@ -261,6 +267,7 @@ export default async function runNeodbToTmdb(
   if (!account?.id) {
     consola.error('Could not resolve the TMDB account id.');
     report.aborted = true;
+    printPathSummary(report);
     return report;
   }
 
@@ -480,26 +487,16 @@ async function syncShelf(shelfType: ShelfType, ctx: SyncContext): Promise<boolea
   return false;
 }
 
+/**
+ * Loaded once per process on first use. `null` means "not attempted yet"; an empty Set means
+ * "attempted, and there is nothing to skip".
+ * 首次使用时每进程加载一次。`null` 表示「还没试过」；空 Set 表示「试过了，没有可跳过的东西」。
+ */
 let knownAbsent: Set<string> | null = null;
 
 function isKnownAbsent(uuid: string, mediaType: TmdbMediaType): boolean {
   if (!knownAbsent) {
-    knownAbsent = new Set();
-    try {
-      const raw = JSON.parse(
-        readFileSync('data/tmdb-known-absent.json', 'utf8'),
-      ) as Array<{ neodbUuid?: string; mediaType?: string }>;
-      for (const entry of Array.isArray(raw) ? raw : []) {
-        if (entry.neodbUuid && entry.mediaType) {
-          knownAbsent.add(`${entry.mediaType}:${entry.neodbUuid}`);
-        }
-      }
-    } catch (error) {
-      consola.warn(
-        'Could not load data/tmdb-known-absent.json; treating it as empty: ',
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    knownAbsent = readKnownAbsentList('data/tmdb-known-absent.json');
   }
   return knownAbsent.has(`${mediaType}:${uuid}`);
 }

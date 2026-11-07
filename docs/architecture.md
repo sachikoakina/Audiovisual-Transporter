@@ -21,7 +21,9 @@ GitHub Actions: sync
            └─ 日志 + report → review-state artifact
 ```
 
-`src/index.ts` 按上述顺序执行启用的路径。豆瓣 RSS 只抓一次，①②③复用归一化结果；④⑤读取各自平台书架，不依赖本轮豆瓣 feed。① 抛出异常会跳过同组的②③；④⑤独立执行，各自的失败只影响自己的报告。
+`src/index.ts` 按上述顺序执行启用的路径。豆瓣 RSS 只抓一次，①②③复用归一化结果；④⑤读取各自平台书架，不依赖本轮豆瓣 feed。
+
+**失败域（按 `src/index.ts` 的实际实现）**：`fetchRSSFeeds` 与 ①②③ 三个 `await` 包在**同一个 `try`** 里。其中任一环节抛出，都会被同一个 `catch` 捕获，记为一条名为 `Douban RSS` 的 `aborted` 报告，然后**继续执行 ④⑤**。因此实际语义是「失败会中断该链路**及其后尚未运行的**同组链路」，而不是「① 失败会跳过 ②③」——②③ 若已在 ① 之前跑完，其结果不受影响。④⑤ 各自独立 `try`，失败只影响自己的报告。`SYNC_DOUBAN_REQUIRED=0` 会把那条 `Douban RSS` 报告标为 `tolerated`，仍显示但不参与退出码。
 
 ## 模块关系
 
@@ -80,13 +82,6 @@ scanned = written + unchanged + skipped + unresolved + failed
 
 ## 状态文件
 
-| 文件                                  | 用途                       |
-| ------------------------------------- | -------------------------- |
-| `.cache/sync-state.json`              | NeoDB→TMDB 增量指纹        |
-| `.cache/neodb-item-years.json`        | NeoDB uuid → 发行年份      |
-| `.cache/bangumi-neodb-full-sync.json` | Bangumi 全量分页游标       |
-| `.cache/unmatched.json`               | 本地未匹配留档（空值关闭） |
-| `.cache/sync-report.json`             | 本轮机器可读报告           |
-| `.cache/sync-summary.md`              | 本轮 Markdown 摘要         |
+六个 `.cache/*` 文件的**唯一出处**是 [`reference.md` 的状态文件与留档表](reference.md#状态文件与留档)，那里同时列出每个文件对应的环境变量、默认路径与用途。这里不重复表的内容，只记一条结构性事实：
 
-写入采用同目录临时文件再改名，避免中断留下半份 JSON。review-queue 的 `review-state` artifact 是另一套跨轮状态，不使用这些文件。
+写入采用同目录临时文件再改名（`writeJsonAtomic`），避免进程中断留下半份 JSON。`review-queue` 的 `review-state` artifact 是另一套跨轮状态，不使用这些文件。

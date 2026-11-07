@@ -355,3 +355,62 @@ export function resolveTmdbOperations(
       };
   }
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Hand-maintained "TMDB has nothing for this item" list
+// 人工维护的「TMDB 确实没有这一条」名单
+//
+// `data/tmdb-known-absent.json` lets a human record items that were checked by hand and confirmed
+// absent from TMDB, so they stop costing a search every run. Two halves, deliberately apart:
+//
+//   - the *key* an entry contributes (`matchKnownAbsentKey` below) is a pure rule — same input,
+//     same key, no I/O — so it can be asserted offline;
+//   - *reading the file* is I/O and lives in `utils.ts` next to `readState` / `readItemYearCache`,
+//     for the same reason those do: this module holds only rules, and a `readFileSync` here would
+//     be the first exception to that.
+//
+// `data/tmdb-known-absent.json` 让人类登记「手工核对过、确认 TMDB 没有」的条目，使它们不再每轮
+// 花掉一次搜索。刻意分成两半：
+//
+//   - 一条记录贡献的**键**（下面的 `matchKnownAbsentKey`）是纯规则 —— 同样输入同样键、无 I/O ——
+//     因此可以离线断言；
+//   - **读文件**属于 I/O，放在 `utils.ts`，与 `readState` / `readItemYearCache` 同处：本模块只装
+//     规则，在这里写 `readFileSync` 会成为那条不变量下的第一个例外。
+// ───────────────────────────────────────────────────────────────────────────
+
+/** One row of `data/tmdb-known-absent.json`, as the file is allowed to carry it. / 文件里允许出现的一行记录。 */
+export type KnownAbsentRow = {
+  neodbUuid?: string;
+  mediaType?: string;
+  /**
+   * Free-text notes are tolerated but never read. They exist so a human editing the file can say
+   * *why* an item is on it; the sync only ever needs the two identifying fields.
+   * 自由文本备注被容忍但从不读取。它存在的意义是让编辑文件的人能写下「为什么」，而同步只需要两个
+   * 标识字段。
+   */
+  reason?: string;
+  checkedAt?: string;
+  note?: string;
+};
+
+/**
+ * The identity key one known-absent row contributes, or `null` when the row cannot identify
+ * anything.
+ *
+ * The shape matches the runtime `uuid` lookup exactly (`${mediaType}:${uuid}`), which is what makes
+ * the two halves composable: the loader collects these strings into a Set, and the sync asks the
+ * set one question per item.
+ *
+ * 一条 known-absent 记录贡献的身份键；该行无法标识任何东西时返回 `null`。
+ *
+ * 形状与运行期的 `uuid` 查找完全一致（`${mediaType}:${uuid}`），两半因此可以拼起来：加载器把这些
+ * 字符串收进 Set，同步对每个条目问 Set 一个问题。
+ */
+export function matchKnownAbsentKey(row: KnownAbsentRow): string | null {
+  const uuid = row.neodbUuid?.trim();
+  const mediaType = row.mediaType?.trim();
+  if (!uuid || !mediaType) {
+    return null;
+  }
+  return `${mediaType}:${uuid}`;
+}

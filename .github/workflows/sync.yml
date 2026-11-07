@@ -105,8 +105,23 @@ jobs:
       SYNC_DOUBAN_NEODB_CATEGORIES: ${{ vars.SYNC_DOUBAN_NEODB_CATEGORIES || '' }}
       SYNC_DOUBAN_BANGUMI_CATEGORIES: ${{ vars.SYNC_DOUBAN_BANGUMI_CATEGORIES || '' }}
       SYNC_BANGUMI_NEODB_CATEGORIES: ${{ vars.SYNC_BANGUMI_NEODB_CATEGORIES || '' }}
-      SYNC_DOUBAN_NEODB_MERGE: ${{ vars.SYNC_DOUBAN_NEODB_MERGE || 'neodb_prefer' }}
-      SYNC_BANGUMI_NEODB_MERGE: ${{ vars.SYNC_BANGUMI_NEODB_MERGE || 'neodb_prefer' }}
+      # Rating and comment are independent switches, one pair per destination. Passing them here is
+      # not optional: `src/sync-config.ts` reads exactly these ten names, so a Variables value this
+      # file does not forward never reaches the process at all.
+      # 评分与短评是按目标端成对出现的独立开关。在这里透传不是可选项：`src/sync-config.ts` 读的正是
+      # 这十个名字，本文件不转发，Variables 里设了也到不了进程。
+      SYNC_DOUBAN_NEODB_RATING: ${{ vars.SYNC_DOUBAN_NEODB_RATING || 'neodb_prefer' }}
+      SYNC_DOUBAN_NEODB_COMMENT: ${{ vars.SYNC_DOUBAN_NEODB_COMMENT || 'neodb_prefer' }}
+      SYNC_BANGUMI_NEODB_RATING: ${{ vars.SYNC_BANGUMI_NEODB_RATING || 'neodb_prefer' }}
+      SYNC_BANGUMI_NEODB_COMMENT: ${{ vars.SYNC_BANGUMI_NEODB_COMMENT || 'neodb_prefer' }}
+      SYNC_DOUBAN_BANGUMI_RATING: ${{ vars.SYNC_DOUBAN_BANGUMI_RATING || 'bangumi_prefer' }}
+      SYNC_DOUBAN_BANGUMI_COMMENT: ${{ vars.SYNC_DOUBAN_BANGUMI_COMMENT || 'bangumi_prefer' }}
+      # Path ③'s optional progress writing, and path ④'s status guard / mark date policy.
+      # 链路③ 的可选进度写入，以及链路④ 的状态守卫与标记日期策略。
+      SYNC_DOUBAN_BANGUMI_EPISODES: ${{ vars.SYNC_DOUBAN_BANGUMI_EPISODES || '0' }}
+      SYNC_DOUBAN_BANGUMI_INCLUDE_SP: ${{ vars.SYNC_DOUBAN_BANGUMI_INCLUDE_SP || '0' }}
+      SYNC_BANGUMI_NEODB_STATUS_GUARD: ${{ vars.SYNC_BANGUMI_NEODB_STATUS_GUARD || 'off' }}
+      SYNC_BANGUMI_NEODB_CREATED_TIME: ${{ vars.SYNC_BANGUMI_NEODB_CREATED_TIME || 'target' }}
       SYNC_BANGUMI_NEODB_PROGRESS: ${{ vars.SYNC_BANGUMI_NEODB_PROGRESS || '0' }}
 
       # ── NeoDB → TMDB path ──────────────────────────────────────────────
@@ -136,8 +151,20 @@ jobs:
       # Runners are ephemeral — no .cache/ survives between runs, so the
       # incremental state file is useless here. Fall back to TMDB-side
       # idempotency, which is safe and only costs extra read requests.
+      # This is a DELIBERATE difference from `.env.example`, whose default is 1.
+      # 这是与 `.env.example`（默认 1）刻意不同的地方：runner 不保留 `.cache`，增量状态在这里没有意义。
       SYNC_INCREMENTAL: ${{ vars.SYNC_INCREMENTAL || '0' }}
       SYNC_STATE_FILE: ${{ vars.SYNC_STATE_FILE || '.cache/sync-state.json' }}
+      # The three variables below are deliberately NOT forwarded from Variables. Forwarding them
+      # would let a repository setting move the file away from the path the steps below hardcode,
+      # and the artifact/cache upload would then zip nothing while the run still looked green.
+      # 下面三个变量刻意不从 Variables 透传：一旦透传，仓库设置就能把文件挪离下面步骤写死的路径，
+      # artifact／cache 上传于是打包空目录，而运行看起来仍然正常。
+      #   SYNC_SUMMARY_FILE / SYNC_REPORT_FILE  → 固定 .cache/sync-summary.md、.cache/sync-report.json
+      #   BANGUMI_NEODB_FULL_SYNC_STATE         → 固定 .cache/bangumi-neodb-full-sync.json
+      # NEODB_ITEM_YEAR_CACHE is not forwarded either: it is a throwaway per-run cache and the
+      # code default is exactly where it should go on a runner.
+      # NEODB_ITEM_YEAR_CACHE 同样不透传：它是一轮就作废的缓存，代码默认值正是 runner 上的正确落点。
       # Empty by default: the unmatched log cannot outlive the runner, and nothing uploads it. The
       # durable record is the 待核对名单 artifact built by review-queue.yml, so CI must neither
       # write this file nor point at it as if it were retrievable.

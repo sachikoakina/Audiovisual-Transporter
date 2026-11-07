@@ -15,6 +15,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import { consola } from 'consola';
+import { matchKnownAbsentKey, type KnownAbsentRow } from './rules/tmdb-mapping';
 import { type NeodbShelfMark } from './types';
 
 dotenv.config();
@@ -330,6 +331,68 @@ function pruneItemYears(cache: ItemYearCache): ItemYearCache {
 /** Build the state key for one shelf item. / 生成一个书架条目在状态文件里的键。 */
 export function stateKey(shelfType: string, itemUuid: string): string {
   return `${shelfType}:${itemUuid}`;
+}
+
+/**
+ * Load `data/tmdb-known-absent.json` into the identity Set the sync asks one question against.
+ *
+ * This is the I/O half of the known-absent feature; the pure half (`matchKnownAbsentKey`, which
+ * decides what a row contributes) is in `rules/tmdb-mapping.ts`. It lives here, next to
+ * `readState` / `readItemYearCache`, because this file is where every other JSON-on-disk reader
+ * already lives — putting it in `paths/` instead would split "where files are read" in two.
+ *
+ * Two deliberate choices:
+ *   - A missing or unreadable file yields an **empty Set**, never an error. The list is an
+ *     optimisation: without it an item simply costs one search, which is what every run did before
+ *     the list existed.
+ *   - A warn is printed on a real load failure but **not** on ENOENT. The file shipped in the repo
+ *     is `[]`, and a missing one is indistinguishable from "nobody recorded anything yet".
+ *
+ * 把 `data/tmdb-known-absent.json` 装进同步只问一个问题的那份身份 Set。
+ *
+ * 这是 known-absent 功能的 I/O 半边；纯半边（`matchKnownAbsentKey`，决定一条记录贡献什么）在
+ * `rules/tmdb-mapping.ts` 里。它放在这里，与 `readState` / `readItemYearCache` 相邻，因为本文件已是
+ * 所有 JSON 磁盘读取器的所在 —— 放到 `paths/` 反而会把「文件在哪读」劈成两处。
+ *
+ * 两个刻意的选择：
+ *   - 文件缺失或读不动时返回**空 Set**，绝不报错。这份名单是个优化：没有它，条目只是多花一次搜索，
+ *     而那正是名单出现之前每一轮的行为。
+ *   - 真实读取失败会告警，但 **ENOENT 不告警**。仓库里带的就是 `[]`，缺失与「还没人登记过」无法区分。
+ */
+export function readKnownAbsentList(file: string): Set<string> {
+  const keys = new Set<string>();
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    const { code, text: message } = fileErrorDetail(error);
+    if (code !== 'ENOENT') {
+      consola.warn(`Could not read the known-absent list ${file}: ${message}`);
+    }
+    return keys;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(text);
+    for (const row of Array.isArray(parsed) ? parsed : []) {
+      if (!row || typeof row !== 'object') {
+        continue;
+      }
+      const key = matchKnownAbsentKey(row as KnownAbsentRow);
+      if (key) {
+        keys.add(key);
+      }
+    }
+  } catch (error) {
+    // Hand-edited into invalid JSON: start from empty rather than fail the path.
+    // 被人改成非法 JSON：从空集开始，而不是让整条链路失败。
+    consola.warn(
+      `Known-absent list ${file} is not valid JSON; ignoring it: `,
+      fileErrorDetail(error).text,
+    );
+  }
+
+  return keys;
 }
 
 /** `标题[链接]` — the one shape `review-queue.mjs` parses. / 待核对名单解析的唯一形状。 */

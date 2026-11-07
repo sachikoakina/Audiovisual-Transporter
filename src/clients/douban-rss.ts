@@ -16,10 +16,8 @@ import {
   ANY_STATUS_PREFIX,
   STRIP_STATUS_PREFIX,
   RATING_TEXT_TO_STARS,
+  DOUBAN_ITEM_RULES,
   SEE_STATUS_MAP,
-  READ_STATUS_MAP,
-  PLAY_STATUS_MAP,
-  LISTEN_STATUS_MAP,
 } from '../rules/douban';
 import { ItemCategory, ItemStatus, type RSSFeedItem, type FeedItem } from '../types';
 
@@ -185,50 +183,16 @@ export function normalizeRssFeeds(feeds: RSSFeedItem[]): FeedItem[] {
 }
 
 /**
- * One row per (status vocabulary, category, link shape). The four `if/else` branches this
- * replaces were identical apart from those three things, and the COPY is what made the film /
- * stage-drama split easy to get wrong: `看过` is one vocabulary pointing at two categories.
- * 每行一个（状态词汇、分类、链接形状）三元组。它替掉的四段 `if/else` 除了这三样之外完全一样，
- * 而正是**复制**让「电影 / 舞台剧」这一分叉容易出错：`看过` 是同一套词汇指向两个分类。
- *
- * Order matters only for `看*`: the film pattern wins because it is listed first.
- * 顺序只对 `看*` 有意义：电影模式在前，因此它优先。
- */
-const ITEM_RULES: ReadonlyArray<{
-  statuses: Record<string, ItemStatus>;
-  category: ItemCategory;
-  idPattern: RegExp;
-}> = [
-  {
-    statuses: SEE_STATUS_MAP,
-    category: ItemCategory.Movie,
-    idPattern: /movie\.douban\.com\/subject\/(\d+)\/?/,
-  },
-  {
-    statuses: SEE_STATUS_MAP,
-    category: ItemCategory.Drama,
-    idPattern: /www\.douban\.com\/location\/drama\/(\d+)\/?/,
-  },
-  {
-    statuses: READ_STATUS_MAP,
-    category: ItemCategory.Book,
-    idPattern: /book\.douban\.com\/subject\/(\d+)\/?/,
-  },
-  {
-    statuses: LISTEN_STATUS_MAP,
-    category: ItemCategory.Music,
-    idPattern: /music\.douban\.com\/subject\/(\d+)\/?/,
-  },
-  {
-    statuses: PLAY_STATUS_MAP,
-    category: ItemCategory.Game,
-    idPattern: /www\.douban\.com\/game\/(\d+)\/?/,
-  },
-];
-
-/**
  * Decode the category, subject id and status out of one feed entry's title and link.
  * 从单条 feed 的标题与链接中解出分类、条目 id 与状态。
+ *
+ * The (status vocabulary, category, link shape) table this walks is `DOUBAN_ITEM_RULES` in
+ * `rules/douban.ts` — next to the four status tables it is built from, so adding a Douban
+ * category is a one-file edit. This function itself stays here because it is the decoding step
+ * of the RSS client.
+ * 它遍历的（状态词汇、分类、链接形状）表是 `rules/douban.ts` 的 `DOUBAN_ITEM_RULES` —— 紧挨着它
+ * 依赖的四张状态表，因此新增一个豆瓣分类只需改一个文件。本函数留在这里，因为它是 RSS 客户端的解码
+ * 步骤本身。
  *
  * Pure and dependency-free, which is why it is the natural first target for offline assertions.
  * 纯函数且无依赖，因此它是离线断言最自然的首选目标。
@@ -250,7 +214,7 @@ export function extractItemInfo(title: string, link: string): ItemInfo | undefin
     return;
   }
 
-  for (const rule of ITEM_RULES) {
+  for (const rule of DOUBAN_ITEM_RULES) {
     const status = rule.statuses[m];
     if (status === undefined) {
       continue;

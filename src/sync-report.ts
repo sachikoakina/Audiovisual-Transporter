@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { consola } from 'consola';
 import { renderDetailLines } from './rules/review-detail';
+import { outputConfig } from './sync-config';
 import { renderSummaryMarkdown, stateLabel } from './sync-summary-markdown';
 import { pathHasFailed, type PathReport } from './types';
 import { inActions } from './utils';
@@ -305,9 +306,7 @@ export function printOverallSummary(reports: PathReport[], skipReason?: string):
  * 自己没能认领的日志行。与摘要同一时刻写出，即在确定退出码之前，因此失败的那一轮也会留下它。
  */
 function publishRunReport(reports: readonly PathReport[]): void {
-  const target = path.resolve(
-    process.env.SYNC_REPORT_FILE || '.cache/sync-report.json',
-  );
+  const target = path.resolve(outputConfig.reportFile);
   const payload = { version: 1, generatedAt: new Date().toISOString(), paths: reports };
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -320,9 +319,7 @@ function publishRunReport(reports: readonly PathReport[]): void {
 }
 
 function publishJobSummary(markdown: string): void {
-  const target = path.resolve(
-    process.env.SYNC_SUMMARY_FILE || '.cache/sync-summary.md',
-  );
+  const target = path.resolve(outputConfig.summaryFile);
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     // Overwrite rather than append: one run, one summary. Appending would stack a second copy

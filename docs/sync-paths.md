@@ -459,16 +459,8 @@ NeoDB TMDB 外链（类型必须一致）
 
 ## 未匹配原因
 
-| 原因                         | 含义                        |
-| ---------------------------- | --------------------------- |
-| `no-tmdb-match`              | 匹配执行过但未找到          |
-| `no-neodb-year`              | 缺年份，未执行标题搜索      |
-| `no-neodb-year-fetch-failed` | 年份读取失败，计 failed     |
-| `tmdb-link-type-mismatch`    | 外链媒体类型不符            |
-| `tmdb-link-fetch-failed`     | 外链取不到目标              |
-| `imdb-no-match`              | IMDb 无同类型结果           |
-| `tmdb-search-empty`          | 所有标题候选无结果          |
-| `tmdb-ambiguous`             | 有候选但无精确标题/年份命中 |
-| `tmdb-season-parent-missing` | 季条目无法得到父剧标题      |
+⑤ 区分九种未匹配原因（`no-tmdb-match`、`no-neodb-year`、`no-neodb-year-fetch-failed`、`tmdb-link-type-mismatch`、`tmdb-link-fetch-failed`、`imdb-no-match`、`tmdb-search-empty`、`tmdb-ambiguous`、`tmdb-season-parent-missing`），**逐条含义与档位见 [`reference.md` 的 reason 总表](reference.md#reason-总表slug--链路--档位--日志形态)** —— 那里是全仓 reason 的唯一出处。
 
-确认 TMDB 缺失的条目可进 `data/tmdb-known-absent.json`，命中后转 `tmdb-known-absent` skipped。
+只有一条需要在这里强调：`no-neodb-year-fetch-failed` 计入 **`failed`** 而不是 `unresolved`，因为 TMDB 根本没被问到，重跑就能回答；把它记成「没有对应条目」会让报表说谎。
+
+确认 TMDB 缺失的条目可进 `data/tmdb-known-absent.json`，命中后转 `tmdb-known-absent` skipped（文件格式见 [`reference.md`](reference.md)）。

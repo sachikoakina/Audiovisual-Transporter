@@ -157,3 +157,12 @@ npm run verify:all
 ## License
 
 MIT
+
+## 致谢
+
+本项目的想法与最初的实现思路来自下面的项目，感谢原作者与维护者：
+
+- [bambooom/douban-backup](https://github.com/bambooom/douban-backup) —— 原版「豆瓣 → Notion / NeoDB」备份工具，本项目留档思路的来源；
+- [viazure/douban-backup](https://github.com/viazure/douban-backup) —— 在上者基础上增加了 Bangumi 支持的 fork，本项目 Bangumi 相关链路即由此而来。
+
+本仓库在此基础上做了模块化重构，并新增 NeoDB 书架 → TMDB 的单向同步。

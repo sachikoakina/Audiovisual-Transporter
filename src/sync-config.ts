@@ -435,6 +435,32 @@ export const unmatchedLogFile =
   process.env.SYNC_UNMATCHED_LOG ?? '.cache/unmatched.json';
 
 // ───────────────────────────────────────────────────────────────────────────
+// Where a run leaves its two reports
+// 一轮运行的两份报表落在哪
+//
+// These two reads used to sit in `sync-report.ts` itself, which was the last place in the repo
+// that touched `process.env` outside this file. Keeping every environment read here is the whole
+// point of this module: a name that is parsed in two places is a name that will disagree with
+// itself after one edit.
+//
+// 这两次读取原先留在 `sync-report.ts` 里，而那是全仓最后一处**不经过本文件**读 `process.env` 的地方。
+// 「所有环境读取集中于此」正是本模块存在的全部理由：在两个地方解析的名字，改一次就会自相矛盾。
+// ───────────────────────────────────────────────────────────────────────────
+
+export const outputConfig = {
+  /**
+   * Markdown summary of the run. Overwritten every run, never appended to.
+   * 本轮运行的 Markdown 摘要，每轮覆盖写、绝不追加。
+   */
+  summaryFile: process.env.SYNC_SUMMARY_FILE ?? '.cache/sync-summary.md',
+  /**
+   * The same run as machine-readable JSON, used by the review queue to check its own log parsing.
+   * 同一轮运行的机器可读 JSON，供待核对名单核对自己的日志解析。
+   */
+  reportFile: process.env.SYNC_REPORT_FILE ?? '.cache/sync-report.json',
+};
+
+// ───────────────────────────────────────────────────────────────────────────
 // NeoDB → TMDB path
 // NeoDB → TMDB 链路
 //
@@ -590,21 +616,17 @@ export const neodbTmdbConfig = {
   neodbTmdbFullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
   /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
   unmatchedLogFile,
-  /** Read-only verification of review candidates. / 待核对候选的只读复核。 */
-  reviewVerify: {
-    mode:
-      process.env.REVIEW_VERIFY_MODE === 'enforce'
-        ? ('enforce' as const)
-        : process.env.REVIEW_VERIFY_MODE === 'shadow'
-          ? ('shadow' as const)
-          : ('off' as const),
-    sources: splitCategoryTokens(process.env.REVIEW_VERIFY_SOURCES).length
-      ? splitCategoryTokens(process.env.REVIEW_VERIFY_SOURCES)
-      : ['douban-neodb', 'douban-bangumi', 'bangumi-neodb', 'neodb-tmdb'],
-    limit: envInt('REVIEW_VERIFY_LIMIT', 100, 1),
-    concurrency: envInt('REVIEW_VERIFY_CONCURRENCY', 2, 1),
-    retryDays: envInt('REVIEW_VERIFY_RETRY_DAYS', 7, 0),
-  },
+  // The `REVIEW_VERIFY_*` knobs used to be parsed here as `reviewVerify`. Nothing ever read that
+  // object: the only consumer is `scripts/review-queue.mjs`, which is a separate process started by
+  // `review-queue.yml` and reads `process.env` itself. Parsing them here made five variables look
+  // like they were read by the sync run when they were not — and it was that illusion which kept
+  // `verify:docs`'s two-way env check green. They are now documented in `docs/configuration.md`
+  // only, and forwarded by `review-queue.yml` alone.
+  // `REVIEW_VERIFY_*` 曾在这里被解析成 `reviewVerify` 对象，但**没有任何代码读过它**：唯一的消费者是
+  // `scripts/review-queue.mjs`——由 `review-queue.yml` 启动的另一个进程，自己读 `process.env`。
+  // 在这里解析它们，使五个变量看起来被同步链路读取，实际并没有；而这种假象正是 `verify:docs` 的
+  // 双向 env 检查一直保持绿色的原因。现在它们只在 `docs/configuration.md` 里说明，且只由
+  // `review-queue.yml` 转发。
 
   tmdb: {
     apiKey: process.env.TMDB_API_KEY,

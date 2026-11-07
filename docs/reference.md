@@ -90,7 +90,18 @@ NeoDB、Bangumi、TMDB 的请求间隔由对应客户端实现，部分间隔可
 
 按具体路径和错误位置，失败明细还会包含 `tmdb-item-threw`、`tmdb-write-failed` 等条目级原因。代码中的 reason slug 与日志解析契约需保持一致。
 
-`data/tmdb-known-absent.json` 用于记录人工确认 TMDB 没有的条目。格式为 `{neodbUuid, mediaType, reason, checkedAt, note}`；命中后转 `tmdb-known-absent` skipped，不阻断外链/IMDb 优先路径。
+`data/tmdb-known-absent.json` 用于记录人工确认 TMDB 没有的条目。
+
+**代码实际读取的只有两个字段**：
+
+| 字段        | 必填 | 作用            |
+| ----------- | :--: | --------------- |
+| `neodbUuid` |  是  | NeoDB 条目 uuid |
+| `mediaType` |  是  | `movie` / `tv`  |
+
+身份键由这两个字段拼成 `${mediaType}:${uuid}`（纯函数 `matchKnownAbsentKey`，位于 `rules/tmdb-mapping.ts`；读文件的部分 `readKnownAbsentList` 在 `utils.ts`）。缺任一字段的行被静默跳过。`reason` / `checkedAt` / `note` 这类人类备注**会被容忍但从不读取** —— 它们存在是为了让编辑文件的人写下理由，不参与匹配。
+
+命中后该条目转为 `tmdb-known-absent` skipped，跳过全部匹配级别。文件缺失、为空或不是合法 JSON 时一律按空集处理：这份名单是优化，不是真源。
 
 ## Bangumi → NeoDB 未匹配原因
 
@@ -100,3 +111,55 @@ NeoDB、Bangumi、TMDB 的请求间隔由对应客户端实现，部分间隔可
 | `neodb-unresolved`     | 202 重试耗尽、429、5xx、超时或其他临时失败 |
 
 两者日志都使用 `NeoDB could not resolve Bangumi URL, skip:`；区别只写入 `sync-report`，由 review-queue 从 report 覆盖显示。
+
+## reason 总表（slug × 链路 × 档位 × 日志形态）
+
+这是全仓 reason 的**唯一出处**。`.` 后面的「落点」一列说明它是进入待核对名单、还是只出现在报表/控制台：
+
+- **路由**：`scripts/review-queue.mjs` 的 `DETAIL_REASONS` 表认识它，名单可归属；
+- **哨兵**：没有明细行，slug 由某个日志哨兵隐含，名单自行推导；
+- **不路由**：进入 `ReviewDetail` 且会被渲染，但设计上不归属（多为多链路共用或设计内跳过），名单计入「无法归属」计数；
+- **仅报表**：只出现在 `sync-report.json` 的 `*Items` 里，不产生独立的日志行。
+
+| slug                         | 链路 |    档位    | 落点                           |
+| ---------------------------- | ---- | :--------: | ------------------------------ |
+| `notion-insert-failed`       | ①    |   failed   | 路由                           |
+| `douban-scrape-failed`       | ①    |   failed   | 路由                           |
+| `notion-category-failed`     | ①    |   failed   | 路由                           |
+| `no-notion-database`         | ①    |  skipped   | 路由                           |
+| `neodb-mark-rejected`        | ②    |   failed   | 路由                           |
+| `neodb-item-threw`           | ②    |   failed   | 路由                           |
+| `neodb-read-failed`          | ②    |   failed   | 路由                           |
+| `no-neodb-match`             | ②    | unresolved | 哨兵                           |
+| `guard-target-status`        | ②    |  skipped   | 哨兵 / 不路由                  |
+| `category-not-allowed`       | ①②③  |  skipped   | 不路由（三链路共用）           |
+| `bangumi-write-rejected`     | ③    |   failed   | 路由                           |
+| `bangumi-item-threw`         | ③    |   failed   | 路由                           |
+| `bangumi-read-failed`        | ③    |   failed   | 路由                           |
+| `no-bangumi-match`           | ③    | unresolved | 哨兵                           |
+| `guard-bangumi-status`       | ③    |  skipped   | 哨兵                           |
+| `item-threw`                 | ④    |   failed   | 路由                           |
+| `duplicate-target`           | ④    |  skipped   | 路由                           |
+| `platform-mismatch`          | ④    |  skipped   | 不路由（漫画闸门的设计内跳过） |
+| `neodb-unresolved`           | ④    | unresolved | 哨兵（临时失败）               |
+| `neodb-unresolved-404`       | ④    | unresolved | 仅报表（日志行与上者相同）     |
+| `no-tmdb-match`              | ⑤    | unresolved | 哨兵                           |
+| `no-neodb-year`              | ⑤    | unresolved | 哨兵                           |
+| `no-neodb-year-fetch-failed` | ⑤    |   failed   | 路由                           |
+| `tmdb-link-type-mismatch`    | ⑤    | unresolved | 仅报表                         |
+| `tmdb-link-fetch-failed`     | ⑤    | unresolved | 仅报表                         |
+| `imdb-no-match`              | ⑤    | unresolved | 仅报表                         |
+| `tmdb-search-empty`          | ⑤    | unresolved | 仅报表                         |
+| `tmdb-ambiguous`             | ⑤    | unresolved | 仅报表                         |
+| `tmdb-season-parent-missing` | ⑤    | unresolved | 仅报表                         |
+| `tmdb-item-threw`            | ⑤    |   failed   | 路由                           |
+| `tmdb-write-failed`          | ⑤    |   failed   | 路由                           |
+| `no-catalog-item`            | ⑤    |   failed   | 路由                           |
+| `tmdb-known-absent`          | ⑤    |  skipped   | 路由                           |
+| `shelf-not-mapped`           | ⑤    |  skipped   | 不路由（防御性兜底）           |
+| `no-tmdb-category`           | ⑤    |  skipped   | 不路由                         |
+| `unmapped-category`          | ⑤    |  skipped   | 不路由                         |
+| `unchanged-since-last-run`   | ⑤    |  skipped   | 不路由（增量命中）             |
+| `duplicate-in-run`           | ⑤    |  skipped   | 不路由（同轮重复）             |
+
+`scripts/verify-log-contract.ts` 对这张表做双向校验：`src/` 里出现在三类 `push` 位点上的 reason 必须落进「路由 / 哨兵 / 不路由」之一，且每个桶里不得有过期条目。

@@ -65,6 +65,7 @@ import {
   extractNeodbYear,
   extractTmdbTargetFromNeodb,
   isLinkTypeCompatible,
+  matchKnownAbsentKey,
   toShelfType,
 } from '../src/rules/tmdb-mapping';
 import {
@@ -755,6 +756,61 @@ check(
 check(
   'isLinkTypeCompatible rejects a missing or unknown link type',
   !isLinkTypeCompatible(undefined, 'movie') && !isLinkTypeCompatible('person', 'movie'),
+);
+
+// ───────────────────────────────────────────────────────────────────────────
+// Known-absent list — the pure half
+// 已知缺失名单 —— 纯规则的那一半
+//
+// The I/O half (`readKnownAbsentList` in `utils.ts`) is not asserted here on purpose: it would
+// need a temp file, and the only thing worth pinning is "what key does a row contribute", which
+// is this function. Keeping the assertion here is what lets `rules/` stay provably I/O-free.
+// I/O 那半边（`utils.ts` 的 `readKnownAbsentList`）刻意不在此断言：它需要临时文件，而真正值得
+// 钉住的只有「一条记录贡献什么键」，也就是本函数。断言留在这里，正是 `rules/` 能保持可证明无 I/O 的原因。
+// ───────────────────────────────────────────────────────────────────────────
+
+section('matchKnownAbsentKey / 已知缺失名单的键');
+
+check(
+  'a complete row yields `mediaType:uuid`',
+  matchKnownAbsentKey({ neodbUuid: 'uuid-1', mediaType: 'movie' }) === 'movie:uuid-1',
+);
+check(
+  'the key shape matches the runtime lookup (`${mediaType}:${uuid}`)',
+  // The sync asks `knownAbsent.has(`${mediaType}:${uuid}`)` — same template, so this assertion is
+  // the contract between the two halves rather than a restatement of one line.
+  // 同步问的是 `knownAbsent.has(`${mediaType}:${uuid}`)` —— 同一个模板，因此这条断言是两个半边
+  // 之间的契约，而不是把一行代码复述一遍。
+  matchKnownAbsentKey({ neodbUuid: 'uuid-1', mediaType: 'movie' }) ===
+    ['movie', 'uuid-1'].join(':'),
+);
+check(
+  'surrounding whitespace is trimmed',
+  matchKnownAbsentKey({ neodbUuid: ' uuid-1 ', mediaType: ' tv ' }) === 'tv:uuid-1',
+);
+check(
+  'a row missing either half yields null (so the loader can skip it)',
+  matchKnownAbsentKey({ neodbUuid: 'uuid-1' }) === null &&
+    matchKnownAbsentKey({ mediaType: 'movie' }) === null &&
+    matchKnownAbsentKey({}) === null,
+);
+check(
+  'blank strings count as missing, not as an empty key',
+  matchKnownAbsentKey({ neodbUuid: '   ', mediaType: 'movie' }) === null,
+);
+check(
+  'the optional human-facing fields are never part of the key',
+  // `reason` / `checkedAt` / `note` are tolerated by the file format but must not leak into
+  // identity: two rows for the same item with different notes have to collide.
+  // `reason` / `checkedAt` / `note` 被文件格式容忍，但绝不能渗进身份：同一部作品、备注不同的两行
+  // 必须撞在一起。
+  matchKnownAbsentKey({
+    neodbUuid: 'uuid-1',
+    mediaType: 'movie',
+    reason: 'not on TMDB',
+    checkedAt: '2026-01-01',
+    note: 'checked by hand',
+  }) === 'movie:uuid-1',
 );
 
 // ───────────────────────────────────────────────────────────────────────────
