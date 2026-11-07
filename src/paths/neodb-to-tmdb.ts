@@ -1111,7 +1111,7 @@ function warnOnLinkYearDrift(
  * The fine-grained counters, unchanged in spirit from the original summary but
  * with `writtenRating`/`writtenWatchlist` spelled out — the old `rating` /
  * `watchlist` labels read as if they held a rating *value* rather than a write
- * count, and `watchlist` collided with the `SYNC_RATING_PROFILE` vocabulary.
+ * count, and `watchlist` collided with the `SYNC_NEODB_TMDB_RATING` vocabulary.
  * The aggregated view lives in `printPathSummary`.
  */
 function printCounterBreakdown(ctx: SyncContext): void {

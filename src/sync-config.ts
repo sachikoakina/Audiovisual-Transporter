@@ -546,7 +546,7 @@ function resolveTmdbShelfTypes(): ShelfType[] {
  * 这里的**目标端**是 TMDB。
  */
 function resolveRatingProfile(): RatingProfile {
-  const raw = (process.env.SYNC_RATING_PROFILE ?? '').trim().toLowerCase();
+  const raw = (process.env.SYNC_NEODB_TMDB_RATING ?? '').trim().toLowerCase();
   if (raw === '' || raw === 'tmdb_prefer') {
     return 'tmdb_prefer';
   }
@@ -554,7 +554,7 @@ function resolveRatingProfile(): RatingProfile {
     return 'overwrite';
   }
   consola.warn(
-    `SYNC_RATING_PROFILE=${raw} is invalid (use tmdb_prefer|overwrite); using tmdb_prefer.`,
+    `SYNC_NEODB_TMDB_RATING=${raw} is invalid (use tmdb_prefer|overwrite); using tmdb_prefer.`,
   );
   return 'tmdb_prefer';
 }
