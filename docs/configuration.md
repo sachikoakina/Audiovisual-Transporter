@@ -198,20 +198,20 @@ NeoDB 侧（同 ②）：
 
 ### 7.1 专属开关
 
-| 变量                    | 默认                           | 说明                                                       |
-| ----------------------- | ------------------------------ | ---------------------------------------------------------- |
-| `SYNC_NEODB_TMDB`       | `0`                            | 总开关；关闭时完整入口会报错退出                           |
-| `SYNC_SHELF_TYPES`      | 全部                           | 逗号分隔：`wishlist,progress,complete,dropped`             |
-| `SYNC_CATEGORIES`       | `movie,tv`                     | 只允许 movie/tv                                            |
-| `SYNC_DRY_RUN`          | `0`                            | 只打印计划，不写 TMDB                                      |
-| `SYNC_MAX_ITEMS`        | `50`                           | 每个书架×分类最多处理条数；`0` 会回落 50                   |
-| `SYNC_RATING_PROFILE`   | `tmdb_prefer`                  | `tmdb_prefer` 保留 TMDB 非 0 评分；`overwrite` 用 NeoDB 分 |
-| `SYNC_YEAR_TOLERANCE`   | `1`                            | 标题搜索允许的年份差                                       |
-| `NEODB_TMDB_FULL_SYNC`  | `0`                            | 取消 `SYNC_MAX_ITEMS`/`NEODB_MAX_PAGES`，关闭增量          |
-| `SYNC_INCREMENTAL`      | `1`                            | 跳过已同步指纹                                             |
-| `SYNC_STATE_FILE`       | `.cache/sync-state.json`       | ⑤ 增量状态                                                 |
-| `NEODB_ITEM_YEAR_CACHE` | `.cache/neodb-item-years.json` | NeoDB 年份缓存                                             |
-| `NEODB_MAX_PAGES`       | `10`                           | 每个书架×分类最多翻页数；`0` 会回落 10                     |
+| 变量                     | 默认                           | 说明                                                       |
+| ------------------------ | ------------------------------ | ---------------------------------------------------------- |
+| `SYNC_NEODB_TMDB`        | `0`                            | 总开关；关闭时完整入口会报错退出                           |
+| `SYNC_SHELF_TYPES`       | 全部                           | 逗号分隔：`wishlist,progress,complete,dropped`             |
+| `SYNC_CATEGORIES`        | `movie,tv`                     | 只允许 movie/tv                                            |
+| `SYNC_DRY_RUN`           | `0`                            | 只打印计划，不写 TMDB                                      |
+| `SYNC_MAX_ITEMS`         | `50`                           | 每个书架×分类最多处理条数；`0` 会回落 50                   |
+| `SYNC_NEODB_TMDB_RATING` | `tmdb_prefer`                  | `tmdb_prefer` 保留 TMDB 非 0 评分；`overwrite` 用 NeoDB 分 |
+| `SYNC_YEAR_TOLERANCE`    | `1`                            | 标题搜索允许的年份差                                       |
+| `NEODB_TMDB_FULL_SYNC`   | `0`                            | 取消 `SYNC_MAX_ITEMS`/`NEODB_MAX_PAGES`，关闭增量          |
+| `SYNC_INCREMENTAL`       | `1`                            | 跳过已同步指纹                                             |
+| `SYNC_STATE_FILE`        | `.cache/sync-state.json`       | ⑤ 增量状态                                                 |
+| `NEODB_ITEM_YEAR_CACHE`  | `.cache/neodb-item-years.json` | NeoDB 年份缓存                                             |
+| `NEODB_MAX_PAGES`        | `10`                           | 每个书架×分类最多翻页数；`0` 会回落 10                     |
 
 ### 7.2 TMDB 凭据与网络
 
