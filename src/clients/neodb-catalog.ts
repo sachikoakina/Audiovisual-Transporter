@@ -482,10 +482,10 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
   const picked = pickDoubanLinkedTwin(candidates, fromBangumi, options.expectedYear);
   if (picked.ambiguous) {
     consola.warn(
-      'NeoDB same-title twins are ambiguous; refusing to pick one: ',
+      'NeoDB same-title twins are ambiguous; using the direct item: ',
       `${fromBangumi.uuid} candidates=${candidates.map((candidate) => candidate.uuid).join(',')}`,
     );
-    return { item: null, via: 'none', ambiguous: true };
+    return { item: fromBangumi, via: 'direct', ambiguous: true };
   }
   if (picked.item) {
     consola.info(

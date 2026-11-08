@@ -525,8 +525,8 @@ async function syncCollectionToNeodb(
   );
   if (resolution.ambiguous) {
     consola.warn(
-      'NeoDB match ambiguous, skip: ',
-      `subject=${collection.subject_id} year=${expectedYear ?? 'missing'}`,
+      'NeoDB same-title twins ambiguous; using direct item: ',
+      `subject=${collection.subject_id} year=${expectedYear ?? 'missing'} uuid=${neodbItem?.uuid ?? 'none'}`,
     );
   }
   if (!neodbItem?.uuid) {

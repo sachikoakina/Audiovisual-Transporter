@@ -207,11 +207,24 @@ SYNC_DOUBAN_NEODB_COMMENT=overwrite:
 
 ## 匹配
 
-按顺序执行，任一步命中即停止：
+按以下顺序执行，任一步命中即停止：
 
-1. **NeoDB 外链**：NeoDB 条目带 Bangumi 外链时，直接使用该 subject id。
-2. **第一轮搜索标题**：依次取 NeoDB `display_title` → NeoDB `title` → 豆瓣标题，用第一个非空值。
-3. **按分类限定类型**：
+1. **用豆瓣链接查 NeoDB**
+   - 以 `item.link` 调用 NeoDB catalog fetch；
+   - 找到条目时读取其外部链接；
+   - NeoDB 没有对应目录条目时，不创建目录，但仍继续标题搜索。
+
+2. **NeoDB 的 Bangumi 外链优先**
+   - NeoDB 条目带 Bangumi 外链时，直接采用该 subject id；
+   - 不再进行标题搜索。
+
+3. **没有 Bangumi 外链时，按标题搜索**
+   - 第一轮关键词依次取：
+     1. NeoDB `display_title`
+     2. NeoDB `title`
+     3. 豆瓣标题
+   - 使用第一个非空值；
+   - 按豆瓣分类限定 Bangumi `subject_type`：
 
    | 豆瓣分类 | Bangumi `subject_type` |
    | -------- | ---------------------- |
@@ -221,10 +234,23 @@ SYNC_DOUBAN_NEODB_COMMENT=overwrite:
    | 游戏     | `4`                    |
    | 话剧     | 无对应类型，仅外链     |
 
-4. **精确标题比较**：候选 `name` / `name_cn` 经 `trim().toLowerCase()` 后必须与搜索标题完全相等；不做模糊/包含匹配。
-5. **动画/真人年份过滤**：双方年份可用且相差超过 1 年才拒绝；缺年份不拒绝。
-6. **豆瓣标题回退**：第一轮用 NeoDB 标题且无结果时，先在已有结果中按豆瓣标题精确比较；仍无，才用豆瓣标题发起第二次搜索。
-7. 全部失败 → `unresolved`，不猜、不跨类型。
+4. **精确标题比较**
+   - 候选的 `name` / `name_cn` 经 `trim().toLowerCase()` 后，必须与搜索标题完全相等；
+   - 不做模糊匹配或包含匹配。
+
+5. **动画/真人年份过滤**
+   - 只对 `subject_type` 2/6 生效；
+   - 双方年份可用且相差超过 1 年才拒绝；
+   - 任一方缺年份时，不因年份拒绝。
+
+6. **豆瓣标题回退**
+   - 第一轮关键词来自 NeoDB，且与豆瓣标题不同：
+     1. 先在已有搜索结果中，用豆瓣标题再做一次精确比较；
+     2. 仍无结果，才用豆瓣标题发起第二次搜索；
+     3. 对第二次结果再次做精确标题 + 年份筛选。
+
+7. **全部失败**
+   - `unresolved`，不猜、不跨类型、不按相似度写入。
 
 ## 状态映射
 
@@ -317,10 +343,13 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 
 ## 不写入
 
-- 不写 Bangumi 收藏时间；
+- 不向 Bangumi 发送时间字段；
+  - 实际发生写请求时，服务端会把该收藏的 `updated_at` 设为本次请求时间；
+  - 本轮 `unchanged`、不发请求时，`updated_at` 不变；
+- 书籍的进度通过在 `ep_status` / `vol_status` 写入；
+- 电影和 TV 的进度在 `SYNC_DOUBAN_BANGUMI_EPISODES=1` 时通过分集收藏接口写入；
 - 不处理 OP/ED；
-- 不删除收藏；
-- 不写书籍以外的 `ep_status`/`vol_status`。
+- 不删除收藏。
 
 ---
 
@@ -387,7 +416,9 @@ Bangumi subject URL
   - A 类型未知 → B 唯一即选 B；
   - A 与 B 同类型 → B 唯一即选 B；
   - A 与 B 不同类型 → 选 A；
-  - 仍无法唯一 → ambiguous，不写；
+  - B 有多个且无法唯一确定 → 记录 `ambiguous`，不使用 B，回退直链 A；
+- 直链 A 由 Bangumi URL 解析，始终是可用目标；只有 A 本身无法解析时才记 `unresolved`；
+- `ambiguous` 是诊断状态，不等于“整条不写”；
 - Bangumi `subject_type` 只用于搜索分类，不能用来直接判断电影/TV；
 - 直链 A 没有可用豆瓣孪生时，仍使用 A。
 

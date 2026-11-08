@@ -100,6 +100,39 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(twin).toBeNull();
   });
 
+  it('falls back to the direct item when title twins are ambiguous', async () => {
+    const direct = item({ uuid: 'direct', category: 'movie' });
+    neodbClient.mockImplementation((path: string) => {
+      if (path === 'api/catalog/fetch') {
+        return { json: async () => direct };
+      }
+      return {
+        json: async () => ({
+          data: [
+            item({
+              uuid: 'twin-a',
+              category: 'movie',
+              external_resources: [{ url: 'https://movie.douban.com/subject/1/' }],
+            }),
+            item({
+              uuid: 'twin-b',
+              category: 'movie',
+              external_resources: [{ url: 'https://movie.douban.com/subject/2/' }],
+            }),
+          ],
+        }),
+      };
+    });
+
+    const result = await resolveNeodbItemForBangumiUrlDetailed(
+      'https://bgm.tv/subject/25552',
+    );
+
+    expect(result.item?.uuid).toBe('direct');
+    expect(result.via).toBe('direct');
+    expect(result.ambiguous).toBe(true);
+  });
+
   it('reports a 404 as not-found instead of a generic unresolved', async () => {
     neodbClient.mockImplementationOnce(() => ({
       json: async () => {
