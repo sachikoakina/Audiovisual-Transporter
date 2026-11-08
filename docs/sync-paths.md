@@ -486,6 +486,22 @@ Bangumi subject URL
 - 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
 - ②④ 可以分别设置可见性；同时写同一 uuid 时，④ 后执行，最终可见性由 ④ 的配置决定。
 
+### 可见性模式适用场景
+
+**`target` 模式**
+
+- 希望所有标记统一公开或统一私密；
+- 不需要逐条跟随源端；
+- 作为默认推荐方案。
+
+**`source` 模式**
+
+- 已整理好收藏的 `private` 状态；
+- 希望目标端逐条跟随源端；
+- 接受 `false → 0 public`、`true → 2 private` 的映射；
+- 接受 `visibility=1`（仅关注者）被覆盖；
+- 接受每次可见性变化都写入整条 mark。
+
 ### created_time
 
 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理，具体规则见《NeoDB 标记时间策略》。
