@@ -338,13 +338,15 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 - 已经是 `type=2` 的集不发送请求，原有 `updated_at` 不变；
 - 新增集由 Bangumi 服务端写入当前时间，客户端不能指定时间；
 - SP 默认不处理；`SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 才纳入 TV/动画/真人的 SP；电影永不自动处理 SP；
+- OP/ED 默认不处理；`SYNC_DOUBAN_BANGUMI_INCLUDE_OP_ED=1` 才纳入 TV/动画/真人的 OP/ED；电影永不自动处理；
+- OP/ED 的 `type=2` 写入已在测试账号验证：OP 与 ED 均返回 204，随后恢复为未看；默认关闭不变；
 - **书籍**：`ep_status`/`vol_status` 都为 0 视为未知；只拉满已知维度到 `subject.eps`/`volumes`，另一维度不发送；总量缺失则跳过该维度；
 - 条目“看过”不等于分集已打勾，始终以分集 `type=2` 判断。
 
 ### 判定口径
 
 - `type=2` 指用户分集收藏状态为“看过”，不是 `episode.type=2`（OP）；
-- 正片指 `episode.type=0`；电影只取第一个正片；SP 仅在 `SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 时纳入 TV/动画/真人；OP/ED 永不纳入；
+- 正片指 `episode.type=0`；电影只取第一个正片；SP 仅在 `SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 时纳入 TV/动画/真人；OP/ED 仅在 `SYNC_DOUBAN_BANGUMI_INCLUDE_OP_ED=1` 时纳入 TV/动画/真人；电影永不纳入；
 - 缺失按 `目标分集集合 - 已看集合` 计算，已看集合为用户分集收藏中 `type=2` 的 episode id；
 - 不使用 `ep_status`、条目“看过”状态或总集数推断缺失；
 - 因此已有 `type=2` 的分集不写，只对仍然缺失的目标分集发送 PUT。

@@ -414,6 +414,7 @@ async function syncFeedItemToBangumi(
   const progress = planEpisodeProgress(episodes, states, {
     isMovie,
     includeSp: syncConfig.doubanBangumiIncludeSp,
+    includeOpEd: syncConfig.doubanBangumiIncludeOpEd,
     collected: Boolean(existing) || needsCollectionWrite,
   });
 

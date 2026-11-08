@@ -240,6 +240,8 @@ export const syncConfig = {
   doubanBangumiEpisodes: envEnabled('SYNC_DOUBAN_BANGUMI_EPISODES', false),
   /** Include SP episodes for TV progress. Default off. */
   doubanBangumiIncludeSp: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_SP', false),
+  /** Include OP/ED theme episodes for TV progress. Default off. */
+  doubanBangumiIncludeOpEd: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_OP_ED', false),
   /** Independent rating/comment profiles for Douban → Bangumi. */
   doubanBangumiRating: parseBangumiMergeProfile('SYNC_DOUBAN_BANGUMI_RATING'),
   doubanBangumiComment: parseBangumiMergeProfile('SYNC_DOUBAN_BANGUMI_COMMENT'),
@@ -397,7 +399,7 @@ export function describeSyncConfig(): string {
   const lines = [
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
     `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment}, markTime=${syncConfig.doubanNeodbMarkTimePolicy})`,
-    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''})`,
+    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''}${syncConfig.doubanBangumiIncludeOpEd ? ', op/ed=on' : ''})`,
     `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');

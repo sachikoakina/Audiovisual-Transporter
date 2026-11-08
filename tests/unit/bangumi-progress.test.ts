@@ -59,20 +59,56 @@ describe('planEpisodeProgress', () => {
     expect(plan.missing).toEqual([2, 3]);
   });
 
-  it('ignores SP unless includeSp is set, and never includes OP/ED', () => {
+  it('ignores SP/OP/ED unless their switches are set', () => {
     const episodes = [...main, episode(4, 1), episode(5, 2), episode(6, 3)];
-    const withoutSp = planEpisodeProgress(episodes, new Map(), {
+    const withoutExtras = planEpisodeProgress(episodes, new Map(), {
       isMovie: false,
       includeSp: false,
+      includeOpEd: false,
       collected: true,
     });
-    expect(withoutSp.target).toEqual([1, 2, 3]);
+    expect(withoutExtras.target).toEqual([1, 2, 3]);
     const withSp = planEpisodeProgress(episodes, new Map(), {
       isMovie: false,
       includeSp: true,
+      includeOpEd: false,
       collected: true,
     });
     expect(withSp.target).toEqual([1, 2, 3, 4]);
+    const withOpEd = planEpisodeProgress(episodes, new Map(), {
+      isMovie: false,
+      includeSp: false,
+      includeOpEd: true,
+      collected: true,
+    });
+    expect(withOpEd.target).toEqual([1, 2, 3, 5, 6]);
+  });
+
+  it('never includes OP/ED for a movie, even when includeOpEd is set', () => {
+    const episodes = [...main, episode(5, 2), episode(6, 3)];
+    const plan = planEpisodeProgress(episodes, new Map(), {
+      isMovie: true,
+      includeSp: true,
+      includeOpEd: true,
+      collected: true,
+    });
+    expect(plan.target).toEqual([1]);
+  });
+
+  it('skips OP/ED that are already marked watched', () => {
+    const episodes = [...main, episode(5, 2), episode(6, 3)];
+    const states = new Map([
+      [1, state(2)],
+      [5, state(2)],
+    ]);
+    const plan = planEpisodeProgress(episodes, states, {
+      isMovie: false,
+      includeSp: false,
+      includeOpEd: true,
+      collected: true,
+    });
+    expect(plan.target).toEqual([1, 2, 3, 5, 6]);
+    expect(plan.missing).toEqual([2, 3, 6]);
   });
 
   it('returns unchanged missing when every target episode is watched', () => {

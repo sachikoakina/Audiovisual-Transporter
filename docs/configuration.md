@@ -108,14 +108,15 @@
 
 ### 5.1 专属开关
 
-| 变量                             | 默认             | 说明                                                 |
-| -------------------------------- | ---------------- | ---------------------------------------------------- |
-| `SYNC_DOUBAN_BANGUMI`            | `1`              | 总开关                                               |
-| `SYNC_DOUBAN_BANGUMI_CATEGORIES` | 空（全部）       | `movie,music,book,game,drama`                        |
-| `SYNC_DOUBAN_BANGUMI_EPISODES`   | `0`              | 仅 complete 条目：补 Bangumi 分集/书籍进度           |
-| `SYNC_DOUBAN_BANGUMI_INCLUDE_SP` | `0`              | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP |
-| `SYNC_DOUBAN_BANGUMI_RATING`     | `bangumi_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`            |
-| `SYNC_DOUBAN_BANGUMI_COMMENT`    | `bangumi_prefer` | 短评策略：目标非空短评优先，或 `overwrite`           |
+| 变量                                | 默认             | 说明                                                 |
+| ----------------------------------- | ---------------- | ---------------------------------------------------- |
+| `SYNC_DOUBAN_BANGUMI`               | `1`              | 总开关                                               |
+| `SYNC_DOUBAN_BANGUMI_CATEGORIES`    | 空（全部）       | `movie,music,book,game,drama`                        |
+| `SYNC_DOUBAN_BANGUMI_EPISODES`      | `0`              | 仅 complete 条目：补 Bangumi 分集/书籍进度           |
+| `SYNC_DOUBAN_BANGUMI_INCLUDE_SP`    | `0`              | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP |
+| `SYNC_DOUBAN_BANGUMI_INCLUDE_OP_ED` | `0`              | 是否把 TV/动画/真人的 OP/ED 也纳入补点；电影永不处理 |
+| `SYNC_DOUBAN_BANGUMI_RATING`        | `bangumi_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`            |
+| `SYNC_DOUBAN_BANGUMI_COMMENT`       | `bangumi_prefer` | 短评策略：目标非空短评优先，或 `overwrite`           |
 
 ### 5.2 凭据与 Bangumi 公共项
 
@@ -135,7 +136,8 @@
 - 进度默认关闭；开启后：
   - 电影补第一个正片；
   - TV/动画/真人补缺失正片；
-  - “正片”指 `episode.type=0`；“缺失”按目标正片集合减去用户分集收藏中 `type=2`（看过）的集计算；
+  - `SYNC_DOUBAN_BANGUMI_INCLUDE_OP_ED=1` 时追加 OP/ED；默认关闭；
+  - “正片”指 `episode.type=0`；“缺失”按目标分集集合减去用户分集收藏中 `type=2`（看过）的集计算；
   - 这里的 `type=2` 是分集收藏状态，不是 `episode.type=2`（OP）；不使用 `ep_status` 推断；
   - 已有分集不发送请求，保留原有时间；
   - 书籍只拉满已知的 Chap./Vol. 维度。

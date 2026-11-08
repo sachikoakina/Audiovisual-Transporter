@@ -25,7 +25,12 @@ export type EpisodeProgressPlan = {
 export function planEpisodeProgress(
   episodes: BangumiEpisode[],
   states: Map<number, BangumiEpisodeState>,
-  options: { isMovie: boolean; includeSp: boolean; collected: boolean },
+  options: {
+    isMovie: boolean;
+    includeSp: boolean;
+    includeOpEd?: boolean;
+    collected: boolean;
+  },
 ): EpisodeProgressPlan {
   if (!options.collected) {
     return { target: [], missing: [], existing: states, reason: 'not-collected' };
@@ -39,7 +44,14 @@ export function planEpisodeProgress(
         .filter((episode) => episode.type === 1)
         .sort((a, b) => a.sort - b.sort || a.id - b.id)
     : [];
-  const targetEpisodes = options.isMovie ? main.slice(0, 1) : [...main, ...sp];
+  const themes = options.includeOpEd
+    ? episodes
+        .filter((episode) => episode.type === 2 || episode.type === 3)
+        .sort((a, b) => a.sort - b.sort || a.id - b.id)
+    : [];
+  const targetEpisodes = options.isMovie
+    ? main.slice(0, 1)
+    : [...main, ...sp, ...themes];
   const target = targetEpisodes.map((episode) => episode.id);
   const missing = target.filter((id) => states.get(id)?.type !== 2);
 
