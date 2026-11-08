@@ -35,13 +35,6 @@ dotenv.config();
 export const neodbToken = process.env.NEODB_API_TOKEN;
 
 /**
- * Default NeoDB mark visibility, parsed in `sync-config.ts`: 0 = public, 1 = followers, 2 = private.
- * Per-path overrides are in `syncConfig`; this remains the client fallback.
- * NeoDB 标记默认可见性在 `sync-config.ts` 解析；按链路覆盖在 `syncConfig`，这里保留客户端默认值。
- */
-export const neodbVisibility = neodbConfig.visibility;
-
-/**
  * Client for the per-item NeoDB endpoints, on the configured base URL.
  * 条目级 NeoDB 端点的客户端，使用已配置的 base URL。
  *

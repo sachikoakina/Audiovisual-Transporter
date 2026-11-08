@@ -88,7 +88,6 @@ vi.mock('../../src/sync-config', () => ({
   // `neodb-http` 现在在模块加载时读取共享的 NeoDB 配置；部分 mock 必须提供它。
   neodbConfig: {
     baseUrl: 'https://neodb.social',
-    visibility: 2,
     requestDelayMs: 0,
     maxPages: 10,
   },

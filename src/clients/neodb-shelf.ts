@@ -17,7 +17,6 @@ import {
   neodbFailureCode,
   neodbThrottle,
   neodbToken,
-  neodbVisibility,
   redirectUrlFromError,
 } from './neodb-http';
 import {
@@ -124,7 +123,7 @@ export async function markNeodbItem(
       headers: neodbAuthHeaders(),
       json: {
         shelf_type: options.shelfType,
-        visibility: options.visibility ?? neodbVisibility,
+        visibility: options.visibility ?? 2,
         comment_text: options.comment || '',
         rating_grade: ratingGrade,
         created_time: options.markTime || undefined,

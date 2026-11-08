@@ -45,15 +45,8 @@ function parseNeodbVisibility(envName: string, fallback: number): number {
   return fallback;
 }
 
-const globalNeodbVisibility = parseNeodbVisibility('NEODB_VISIBILITY', 2);
-const doubanNeodbVisibility = parseNeodbVisibility(
-  'SYNC_DOUBAN_NEODB_VISIBILITY',
-  globalNeodbVisibility,
-);
-const bangumiNeodbVisibility = parseNeodbVisibility(
-  'SYNC_BANGUMI_NEODB_VISIBILITY',
-  globalNeodbVisibility,
-);
+const doubanNeodbVisibility = parseNeodbVisibility('SYNC_DOUBAN_NEODB_VISIBILITY', 2);
+const bangumiNeodbVisibility = parseNeodbVisibility('SYNC_BANGUMI_NEODB_VISIBILITY', 2);
 
 /**
  * Parse an env flag. Empty/unset → defaultValue.
@@ -624,8 +617,6 @@ function resolveRatingProfile(): RatingProfile {
 export const neodbConfig = {
   /** Self-hosted instances: point this at your server. / 自建实例：把它指向你自己的服务器。 */
   baseUrl: stripTrailingSlash(process.env.NEODB_BASE_URL || 'https://neodb.social'),
-  /** Shared default; per-path overrides live in syncConfig. / 全局默认；按链路覆盖在 syncConfig。 */
-  visibility: globalNeodbVisibility,
   requestDelayMs: envInt('NEODB_REQUEST_DELAY_MS', 300),
   maxPages: envInt('NEODB_MAX_PAGES', 10, 1),
 };

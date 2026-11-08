@@ -76,32 +76,31 @@
 
 ### 4.1 专属开关
 
-| 变量                                 | 默认           | 说明                                                           |
-| ------------------------------------ | -------------- | -------------------------------------------------------------- |
-| `SYNC_DOUBAN_NEODB`                  | `1`            | 总开关                                                         |
-| `SYNC_DOUBAN_NEODB_CATEGORIES`       | 空（全部）     | `movie,music,book,game,drama`                                  |
-| `SYNC_DOUBAN_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                      |
-| `SYNC_DOUBAN_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                     |
-| `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source`    |
-| `SYNC_DOUBAN_NEODB_VISIBILITY`       | 继承全局       | ② 可见性覆盖：`0` / `1` / `2`，未设置时继承 `NEODB_VISIBILITY` |
+| 变量                                 | 默认           | 说明                                                        |
+| ------------------------------------ | -------------- | ----------------------------------------------------------- |
+| `SYNC_DOUBAN_NEODB`                  | `1`            | 总开关                                                      |
+| `SYNC_DOUBAN_NEODB_CATEGORIES`       | 空（全部）     | `movie,music,book,game,drama`                               |
+| `SYNC_DOUBAN_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                   |
+| `SYNC_DOUBAN_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                  |
+| `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source` |
+| `SYNC_DOUBAN_NEODB_VISIBILITY`       | `2`            | ② 可见性：`0` / `1` / `2`；未设置时默认私密 2               |
 
 `neodb_prefer`：保留目标非 0 分/非空短评，源值只填空；`overwrite`：对应字段由源覆盖。评分和短评开关彼此独立。
 
 ### 4.2 共享 NeoDB 凭据与网络
 
-| 变量                     | 默认                   | 说明                                                           |
-| ------------------------ | ---------------------- | -------------------------------------------------------------- |
-| `NEODB_API_TOKEN`        | 空                     | 读写 NeoDB 必需                                                |
-| `NEODB_VISIBILITY`       | `2`                    | 写入可见性：`0` 公开、`1` 仅关注者、`2` 私密；非法值回落到 `2` |
-| `NEODB_BASE_URL`         | `https://neodb.social` | 自建实例地址                                                   |
-| `NEODB_REQUEST_DELAY_MS` | `300`                  | 书架请求间隔（毫秒）                                           |
+| 变量                     | 默认                   | 说明                 |
+| ------------------------ | ---------------------- | -------------------- |
+| `NEODB_API_TOKEN`        | 空                     | 读写 NeoDB 必需      |
+| `NEODB_BASE_URL`         | `https://neodb.social` | 自建实例地址         |
+| `NEODB_REQUEST_DELAY_MS` | `300`                  | 书架请求间隔（毫秒） |
 
 ### 4.3 行为
 
 - 用豆瓣条目 URL 解析 NeoDB 目录；
 - 目录不存在 → `unresolved`，不创建目录；
 - 现有 NeoDB `dropped` 不被豆瓣覆盖；
-- `SYNC_DOUBAN_NEODB_VISIBILITY`（未设置时继承 `NEODB_VISIBILITY`）与现有 mark 不同会触发更新；缺失时视为目标值并告警；
+- `SYNC_DOUBAN_NEODB_VISIBILITY`（默认 `2`）与现有 mark 不同会触发更新；缺失时视为目标值并告警；
 - `created_time` 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` 处理，详见 [五条同步链路](sync-paths.md#neodb-标记时间策略24)；
 - 不写进度。
 
@@ -162,7 +161,7 @@
 | `SYNC_BANGUMI_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                              |
 | `SYNC_BANGUMI_NEODB_STATUS_GUARD`     | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖              |
 | `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source`             |
-| `SYNC_BANGUMI_NEODB_VISIBILITY`       | 继承全局       | ④ 可见性覆盖：`0` / `1` / `2`，未设置时继承 `NEODB_VISIBILITY`          |
+| `SYNC_BANGUMI_NEODB_VISIBILITY`       | `2`            | ④ 可见性：`0` / `1` / `2`；未设置时默认私密 2                           |
 
 `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：
 
@@ -191,7 +190,7 @@ Bangumi 侧：
 NeoDB 侧（同 ②）：
 
 - `NEODB_API_TOKEN`
-- `NEODB_VISIBILITY`（④ 可用 `SYNC_BANGUMI_NEODB_VISIBILITY` 覆盖）
+- `SYNC_BANGUMI_NEODB_VISIBILITY`（默认 `2`）
 - `NEODB_BASE_URL`
 - `NEODB_REQUEST_DELAY_MS`
 
@@ -200,7 +199,7 @@ NeoDB 侧（同 ②）：
 - 同分类精确标题 + 年份；禁止跨分类；
 - 同轮同 uuid 冲突按 `direct > douban-twin > title-twin`、`complete > progress/wishlist > dropped` 裁决；
 - 评分/短评默认目标优先；
-- `SYNC_BANGUMI_NEODB_VISIBILITY`（未设置时继承 `NEODB_VISIBILITY`）与现有 mark 不同会触发更新；缺失时视为目标值并告警；
+- `SYNC_BANGUMI_NEODB_VISIBILITY`（默认 `2`）与现有 mark 不同会触发更新；缺失时视为目标值并告警；
 - 状态保护不影响可见性比较；②④ 同时写同一 uuid 时，④ 后执行决定最终可见性；
 - 进度只在类型兼容时写；
 - `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：默认 `status` 下状态变化用来源时间，状态不变保留目标时间。
