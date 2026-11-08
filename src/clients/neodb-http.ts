@@ -35,33 +35,11 @@ dotenv.config();
 export const neodbToken = process.env.NEODB_API_TOKEN;
 
 /**
- * Default mark visibility: 0 = public, 1 = followers, 2 = private.
- *
- * `Number('')` is `0` — public — so an empty value in `.env` used to flip the default from private
- * to public without a word. Anything that is not exactly 0, 1 or 2 now falls back to 2 and warns
- * once, because the cost of guessing wrong here is publishing someone's marks.
- * 标记的默认可见性：0 = 公开，1 = 仅关注者，2 = 私密。
- *
- * `Number('')` 是 `0`，也就是公开 —— `.env` 里留空曾会无声地把默认值从私密翻成公开。现在只要不是
- * 0/1/2 就回落到 2 并告警一次：这里猜错的代价是把别人的标记公开出去。
+ * Default NeoDB mark visibility, parsed in `sync-config.ts`: 0 = public, 1 = followers, 2 = private.
+ * Per-path overrides are in `syncConfig`; this remains the client fallback.
+ * NeoDB 标记默认可见性在 `sync-config.ts` 解析；按链路覆盖在 `syncConfig`，这里保留客户端默认值。
  */
-const rawVisibility = process.env.NEODB_VISIBILITY;
-const parsedVisibility =
-  rawVisibility === undefined || rawVisibility.trim() === ''
-    ? 2
-    : Number(rawVisibility);
-export const neodbVisibility = [0, 1, 2].includes(parsedVisibility)
-  ? parsedVisibility
-  : 2;
-if (
-  rawVisibility !== undefined &&
-  rawVisibility.trim() !== '' &&
-  ![0, 1, 2].includes(parsedVisibility)
-) {
-  consola.warn(
-    `NEODB_VISIBILITY=${rawVisibility} is not 0/1/2; falling back to 2 (private).`,
-  );
-}
+export const neodbVisibility = neodbConfig.visibility;
 
 /**
  * Client for the per-item NeoDB endpoints, on the configured base URL.

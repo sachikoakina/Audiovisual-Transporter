@@ -40,7 +40,7 @@ import {
   listBangumiCollections,
   type BangumiCollection,
 } from '../clients/bangumi';
-import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
+import { neodbThrottle, neodbToken } from '../clients/neodb-http';
 import { resolveNeodbItemForBangumiUrlDetailed } from '../clients/neodb-catalog';
 import {
   getNeodbMark,
@@ -617,6 +617,7 @@ async function syncCollectionToNeodb(
         comment,
         ratingGrade,
         markTime: markTimePlan.markTime,
+        visibility: syncConfig.bangumiNeodbVisibility,
       }))
     ) {
       // The refusal has to reach the counters, the detail list and the exit code, and this
@@ -630,7 +631,7 @@ async function syncCollectionToNeodb(
       mark,
       { shelfType: effectiveShelf, ratingGrade, comment },
       syncConfig.bangumiNeodbRating,
-      neodbVisibility,
+      syncConfig.bangumiNeodbVisibility,
       syncConfig.bangumiNeodbComment,
     );
 
@@ -651,14 +652,17 @@ async function syncCollectionToNeodb(
         mark.shelf_type !== merged.shelfType ? 'status' : null,
         (mark.rating_grade || 0) !== merged.ratingGrade ? 'rating' : null,
         (mark.comment_text || '') !== merged.comment ? 'comment' : null,
-        (mark.visibility ?? neodbVisibility) !== neodbVisibility ? 'visibility' : null,
+        (mark.visibility ?? syncConfig.bangumiNeodbVisibility) !==
+        syncConfig.bangumiNeodbVisibility
+          ? 'visibility'
+          : null,
       ].filter(Boolean);
       consola.info(
         'NeoDB write: ',
         `subject=${collection.subject_id} shelf=${mark.shelf_type}→${merged.shelfType} ` +
           `rating=${mark.rating_grade || 0}→${merged.ratingGrade} ` +
           `comment="${mark.comment_text || ''}"→"${merged.comment}" ` +
-          `visibility=${mark.visibility ?? neodbVisibility}→${neodbVisibility} ` +
+          `visibility=${mark.visibility ?? syncConfig.bangumiNeodbVisibility}→${syncConfig.bangumiNeodbVisibility} ` +
           `reason=${reasons.join('+') || 'unknown'}`,
       );
       if (
@@ -667,6 +671,7 @@ async function syncCollectionToNeodb(
           comment: merged.comment,
           ratingGrade: merged.ratingGrade,
           markTime: markTimePlan.markTime,
+          visibility: syncConfig.bangumiNeodbVisibility,
         }))
       ) {
         throw new Error('NeoDB rejected the mark update');

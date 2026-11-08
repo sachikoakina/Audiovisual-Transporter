@@ -26,7 +26,7 @@ import { planNeodbMarkTime } from '../rules/neodb-mark-time';
 import type { FeedItem, ItemStatus, ItemSyncOutcome, PathReport } from '../types';
 import { newPathReport } from '../types';
 import { fetchNeodbItemByUrl } from '../clients/neodb-catalog';
-import { neodbThrottle, neodbToken, neodbVisibility } from '../clients/neodb-http';
+import { neodbThrottle, neodbToken } from '../clients/neodb-http';
 import { getNeodbMark, markNeodbItem, verifyNeodbToken } from '../clients/neodb-shelf';
 import {
   filterDoubanFeedsByCategory,
@@ -290,6 +290,7 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
       comment: item.comment,
       ratingGrade: sourceGrade,
       markTime,
+      visibility: syncConfig.doubanNeodbVisibility,
     });
     return ok ? 'written' : 'failed';
   }
@@ -313,7 +314,7 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
       comment: item.comment || '',
     },
     syncConfig.doubanNeodbRating,
-    neodbVisibility,
+    syncConfig.doubanNeodbVisibility,
     syncConfig.doubanNeodbComment,
   );
 
@@ -353,6 +354,7 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
     comment: merged.comment,
     ratingGrade: merged.ratingGrade,
     markTime: markTimePlan.markTime,
+    visibility: syncConfig.doubanNeodbVisibility,
   });
   return ok ? 'written' : 'failed';
 }

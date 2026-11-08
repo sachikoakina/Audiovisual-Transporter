@@ -29,6 +29,32 @@ import type { MarkTimePolicy } from './rules/neodb-mark-time';
 
 dotenv.config();
 
+/** Parse NeoDB mark visibility: 0 public, 1 followers, 2 private. / 解析 NeoDB 标记可见性。 */
+function parseNeodbVisibility(envName: string, fallback: number): number {
+  const raw = process.env[envName];
+  if (raw === undefined || raw.trim() === '') {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if ([0, 1, 2].includes(parsed)) {
+    return parsed;
+  }
+  consola.warn(
+    `${envName}=${raw} is not 0/1/2; falling back to ${fallback} (private is 2).`,
+  );
+  return fallback;
+}
+
+const globalNeodbVisibility = parseNeodbVisibility('NEODB_VISIBILITY', 2);
+const doubanNeodbVisibility = parseNeodbVisibility(
+  'SYNC_DOUBAN_NEODB_VISIBILITY',
+  globalNeodbVisibility,
+);
+const bangumiNeodbVisibility = parseNeodbVisibility(
+  'SYNC_BANGUMI_NEODB_VISIBILITY',
+  globalNeodbVisibility,
+);
+
 /**
  * Parse an env flag. Empty/unset → defaultValue.
  * Truthy: 1, true, yes, on (case-insensitive).
@@ -287,9 +313,11 @@ export const syncConfig = {
 
   doubanNeodbRating: parseMergeProfile('SYNC_DOUBAN_NEODB_RATING'),
   doubanNeodbComment: parseMergeProfile('SYNC_DOUBAN_NEODB_COMMENT'),
+  doubanNeodbVisibility,
   doubanNeodbMarkTimePolicy: parseMarkTimePolicy('SYNC_DOUBAN_NEODB_MARK_TIME_POLICY'),
   bangumiNeodbRating: parseMergeProfile('SYNC_BANGUMI_NEODB_RATING'),
   bangumiNeodbComment: parseMergeProfile('SYNC_BANGUMI_NEODB_COMMENT'),
+  bangumiNeodbVisibility,
   bangumiNeodbMarkTimePolicy: parseMarkTimePolicy(
     'SYNC_BANGUMI_NEODB_MARK_TIME_POLICY',
   ),
@@ -398,9 +426,9 @@ export function describeSyncConfig(): string {
   }
   const lines = [
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
-    `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment}, markTime=${syncConfig.doubanNeodbMarkTimePolicy})`,
+    `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment}, visibility=${syncConfig.doubanNeodbVisibility}, markTime=${syncConfig.doubanNeodbMarkTimePolicy})`,
     `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''}${syncConfig.doubanBangumiIncludeOpEd ? ', op/ed=on' : ''})`,
-    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
+    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, visibility=${syncConfig.bangumiNeodbVisibility}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');
 }
@@ -594,6 +622,8 @@ function resolveRatingProfile(): RatingProfile {
 export const neodbConfig = {
   /** Self-hosted instances: point this at your server. / 自建实例：把它指向你自己的服务器。 */
   baseUrl: stripTrailingSlash(process.env.NEODB_BASE_URL || 'https://neodb.social'),
+  /** Shared default; per-path overrides live in syncConfig. / 全局默认；按链路覆盖在 syncConfig。 */
+  visibility: globalNeodbVisibility,
   requestDelayMs: envInt('NEODB_REQUEST_DELAY_MS', 300),
   maxPages: envInt('NEODB_MAX_PAGES', 10, 1),
 };

@@ -70,7 +70,7 @@ function readEnvNames(sources: Map<string, string>): Set<string> {
     /process\.env\.([A-Z][A-Z0-9_]*)/g,
     /envEnabled\('([A-Z][A-Z0-9_]+)'/g,
     /envInt\('([A-Z][A-Z0-9_]+)'/g,
-    /(?:parseMergeProfile|parseBangumiMergeProfile|parseMarkTimePolicy|parseCategoryAllowlist)\(\s*'([A-Z][A-Z0-9_]+)'/g,
+    /(?:parseMergeProfile|parseBangumiMergeProfile|parseMarkTimePolicy|parseNeodbVisibility|parseCategoryAllowlist)\(\s*'([A-Z][A-Z0-9_]+)'/g,
   ];
   for (const text of sources.values()) {
     for (const pattern of patterns) {
