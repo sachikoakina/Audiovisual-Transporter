@@ -269,6 +269,12 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
   // "not marked yet" and created over.
   // 读取失败会抛出：这一条原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
   const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
+  if (mark?.visibility === undefined) {
+    consola.warn(
+      'NeoDB mark has no visibility; keeping the configured target without forcing a write: ',
+      label,
+    );
+  }
   const sourceGrade = doubanStarsToTenPoint(item.rating);
 
   if (!mark) {

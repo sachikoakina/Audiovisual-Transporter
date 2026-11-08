@@ -193,6 +193,8 @@ export type BangumiWritePlan = {
   rate: number;
   /** Comment to send. / 要发送的短评。 */
   comment: string;
+  /** Collection privacy to send. / 要发送的收藏私密状态。 */
+  private: boolean;
   /** True when the Bangumi-side rating was kept instead of the incoming one. / 是否保留了 Bangumi 侧已有评分。 */
   keepExistingRate: boolean;
   /** True when the Bangumi-side comment was kept instead of the incoming one. / 是否保留了 Bangumi 侧已有短评。 */
@@ -228,18 +230,21 @@ export function resolveBangumiCollectionWrite(input: {
   desiredType: BangumiCollectionType;
   desiredRate: number;
   desiredComment: string;
+  desiredPrivate?: boolean;
   ratingProfile?: BangumiMergeProfile;
   commentProfile?: BangumiMergeProfile;
   existing?: {
     type: BangumiCollectionType;
     rate?: number | null;
     comment?: string | null;
+    private?: boolean;
   } | null;
 }): BangumiWritePlan {
   const {
     desiredType,
     desiredRate,
     desiredComment,
+    desiredPrivate = false,
     existing,
     ratingProfile = 'bangumi_prefer',
     commentProfile = 'bangumi_prefer',
@@ -260,17 +265,20 @@ export function resolveBangumiCollectionWrite(input: {
   const keepExistingComment =
     commentProfile === 'bangumi_prefer' && existingComment !== '';
   const comment = keepExistingComment ? existingComment : desiredComment;
+  const samePrivate = (existing?.private ?? desiredPrivate) === desiredPrivate;
 
   const unchanged =
     existingType !== undefined &&
     existingType === desiredType &&
     existingRate === rate &&
-    existingComment === comment;
+    existingComment === comment &&
+    samePrivate;
 
   return {
     type: desiredType,
     rate,
     comment,
+    private: desiredPrivate,
     keepExistingRate,
     keepExistingComment,
     unchanged,

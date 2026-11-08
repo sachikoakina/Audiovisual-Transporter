@@ -92,6 +92,7 @@ always-source
 - 豆瓣 RSS 评分；
 - 评分日期（RSS `time`，仅真实值才写）；
 - 豆瓣短评；
+- 评论可见性：不写；Notion 页面权限由工作区/页面设置决定；
 - 条目页抓取的元数据、海报、封面等；
 - 只提交目标 data source 实际存在的列。
 
@@ -152,6 +153,14 @@ item.link（豆瓣 URL）
 | `comment_text` | `SYNC_DOUBAN_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才由源覆盖 |
 | `visibility`   | 与配置的目标可见性比较，不一致才写                                                        |
 | `created_time` | 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY`；见《NeoDB 标记时间策略》                         |
+
+### 可见性
+
+- 配置：`NEODB_VISIBILITY`，`0` 公开、`1` 仅关注者、`2` 私密；非法值回退 `2` 并告警；
+- 新建标记直接使用配置值；
+- 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
+- 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
+- 已有 `dropped` 标记会整条跳过，可见性也不会更新。
 
 ## 是否写入
 
@@ -270,8 +279,16 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 | `type`    | 跟随豆瓣映射；现有 4/5 保留                                                                               |
 | `rate`    | `SYNC_DOUBAN_BANGUMI_RATING`：默认 `bangumi_prefer` 保留目标非 0 分；`overwrite` 才由豆瓣覆盖             |
 | `comment` | `SYNC_DOUBAN_BANGUMI_COMMENT`：默认 `bangumi_prefer` 保留目标非空短评；`overwrite` 才由豆瓣覆盖（含空值） |
-| `private` | 写入配置的 `BANGUMI_PRIVATE`                                                                              |
+| `private` | 写入配置的 `BANGUMI_PRIVATE`；与现有 `private` 不同也会触发写入                                           |
 | 更新时间  | 不传时间字段；仅在实际写请求时由 Bangumi 服务端设置                                                       |
+
+### 可见性
+
+- 配置：`BANGUMI_PRIVATE`，只有字面值 `true` 表示私密，其他值为非私密；
+- 新建收藏直接使用配置值；
+- 已有收藏的 `private` 与配置不同 → 触发写入；
+- 已有收藏缺少 `private` 字段时，视为与目标一致，不单独触发；
+- 只改 `BANGUMI_PRIVATE` 也会更新已有收藏，不会再被 `unchanged` 忽略。
 
 ### rate 示例
 
@@ -455,6 +472,15 @@ Bangumi subject URL
 | `created_time` | 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY`；见《NeoDB 标记时间策略》                         |
 | 进度           | `SYNC_BANGUMI_NEODB_PROGRESS=1` 时写；0 不清空                                             |
 
+### 可见性
+
+- 与 ② 共用 `NEODB_VISIBILITY`：`0` 公开、`1` 仅关注者、`2` 私密；
+- 新建标记使用配置值；
+- 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
+- 状态保护只影响 `shelf_type`，不影响可见性比较；
+- 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
+- ②④ 同时写同一 uuid 时，④ 后执行，最终可见性由 ④ 的写入决定。
+
 ### created_time
 
 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理，具体规则见《NeoDB 标记时间策略》。
@@ -545,6 +571,7 @@ NeoDB TMDB 外链（类型必须一致）
 | `watchlist` | 与当前状态比较；相同不写                                          |
 | `rating`    | 默认 `tmdb_prefer` 保留 TMDB 非 0 评分；`overwrite` 才用 NeoDB 分 |
 | 短评        | 不写；TMDB 无对应字段                                             |
+| 评论可见性  | 不写；TMDB 无对应字段                                             |
 | 时间        | 不写                                                              |
 
 - 写前必须读到 account states；读取失败不写；

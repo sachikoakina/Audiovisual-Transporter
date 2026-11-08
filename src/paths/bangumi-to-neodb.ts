@@ -574,6 +574,12 @@ async function syncCollectionToNeodb(
   // mistaken for "not marked yet" and created over.
   // 读取失败会抛出：标记原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
   const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
+  if (mark && mark.visibility === undefined) {
+    consola.warn(
+      'NeoDB mark has no visibility; keeping the configured target without forcing a write: ',
+      `subject=${collection.subject_id} uuid=${neodbItem.uuid}`,
+    );
+  }
   const effectiveShelf = applyStatusGuard(
     (mark?.shelf_type as Parameters<typeof applyStatusGuard>[0]) ?? null,
     shelfType,

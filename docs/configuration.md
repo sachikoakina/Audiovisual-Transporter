@@ -66,6 +66,7 @@
 - 只处理豆瓣 `complete`；
 - 按豆瓣链接查重，已存在页面不更新；
 - 只创建新页面，不删除、不更新；
+- 不写评论可见性；页面权限由 Notion 工作区/页面设置决定；
 - 只写入目标 data source 实际存在的列；
 - 缺失对应分类 DB ID 时，该分类无法创建页面。
 
@@ -99,6 +100,7 @@
 - 用豆瓣条目 URL 解析 NeoDB 目录；
 - 目录不存在 → `unresolved`，不创建目录；
 - 现有 NeoDB `dropped` 不被豆瓣覆盖；
+- `NEODB_VISIBILITY` 与现有 mark 不同会触发更新；缺失时视为目标值并告警；
 - `created_time` 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` 处理，详见 [五条同步链路](sync-paths.md#neodb-标记时间策略24)；
 - 不写进度。
 
@@ -133,6 +135,7 @@
 - 评分默认 `bangumi_prefer`：Bangumi 已有非 0 分保留，豆瓣分只填空；`SYNC_DOUBAN_BANGUMI_RATING=overwrite` 才覆盖；
 - 短评默认 `bangumi_prefer`：Bangumi 已有非空短评保留，只填空；`SYNC_DOUBAN_BANGUMI_COMMENT=overwrite` 才覆盖（含空值）；
 - Bangumi 已有 4/5 状态保留，不被豆瓣覆盖；
+- `BANGUMI_PRIVATE` 参与更新判断：已有收藏的 `private` 与配置不同也会触发写入；
 - 进度默认关闭；开启后：
   - 电影补第一个正片；
   - TV/动画/真人补缺失正片；
@@ -194,6 +197,8 @@ NeoDB 侧（同 ②）：
 - 同分类精确标题 + 年份；禁止跨分类；
 - 同轮同 uuid 冲突按 `direct > douban-twin > title-twin`、`complete > progress/wishlist > dropped` 裁决；
 - 评分/短评默认目标优先；
+- 与 ② 共用 `NEODB_VISIBILITY`；已有 mark 可见性不同会触发更新，缺失时视为目标值并告警；
+- 状态保护不影响可见性比较；②④ 同时写同一 uuid 时，④ 后执行决定最终可见性；
 - 进度只在类型兼容时写；
 - `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：默认 `status` 下状态变化用来源时间，状态不变保留目标时间。
 
@@ -237,7 +242,7 @@ NeoDB 侧（同 ②）：
 - 匹配：TMDB 外链 → IMDb → 精确标题+年份 → 季父剧；
 - 写前读取 account states，读失败不写；
 - 评分默认保留 TMDB 非 0 值；目标无评分时才填入；
-- 不写短评、不写时间；
+- 不写短评、评论可见性或时间；TMDB 无对应字段；
 - 未匹配按 `no-tmdb-match`、`no-neodb-year`、`tmdb-ambiguous`、`tmdb-season-parent-missing` 等分类记录。
 
 ---

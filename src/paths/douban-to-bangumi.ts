@@ -331,6 +331,7 @@ async function syncFeedItemToBangumi(
     desiredType,
     desiredRate,
     desiredComment,
+    desiredPrivate: bangumiPrivate,
     ratingProfile: syncConfig.doubanBangumiRating,
     commentProfile: syncConfig.doubanBangumiComment,
     existing,
@@ -390,7 +391,7 @@ async function syncFeedItemToBangumi(
       type: plan.type,
       rate: plan.rate,
       comment: plan.comment,
-      private: bangumiPrivate,
+      private: plan.private,
       ...(bookEpStatus != null ? { ep_status: bookEpStatus } : {}),
       ...(bookVolStatus != null ? { vol_status: bookVolStatus } : {}),
     });

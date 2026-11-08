@@ -10,11 +10,13 @@ const existing = (
     type: 2;
     rate: number;
     comment: string;
+    private: boolean;
   }> = {},
 ) => ({
   type: 2 as const,
   rate: 8,
   comment: 'Bangumi comment',
+  private: false,
   ...overrides,
 });
 
@@ -98,5 +100,18 @@ describe('resolveBangumiCollectionWrite', () => {
     expect(plan.rate).toBe(6);
     expect(plan.keepExistingRate).toBe(false);
     expect(plan.comment).toBe('Bangumi comment');
+  });
+
+  it('triggers an update when only the collection privacy changes', () => {
+    const plan = resolveBangumiCollectionWrite({
+      desiredType: 2,
+      desiredRate: 8,
+      desiredComment: 'Bangumi comment',
+      desiredPrivate: true,
+      existing: existing({ private: false }),
+    });
+
+    expect(plan.private).toBe(true);
+    expect(plan.unchanged).toBe(false);
   });
 });
