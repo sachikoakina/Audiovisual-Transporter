@@ -26,6 +26,7 @@ import {
   type BangumiNeodbCategory,
 } from './rules/bangumi-neodb';
 import type { MarkTimePolicy } from './rules/neodb-mark-time';
+import type { NeodbVisibilityMode } from './rules/neodb-visibility';
 
 dotenv.config();
 
@@ -47,6 +48,29 @@ function parseNeodbVisibility(envName: string, fallback: number): number {
 
 const doubanNeodbVisibility = parseNeodbVisibility('SYNC_DOUBAN_NEODB_VISIBILITY', 2);
 const bangumiNeodbVisibility = parseNeodbVisibility('SYNC_BANGUMI_NEODB_VISIBILITY', 2);
+
+/** Parse the ④ visibility mode: target config or per-item source private flag. / 解析④可见性模式。 */
+export function parseNeodbVisibilityMode(
+  envName: string,
+  defaultValue: NeodbVisibilityMode = 'target',
+): NeodbVisibilityMode {
+  const raw = process.env[envName];
+  if (raw === undefined || raw.trim() === '') {
+    return defaultValue;
+  }
+  const value = raw.trim().toLowerCase();
+  if (value === 'target' || value === 'source') {
+    return value;
+  }
+  consola.warn(
+    `${envName}=${raw} is invalid (use target|source); falling back to ${defaultValue}`,
+  );
+  return defaultValue;
+}
+
+const bangumiNeodbVisibilityMode = parseNeodbVisibilityMode(
+  'SYNC_BANGUMI_NEODB_VISIBILITY_MODE',
+);
 
 /**
  * Parse an env flag. Empty/unset → defaultValue.
@@ -313,6 +337,7 @@ export const syncConfig = {
   bangumiNeodbRating: parseMergeProfile('SYNC_BANGUMI_NEODB_RATING'),
   bangumiNeodbComment: parseMergeProfile('SYNC_BANGUMI_NEODB_COMMENT'),
   bangumiNeodbVisibility,
+  bangumiNeodbVisibilityMode,
   bangumiNeodbMarkTimePolicy: parseMarkTimePolicy(
     'SYNC_BANGUMI_NEODB_MARK_TIME_POLICY',
   ),
@@ -423,7 +448,7 @@ export function describeSyncConfig(): string {
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
     `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment}, visibility=${syncConfig.doubanNeodbVisibility}, markTime=${syncConfig.doubanNeodbMarkTimePolicy})`,
     `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, visibility=${syncConfig.doubanBangumiPrivate ? 'private' : 'public'}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''}${syncConfig.doubanBangumiIncludeOpEd ? ', op/ed=on' : ''})`,
-    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, visibility=${syncConfig.bangumiNeodbVisibility}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
+    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, visibility=${syncConfig.bangumiNeodbVisibilityMode === 'source' ? 'source' : syncConfig.bangumiNeodbVisibility}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');
 }

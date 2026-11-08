@@ -72,6 +72,7 @@ vi.mock('../../src/sync-config', () => ({
     bangumiNeodbProgress: false,
     bangumiNeodbStatusGuard: 'off',
     bangumiNeodbVisibility: 0,
+    bangumiNeodbVisibilityMode: 'target',
     bangumiNeodbMarkTimePolicy: 'status',
     // A getter, not a value: each test points it at its own temp file.
     // 用 getter 而不是值：每个用例把它指向自己的临时文件。
@@ -96,6 +97,7 @@ vi.mock('../../src/sync-report', () => ({
 
 const { default: syncBangumiToNeodb } =
   await import('../../src/paths/bangumi-to-neodb');
+const { syncConfig } = await import('../../src/sync-config');
 
 const collection = {
   subject_id: 12345,
@@ -279,6 +281,50 @@ describe('④ mark time / 标记时间', () => {
         comment: '好看',
         markTime: '2024-01-01T00:00:00.000Z',
       }),
+    );
+  });
+});
+
+describe('④ visibility mode / 可见性模式', () => {
+  it('follows a private source in source mode', async () => {
+    const previousMode = syncConfig.bangumiNeodbVisibilityMode;
+    const previousPrivate = collection.private;
+    syncConfig.bangumiNeodbVisibilityMode = 'source';
+    collection.private = true;
+    getNeodbMark.mockResolvedValue({ status: 'absent' });
+    markNeodbItem.mockResolvedValue(true);
+
+    try {
+      await syncBangumiToNeodb(false);
+    } finally {
+      syncConfig.bangumiNeodbVisibilityMode = previousMode;
+      collection.private = previousPrivate;
+    }
+
+    expect(markNeodbItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visibility: 2 }),
+    );
+  });
+
+  it('follows a public source in source mode', async () => {
+    const previousMode = syncConfig.bangumiNeodbVisibilityMode;
+    const previousPrivate = collection.private;
+    syncConfig.bangumiNeodbVisibilityMode = 'source';
+    collection.private = false;
+    getNeodbMark.mockResolvedValue({ status: 'absent' });
+    markNeodbItem.mockResolvedValue(true);
+
+    try {
+      await syncBangumiToNeodb(false);
+    } finally {
+      syncConfig.bangumiNeodbVisibilityMode = previousMode;
+      collection.private = previousPrivate;
+    }
+
+    expect(markNeodbItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visibility: 0 }),
     );
   });
 });

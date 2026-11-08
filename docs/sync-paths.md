@@ -157,6 +157,7 @@ item.link（豆瓣 URL）
 ### 可见性
 
 - 配置：`SYNC_DOUBAN_NEODB_VISIBILITY`；默认 `2`。`0` 公开、`1` 仅关注者、`2` 私密；非法值回退 `2` 并告警；
+- ② 只支持目标值模式，不提供 `source` 模式；豆瓣 RSS 没有隐私字段；
 - 新建标记直接使用配置值；
 - 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
 - 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
@@ -468,13 +469,17 @@ Bangumi subject URL
 | `shelf_type`   | 跟随 Bangumi；`no-downgrade` 时目标 complete 保持 complete                                 |
 | `rating_grade` | `SYNC_BANGUMI_NEODB_RATING`：默认 `neodb_prefer` 保留目标非 0 分；`overwrite` 才用源分     |
 | `comment_text` | `SYNC_BANGUMI_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才用源短评 |
-| `visibility`   | 与 `SYNC_BANGUMI_NEODB_VISIBILITY`（默认 `2`）比较，不一致才写                             |
+| `visibility`   | 按 `SYNC_BANGUMI_NEODB_VISIBILITY_MODE`：`target` 用固定值，`source` 跟随源端；不一致才写  |
 | `created_time` | 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY`；见《NeoDB 标记时间策略》                         |
 | 进度           | `SYNC_BANGUMI_NEODB_PROGRESS=1` 时写；0 不清空                                             |
 
 ### 可见性
 
 - 配置：`SYNC_BANGUMI_NEODB_VISIBILITY`；默认 `2`。`0` 公开、`1` 仅关注者、`2` 私密；
+- 模式：`SYNC_BANGUMI_NEODB_VISIBILITY_MODE=target|source`；默认 `target`；
+  - `target`：所有条目统一使用 `SYNC_BANGUMI_NEODB_VISIBILITY`；
+  - `source`：逐条跟随 Bangumi `private`，`true → 2`、`false → 0`；源端缺失时保留目标原值并告警；
+  - `source` 不会产生 `visibility=1`（仅关注者），因为 Bangumi 没有对应值；
 - 新建标记使用配置值；
 - 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
 - 状态保护只影响 `shelf_type`，不影响可见性比较；

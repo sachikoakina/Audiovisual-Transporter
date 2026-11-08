@@ -55,6 +55,7 @@ import {
   type TargetClaim,
 } from '../rules/bangumi-target-conflict';
 import { planNeodbMarkTime } from '../rules/neodb-mark-time';
+import { planNeodbVisibility } from '../rules/neodb-visibility';
 import {
   bangumiSubjectTypesForAllowlist,
   needsBangumiMangaPlatformCheck,
@@ -593,6 +594,26 @@ async function syncCollectionToNeodb(
     sourceRaw: collection.updated_at,
     targetRaw: mark?.created_time,
   });
+  const visibilityPlan = planNeodbVisibility({
+    mode: syncConfig.bangumiNeodbVisibilityMode,
+    targetVisibility: syncConfig.bangumiNeodbVisibility,
+    sourcePrivate: collection.private,
+    existingVisibility: mark?.visibility,
+  });
+  const targetVisibility = visibilityPlan.visibility;
+  if (visibilityPlan.reason === 'source-missing') {
+    consola.warn(
+      'Bangumi collection private is missing; keeping the existing NeoDB visibility: ',
+      `subject=${collection.subject_id} chosen=${targetVisibility}`,
+    );
+  }
+  consola.info(
+    'NeoDB visibility: ',
+    `subject=${collection.subject_id} mode=${syncConfig.bangumiNeodbVisibilityMode} ` +
+      `sourcePrivate=${collection.private ?? 'missing'} ` +
+      `configured=${syncConfig.bangumiNeodbVisibility} ` +
+      `chosen=${targetVisibility} reason=${visibilityPlan.reason}`,
+  );
   consola.info(
     'NeoDB mark time: ',
     `subject=${collection.subject_id} source=${collection.updated_at || 'none'} ` +
@@ -617,7 +638,7 @@ async function syncCollectionToNeodb(
         comment,
         ratingGrade,
         markTime: markTimePlan.markTime,
-        visibility: syncConfig.bangumiNeodbVisibility,
+        visibility: targetVisibility,
       }))
     ) {
       // The refusal has to reach the counters, the detail list and the exit code, and this
@@ -631,7 +652,7 @@ async function syncCollectionToNeodb(
       mark,
       { shelfType: effectiveShelf, ratingGrade, comment },
       syncConfig.bangumiNeodbRating,
-      syncConfig.bangumiNeodbVisibility,
+      targetVisibility,
       syncConfig.bangumiNeodbComment,
     );
 
@@ -652,8 +673,7 @@ async function syncCollectionToNeodb(
         mark.shelf_type !== merged.shelfType ? 'status' : null,
         (mark.rating_grade || 0) !== merged.ratingGrade ? 'rating' : null,
         (mark.comment_text || '') !== merged.comment ? 'comment' : null,
-        (mark.visibility ?? syncConfig.bangumiNeodbVisibility) !==
-        syncConfig.bangumiNeodbVisibility
+        (mark.visibility ?? targetVisibility) !== targetVisibility
           ? 'visibility'
           : null,
       ].filter(Boolean);
@@ -662,7 +682,7 @@ async function syncCollectionToNeodb(
         `subject=${collection.subject_id} shelf=${mark.shelf_type}→${merged.shelfType} ` +
           `rating=${mark.rating_grade || 0}→${merged.ratingGrade} ` +
           `comment="${mark.comment_text || ''}"→"${merged.comment}" ` +
-          `visibility=${mark.visibility ?? syncConfig.bangumiNeodbVisibility}→${syncConfig.bangumiNeodbVisibility} ` +
+          `visibility=${mark.visibility ?? targetVisibility}→${targetVisibility} ` +
           `reason=${reasons.join('+') || 'unknown'}`,
       );
       if (
@@ -671,7 +691,7 @@ async function syncCollectionToNeodb(
           comment: merged.comment,
           ratingGrade: merged.ratingGrade,
           markTime: markTimePlan.markTime,
-          visibility: syncConfig.bangumiNeodbVisibility,
+          visibility: targetVisibility,
         }))
       ) {
         throw new Error('NeoDB rejected the mark update');
