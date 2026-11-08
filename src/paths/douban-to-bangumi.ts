@@ -40,7 +40,6 @@ import {
   getNeodbItemDetail,
 } from '../clients/neodb-catalog';
 import {
-  bangumiPrivate,
   bangumiSubjectYear,
   bangumiToken,
   bangumiThrottle,
@@ -331,7 +330,7 @@ async function syncFeedItemToBangumi(
     desiredType,
     desiredRate,
     desiredComment,
-    desiredPrivate: bangumiPrivate,
+    desiredPrivate: syncConfig.doubanBangumiPrivate,
     ratingProfile: syncConfig.doubanBangumiRating,
     commentProfile: syncConfig.doubanBangumiComment,
     existing,

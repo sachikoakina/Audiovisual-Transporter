@@ -118,17 +118,18 @@
 | `SYNC_DOUBAN_BANGUMI_EPISODES`      | `0`              | 仅 complete 条目：补 Bangumi 分集/书籍进度           |
 | `SYNC_DOUBAN_BANGUMI_INCLUDE_SP`    | `0`              | 是否把 TV/动画/真人的 SP 也纳入补点；电影永不处理 SP |
 | `SYNC_DOUBAN_BANGUMI_INCLUDE_OP_ED` | `0`              | 是否把 TV/动画/真人的 OP/ED 也纳入补点；电影永不处理 |
+| `SYNC_DOUBAN_BANGUMI_VISIBILITY`    | `false`          | 仅字面值 `true` 表示收藏私密；变化会更新已有收藏     |
 | `SYNC_DOUBAN_BANGUMI_RATING`        | `bangumi_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`            |
 | `SYNC_DOUBAN_BANGUMI_COMMENT`       | `bangumi_prefer` | 短评策略：目标非空短评优先，或 `overwrite`           |
 
 ### 5.2 凭据与 Bangumi 公共项
 
-| 变量                       | 默认        | 说明                                        |
-| -------------------------- | ----------- | ------------------------------------------- |
-| `BANGUMI_ACCESS_TOKEN`     | 空          | 读写 Bangumi 必需                           |
-| `BANGUMI_PRIVATE`          | `false`     | 仅字面值 `true` 开启；写入收藏的私密标记    |
-| `BANGUMI_USER_AGENT`       | 项目默认 UA | Bangumi 要求可识别 UA                       |
-| `BANGUMI_COLLECTION_LIMIT` | `50`        | 收藏分页大小，范围 1–50；非数字/空值回落 50 |
+| 变量                   | 默认 | 说明              |
+| ---------------------- | ---- | ----------------- |
+| `BANGUMI_ACCESS_TOKEN` | 空   | 读写 Bangumi 必需 |
+
+| `BANGUMI_USER_AGENT` | 项目默认 UA | Bangumi 要求可识别 UA |
+| `BANGUMI_COLLECTION_LIMIT` | `50` | 收藏分页大小，范围 1–50；非数字/空值回落 50 |
 
 ### 5.3 行为
 
@@ -136,7 +137,7 @@
 - 评分默认 `bangumi_prefer`：Bangumi 已有非 0 分保留，豆瓣分只填空；`SYNC_DOUBAN_BANGUMI_RATING=overwrite` 才覆盖；
 - 短评默认 `bangumi_prefer`：Bangumi 已有非空短评保留，只填空；`SYNC_DOUBAN_BANGUMI_COMMENT=overwrite` 才覆盖（含空值）；
 - Bangumi 已有 4/5 状态保留，不被豆瓣覆盖；
-- `BANGUMI_PRIVATE` 参与更新判断：已有收藏的 `private` 与配置不同也会触发写入；
+- `SYNC_DOUBAN_BANGUMI_VISIBILITY` 参与更新判断：已有收藏的 `private` 与配置不同也会触发写入；
 - 进度默认关闭；开启后：
   - 电影补第一个正片；
   - TV/动画/真人补缺失正片；

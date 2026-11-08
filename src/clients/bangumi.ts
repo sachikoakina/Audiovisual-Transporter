@@ -18,8 +18,7 @@ dotenv.config();
 
 /** `BANGUMI_ACCESS_TOKEN`. `undefined` disables every authenticated call. / `BANGUMI_ACCESS_TOKEN`；为 `undefined` 时所有需鉴权的调用都会被跳过。 */
 export const bangumiToken = process.env.BANGUMI_ACCESS_TOKEN;
-/** `BANGUMI_PRIVATE=true` makes new collections private. / `BANGUMI_PRIVATE=true` 时新建收藏为私密。 */
-export const bangumiPrivate = process.env.BANGUMI_PRIVATE === 'true';
+
 /** Page size for collection listing, clamped to Bangumi's accepted maximum of 50. / 收藏列表的分页大小，被约束在 Bangumi 接受的 50 以内。 */
 const rawCollectionLimit = process.env.BANGUMI_COLLECTION_LIMIT;
 // `Number('')` is 0 and `Number('abc')` is NaN; both used to reach Bangumi as `limit=1` or

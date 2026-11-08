@@ -279,16 +279,16 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 | `type`    | 跟随豆瓣映射；现有 4/5 保留                                                                               |
 | `rate`    | `SYNC_DOUBAN_BANGUMI_RATING`：默认 `bangumi_prefer` 保留目标非 0 分；`overwrite` 才由豆瓣覆盖             |
 | `comment` | `SYNC_DOUBAN_BANGUMI_COMMENT`：默认 `bangumi_prefer` 保留目标非空短评；`overwrite` 才由豆瓣覆盖（含空值） |
-| `private` | 写入配置的 `BANGUMI_PRIVATE`；与现有 `private` 不同也会触发写入                                           |
+| `private` | 写入配置的 `SYNC_DOUBAN_BANGUMI_VISIBILITY`；与现有 `private` 不同也会触发写入                            |
 | 更新时间  | 不传时间字段；仅在实际写请求时由 Bangumi 服务端设置                                                       |
 
 ### 可见性
 
-- 配置：`BANGUMI_PRIVATE`，只有字面值 `true` 表示私密，其他值为非私密；
+- 配置：`SYNC_DOUBAN_BANGUMI_VISIBILITY`，只有字面值 `true` 表示私密，其他值为非私密；
 - 新建收藏直接使用配置值；
 - 已有收藏的 `private` 与配置不同 → 触发写入；
 - 已有收藏缺少 `private` 字段时，视为与目标一致，不单独触发；
-- 只改 `BANGUMI_PRIVATE` 也会更新已有收藏，不会再被 `unchanged` 忽略。
+- 只改 `SYNC_DOUBAN_BANGUMI_VISIBILITY` 也会更新已有收藏，不会再被 `unchanged` 忽略。
 
 ### rate 示例
 

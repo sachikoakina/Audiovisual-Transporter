@@ -42,7 +42,6 @@ vi.mock('../../src/clients/bangumi', () => ({
   listBangumiCollections: (...args: unknown[]) => listBangumiCollections(...args),
   searchBangumiSubjects: async () => [],
   upsertBangumiCollection: async () => true,
-  bangumiPrivate: false,
 }));
 
 vi.mock('../../src/clients/neodb-http', () => ({

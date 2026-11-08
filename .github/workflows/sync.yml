@@ -86,7 +86,7 @@ jobs:
       NEODB_MAX_PAGES: ${{ vars.NEODB_MAX_PAGES || '10' }}
       DOUBAN_RSS_USER_AGENT: ${{ vars.DOUBAN_RSS_USER_AGENT || '' }}
       BANGUMI_ACCESS_TOKEN: ${{ secrets.BANGUMI_ACCESS_TOKEN }}
-      BANGUMI_PRIVATE: ${{ vars.BANGUMI_PRIVATE || 'false' }}
+      SYNC_DOUBAN_BANGUMI_VISIBILITY: ${{ vars.SYNC_DOUBAN_BANGUMI_VISIBILITY || 'false' }}
       BANGUMI_COLLECTION_LIMIT: ${{ vars.BANGUMI_COLLECTION_LIMIT || '50' }}
       BANGUMI_USER_AGENT: ${{ vars.BANGUMI_USER_AGENT || '' }}
       # Same precedence as NEODB_TMDB_FULL_SYNC: the per-run input wins, the Variables value stays

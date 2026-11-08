@@ -264,6 +264,8 @@ export const syncConfig = {
   doubanBangumi: envEnabled('SYNC_DOUBAN_BANGUMI', true),
   /** Write episode/book progress for completed Douban items. Default off. */
   doubanBangumiEpisodes: envEnabled('SYNC_DOUBAN_BANGUMI_EPISODES', false),
+  /** Only the literal true makes new/updated Bangumi collections private. / 仅字面值 true 表示私密收藏。 */
+  doubanBangumiPrivate: process.env.SYNC_DOUBAN_BANGUMI_VISIBILITY === 'true',
   /** Include SP episodes for TV progress. Default off. */
   doubanBangumiIncludeSp: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_SP', false),
   /** Include OP/ED theme episodes for TV progress. Default off. */
@@ -427,7 +429,7 @@ export function describeSyncConfig(): string {
   const lines = [
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
     `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment}, visibility=${syncConfig.doubanNeodbVisibility}, markTime=${syncConfig.doubanNeodbMarkTimePolicy})`,
-    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''}${syncConfig.doubanBangumiIncludeOpEd ? ', op/ed=on' : ''})`,
+    `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, visibility=${syncConfig.doubanBangumiPrivate ? 'private' : 'public'}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''}${syncConfig.doubanBangumiIncludeOpEd ? ', op/ed=on' : ''})`,
     `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, visibility=${syncConfig.bangumiNeodbVisibility}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');
