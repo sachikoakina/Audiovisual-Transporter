@@ -7,13 +7,13 @@
  *   1. every reason slug in `DETAIL_REASONS` is still emitted by the path it claims;
  *   2. no slug is emitted by two different paths (a shared slug cannot be routed, and the table
  *      is only allowed to hold slugs with exactly one owner);
- *   3. the eight `indexOf` sentinels the parser relies on still appear in the source that prints
+ *   3. the nine `indexOf` sentinels the parser relies on still appear in the source that prints
  *      them.
  *
  * 名单是从控制台日志里解析出来的，因此有三样东西是承重的，而它们都不受类型系统保护：
  *   1. `DETAIL_REASONS` 里的每个 reason slug 仍由它声称的那条链路产出；
  *   2. 没有哪个 slug 被两条链路同时产出（共用 slug 无法路由，表里只允许唯一归属的 slug）；
- *   3. 解析器依赖的八个 `indexOf` 哨兵仍出现在打印它们的源码里。
+ *   3. 解析器依赖的九个 `indexOf` 哨兵仍出现在打印它们的源码里。
  *
  * This does not replace reading the log; it stops a rename from silently emptying the list.
  * 它不替代读日志；它只是让一次重命名无法悄悄把名单清空。
@@ -213,20 +213,25 @@ section('Detail reasons / 明细 reason 的三个桶');
  * `reason:` 会把它们卷进来，然后要求这些句子变成名单 slug。只有真正进入 `PathReport` 的三个数组
  * （`failedItems` / `skippedItems` / `unresolvedItems`）才是名单身份。
  *
- * Three shapes appear at those sites and all of them must be understood:
+ * Five shapes appear at those sites and all of them must be understood:
  *   1. a plain literal          — `reason: 'no-neodb-match',`
  *   2. a template literal       — `` reason: `item-threw: ${detail}`, `` → the prefix before `${`
  *   3. a function call          — `reason: failureReason(err, 'a', 'b')` → every string argument
- * A fourth shape, `reason: resolution.reason`, cannot be resolved statically; the union
- * `NoMatchReason` it comes from is listed by hand in `RESOLUTION_REASONS` below, and the assertion
- * on that list is what keeps the hand-listing honest.
+ *   4. a threaded fallback      — `reason: skipReason ?? 'guard-bangumi-status'` → the literal on
+ *      the right of `??`; the threaded value itself is collected from its `skipReason: '…'`
+ *      return site (the second scan below)
+ *   5. a bare identifier        — `reason: resolution.reason` → cannot be resolved statically; the
+ *      union `NoMatchReason` it comes from is listed by hand in `RESOLUTION_REASONS` below, and the
+ *      assertion on that list is what keeps the hand-listing honest.
  *
- * 三处出现三种形态，都必须认得：
+ * 五种形态都必须认得：
  *   1. 普通字面量         — `reason: 'no-neodb-match',`
  *   2. 模板字面量         — `` reason: `item-threw: ${detail}`, `` → 取 `${` 之前的前缀
  *   3. 函数调用           — `reason: failureReason(err, 'a', 'b')` → 每个字符串实参
- * 第四种形态 `reason: resolution.reason` 无法静态求值；它来自联合类型 `NoMatchReason`，由下面的
- * `RESOLUTION_REASONS` 手工列出，而这条断言正是让手工清单保持诚实的东西。
+ *   4. 透传兜底           — `reason: skipReason ?? 'guard-bangumi-status'` → 收集 `??` 右侧的字面量；
+ *      透传值本身由下方第二段扫描从 `skipReason: '…'` 返回点收集
+ *   5. 裸标识符           — `reason: resolution.reason` → 无法静态求值；它来自联合类型
+ *      `NoMatchReason`，由下面的 `RESOLUTION_REASONS` 手工列出，而这条断言正是让手工清单保持诚实的东西。
  */
 function reviewDetailReasons(source: string): Set<string> {
   const found = new Set<string>();
@@ -273,10 +278,30 @@ function reviewDetailReasons(source: string): Set<string> {
         found.add(arg[1]);
       }
     }
+    // `reason: skipReason ?? 'guard-bangumi-status'` → the fallback literal. The threaded value
+    // comes back through `skipReason: '…'` and is collected by the return-site scan below.
+    // `reason: skipReason ?? 'guard-bangumi-status'` → 收集兜底字面量；透传值经 `skipReason: '…'`
+    // 返回，由下面的返回点扫描收集。
+    for (const fallback of block.matchAll(/\breason:\s*[\w$.]+\s*\?\?\s*'([^']+)'/g)) {
+      found.add(fallback[1]);
+    }
     // `reason,` — a bare identifier passed through (④'s recordUnresolved). Its callers supply the
     // slug, so it is checked where the callers are, not here.
     // `reason,` —— 直接透传的裸标识符（④ 的 recordUnresolved）。slug 由调用方给出，因此在调用方
     // 检查，不在这里。
+  }
+
+  // Threaded skip reasons: ③'s item function returns `skipReason: '<slug>'` and the caller pushes
+  // `reason: skipReason ?? '<fallback>'`. The fallback is collected at the push site above; the
+  // threaded slug is collected here from the return sites, so both sides of the `??` are accounted
+  // for in the buckets.
+  // 透传的跳过原因：③ 的条目函数返回 `skipReason: '<slug>'`，调用方 push
+  // `reason: skipReason ?? '<fallback>'`。兜底值在上面的 push 位点收集；透传 slug 在这里从返回点
+  // 收集 —— `??` 的两侧由此都进入桶里。
+  for (const returned of withoutComments.matchAll(
+    /\bskipReason:\s*'([a-z][a-z0-9-]+)'/g,
+  )) {
+    found.add(returned[1]);
   }
 
   return found;
@@ -347,6 +372,13 @@ const INTENTIONALLY_UNROUTED_REASONS = new Set([
   'shelf-not-mapped',
   'no-tmdb-category',
   'unmapped-category',
+  // ③'s book-progress skip: the pair of records cannot produce a progress plan, so the item is
+  // left untouched. Threaded out of `syncFeedItemToBangumi` as `skipReason` (see the `??` shape
+  // above); the real cause is already on the console via the `Bangumi book progress skipped:` line.
+  // ③ 的书籍进度跳过：这对记录规划不出进度方案，条目原样保留。经 `syncFeedItemToBangumi` 的
+  // `skipReason` 透传（见上方的 `??` 形态）；真实原因已通过 `Bangumi book progress skipped:` 行
+  // 打在控制台上。
+  'progress-unplannable',
 ]);
 
 const allowedReasons = new Set([

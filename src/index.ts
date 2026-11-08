@@ -124,7 +124,19 @@ async function main(): Promise<void> {
     // 与其他所有开关一样走 `envEnabled`，因此 `'true'` / `'yes'` / `'on'` 同样生效。原先这里是
     // 与字面量 `'1'` 比较，导致只有 `BANGUMI_NEODB_FULL_SYNC=1` 这一种写法有效，其余写法被静默忽略。
     const bangumiNeodbFullSync = envEnabled('BANGUMI_NEODB_FULL_SYNC', false);
-    reports.push(await syncBangumiToNeodb(bangumiNeodbFullSync));
+    // Wrapped like ⑤ below: without this try, an uncaught throw from ④ would fall through to
+    // `main().catch` — no `PathReport`, no closing summary, and the review-queue run would lose
+    // this run's summary context entirely.
+    // 与下面的 ⑤ 一样包裹：没有这层 try，④ 的未捕获异常会直接落进 `main().catch` —— 没有
+    // `PathReport`、没有收尾汇总，review-queue 一轮也会彻底失去本轮的摘要语境。
+    try {
+      reports.push(await syncBangumiToNeodb(bangumiNeodbFullSync));
+    } catch (error) {
+      consola.error('Bangumi → NeoDB failed: ', error);
+      const aborted = newPathReport('Bangumi → NeoDB');
+      aborted.aborted = true;
+      reports.push(aborted);
+    }
   }
 
   // NeoDB → TMDB runs last. It reads NeoDB's own shelf rather than the Douban

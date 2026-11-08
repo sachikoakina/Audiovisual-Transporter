@@ -32,10 +32,17 @@ export function planNeodbVisibility(input: {
   }
 
   // Do not invent public/private when the source cannot answer. Keep the target's current value
-  // when known, otherwise use the configured fallback; callers log the missing source value.
-  // 源端无法回答时不要猜测；优先保留目标现有值，否则使用配置兜底。
+  // when known — clamped to the legal {0,1,2}, because a non-compliant instance could echo an
+  // out-of-range value straight back on the next visibility-only write — otherwise use the
+  // configured fallback; callers log the missing source value.
+  // 源端无法回答时不要猜测；优先保留目标现有值——夹取到合法的 {0,1,2}，否则不合规实例返回的
+  // 越界值会在下一次仅可见性写回时被原样写回——其余情况使用配置兜底；缺失由调用方告警。
+  const existing = input.existingVisibility;
   return {
-    visibility: input.existingVisibility ?? input.targetVisibility,
+    visibility:
+      existing === 0 || existing === 1 || existing === 2
+        ? existing
+        : input.targetVisibility,
     reason: 'source-missing',
   };
 }

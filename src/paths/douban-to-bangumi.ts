@@ -166,19 +166,28 @@ export default async function syncDoubanToBangumi(
   for (const item of filtered) {
     scanned.add(item.link);
     try {
-      const outcome = await syncFeedItemToBangumi(item, me.username, scanned, years);
+      const { outcome, skipReason } = await syncFeedItemToBangumi(
+        item,
+        me.username,
+        scanned,
+        years,
+      );
       report[outcome] += 1;
       if (outcome === 'unresolved') {
         recordUnresolved(item, report);
       } else if (outcome === 'skipped') {
-        // The only skip this path can produce: Bangumi already holds a status Douban cannot express
-        // (搁置/抛弃), so overwriting it would destroy a fact the source has no way to restore.
-        // 本链路唯一可能的跳过：Bangumi 上已是豆瓣表达不了的状态（搁置/抛弃），覆盖它会毁掉源端
-        // 无法再表达的事实。
+        // Two skip sources, and the report carries the true slug for each:
+        //   - the status guard: Bangumi already holds a status Douban cannot express (搁置/抛弃),
+        //     so overwriting it would destroy a fact the source has no way to restore;
+        //   - an unplannable book progress: the pair of records cannot produce a progress plan
+        //     (see `planBookProgress`), which used to be mislabeled as the guard.
+        // 两类跳过，报表各带真实 slug：其一是状态守卫——Bangumi 上已是豆瓣表达不了的状态
+        // （搁置/抛弃），覆盖它会毁掉源端无法再表达的事实；其二是书籍进度规划不出结果
+        // （见 `planBookProgress`），过去曾被误标成状态守卫。
         report.skippedItems.push({
           title: item.title || item.id,
           url: item.link,
-          reason: 'guard-bangumi-status',
+          reason: skipReason ?? 'guard-bangumi-status',
           category: normalizeReviewCategory(item.category),
           shelf: normalizeReviewShelf(item.status),
         });
@@ -270,8 +279,10 @@ function recordUnresolved(item: FeedItem, report: PathReport): void {
 }
 
 /**
- * @returns The `ItemSyncOutcome` for this single item, so the caller's report adds up.
- *   该单条条目的 `ItemSyncOutcome`，使调用方的报告自洽。
+ * @returns The outcome for this single item, so the caller's report adds up. A `skipped` outcome
+ *   carries `skipReason` — the caller records the true slug on the report instead of guessing one.
+ *   该单条条目的结果，使调用方的报告自洽。`skipped` 结果携带 `skipReason` —— 调用方把真实 slug
+ *   记上报表，而不是靠猜。
  */
 async function syncFeedItemToBangumi(
   item: FeedItem,
@@ -283,7 +294,7 @@ async function syncFeedItemToBangumi(
   scanned: Set<string>,
   /** Run-local year lookups shared by every title-search attempt. / 本轮共享的年份查表。 */
   years: YearCache,
-): Promise<ItemSyncOutcome> {
+): Promise<{ outcome: ItemSyncOutcome; skipReason?: string }> {
   const label = itemLabel(item.title || item.id, item.link);
   consola.info('Douban → Bangumi: ', label);
 
@@ -295,7 +306,7 @@ async function syncFeedItemToBangumi(
       'No Bangumi match, skip: ',
       `${label} ${reviewMetaSuffix(item.category, item.status)}`,
     );
-    return 'unresolved';
+    return { outcome: 'unresolved' };
   }
 
   // The guard below is the one review entry on this path whose key is not the Douban link: its
@@ -323,7 +334,7 @@ async function syncFeedItemToBangumi(
       'Bangumi has Douban-absent status (搁置/抛弃), skip overwrite: ',
       `subject/${subjectId} type=${existing.type}`,
     );
-    return 'skipped';
+    return { outcome: 'skipped' };
   }
 
   const plan = resolveBangumiCollectionWrite({
@@ -354,7 +365,14 @@ async function syncFeedItemToBangumi(
         'Bangumi book progress skipped: ',
         `subject/${subjectId} reason=${bookPlan.reason}`,
       );
-      if (plan.unchanged) return 'skipped';
+      if (plan.unchanged) {
+        // A skip, but not the status guard: the true cause is that book progress cannot be
+        // planned from this pair of records (`both-unknown` / `no-totals` / …). Labeling it
+        // `guard-bangumi-status` sent the reader looking at the wrong rule.
+        // 这是一次跳过，但不是状态守卫：真实原因是这对记录规划不出书籍进度
+        // （`both-unknown` / `no-totals` / …）。标成 `guard-bangumi-status` 会让读者查错规则。
+        return { outcome: 'skipped', skipReason: 'progress-unplannable' };
+      }
     } else {
       bookEpStatus = bookPlan.epStatus;
       bookVolStatus = bookPlan.volStatus;
@@ -363,7 +381,7 @@ async function syncFeedItemToBangumi(
 
   if (plan.unchanged && !wantsProgress) {
     consola.info('Bangumi collection unchanged, skip: ', `subject/${subjectId}`);
-    return 'unchanged';
+    return { outcome: 'unchanged' };
   }
 
   if (plan.keepExistingRate && !plan.unchanged) {
@@ -394,12 +412,12 @@ async function syncFeedItemToBangumi(
       ...(bookEpStatus != null ? { ep_status: bookEpStatus } : {}),
       ...(bookVolStatus != null ? { vol_status: bookVolStatus } : {}),
     });
-    if (!ok) return 'failed';
+    if (!ok) return { outcome: 'failed' };
   }
 
   // Books only use ep_status/vol_status; episodes belong to movie/TV/anime/real.
   if (!wantsProgress || isBook || item.category === ItemCategory.Drama) {
-    return needsCollectionWrite ? 'written' : 'unchanged';
+    return { outcome: needsCollectionWrite ? 'written' : 'unchanged' };
   }
 
   const episodes =
@@ -420,7 +438,7 @@ async function syncFeedItemToBangumi(
 
   if (progress.reason === 'no-episodes') {
     consola.info('Bangumi progress: no episodes, skip: ', `subject/${subjectId}`);
-    return needsCollectionWrite ? 'written' : 'unchanged';
+    return { outcome: needsCollectionWrite ? 'written' : 'unchanged' };
   }
 
   if (progress.missing.length === 0) {
@@ -428,7 +446,7 @@ async function syncFeedItemToBangumi(
       'Bangumi progress: no missing episodes: ',
       `subject/${subjectId} target=${progress.target.length}`,
     );
-    return needsCollectionWrite ? 'written' : 'unchanged';
+    return { outcome: needsCollectionWrite ? 'written' : 'unchanged' };
   }
 
   let failed = false;
@@ -446,8 +464,10 @@ async function syncFeedItemToBangumi(
       `existing=${progress.target.length - progress.missing.length} added=${added} ` +
       `failed=${progress.missing.length - added}`,
   );
-  if (failed) return 'failed';
-  return added > 0 || needsCollectionWrite ? 'written' : 'unchanged';
+  if (failed) return { outcome: 'failed' };
+  return {
+    outcome: added > 0 || needsCollectionWrite ? 'written' : 'unchanged',
+  };
 }
 
 async function resolveBangumiSubjectId(

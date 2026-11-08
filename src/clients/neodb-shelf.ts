@@ -331,7 +331,7 @@ export async function fetchShelfPage(options: {
     if (!Array.isArray(result?.data)) {
       // Not an empty page: the response did not have the shape we walk. Returning `null` lets
       // `walkShelfPages` mark the walk as truncated instead of silently pretending the shelf ended.
-      // 这不是空页：响应的结构根本不对。返回 `null` 让 `fetchShelf` 把这次遍历标成截断，而不是
+      // 这不是空页：响应的结构根本不对。返回 `null` 让 `walkShelfPages` 把这次遍历标成截断，而不是
       // 悄悄假装书架到头了。
       consola.warn(
         `Unexpected shelf response for ${options.shelfType} page ${options.page}; aborting that shelf.`,

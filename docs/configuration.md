@@ -124,12 +124,11 @@
 
 ### 5.2 凭据与 Bangumi 公共项
 
-| 变量                   | 默认 | 说明              |
-| ---------------------- | ---- | ----------------- |
-| `BANGUMI_ACCESS_TOKEN` | 空   | 读写 Bangumi 必需 |
-
-| `BANGUMI_USER_AGENT` | 项目默认 UA | Bangumi 要求可识别 UA |
-| `BANGUMI_COLLECTION_LIMIT` | `50` | 收藏分页大小，范围 1–50；非数字/空值回落 50 |
+| 变量                       | 默认        | 说明                                        |
+| -------------------------- | ----------- | ------------------------------------------- |
+| `BANGUMI_ACCESS_TOKEN`     | 空          | 读写 Bangumi 必需                           |
+| `BANGUMI_USER_AGENT`       | 项目默认 UA | Bangumi 要求可识别 UA                       |
+| `BANGUMI_COLLECTION_LIMIT` | `50`        | 收藏分页大小，范围 1–50；非数字/空值回落 50 |
 
 ### 5.3 行为
 
@@ -274,7 +273,7 @@ NeoDB 侧（同 ②）：
 
 仅由 `review-queue` 使用，不在 sync 作业中执行。
 
-> **这五个变量不由 `src/` 读取，也不由 `npm run sync` 读取。** 唯一消费者是 `scripts/review-queue.mjs`，由 `.github/workflows/review-queue.yml` 直接传入 `process.env`。因此它们**不出现在 `.env.example`**（那个文件记录的是同步进程能读到什么），本地跑 `npm run sync` 时设置它们没有任何效果。
+> **这四个变量不由 `src/` 读取，也不由 `npm run sync` 读取。** 唯一消费者是 `scripts/review-queue.mjs`，由 `.github/workflows/review-queue.yml` 直接传入 `process.env`。因此它们**不出现在 `.env.example`**（那个文件记录的是同步进程能读到什么），本地跑 `npm run sync` 时设置它们没有任何效果。
 
 | 变量                       | 默认     | 说明                                                         |
 | -------------------------- | -------- | ------------------------------------------------------------ |
