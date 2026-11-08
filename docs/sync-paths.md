@@ -103,7 +103,7 @@ item.link（豆瓣 URL）
 | `rating_grade` | `SYNC_DOUBAN_NEODB_RATING`：默认 `neodb_prefer` 保留目标非 0 分；`overwrite` 才由源覆盖   |
 | `comment_text` | `SYNC_DOUBAN_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才由源覆盖 |
 | `visibility`   | 与配置的目标可见性比较，不一致才写                                                        |
-| `created_time` | 新建和更新都传豆瓣 RSS `time`；更新时可能改变标记日期                                     |
+| `created_time` | 仅新建时传豆瓣 RSS `time`；已有标记更新不传，保留原日期                                   |
 
 ## 是否写入
 
@@ -319,20 +319,29 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 
 ```text
 Bangumi subject URL
-  → NeoDB catalog fetch
-  → 条目带豆瓣外链：优先豆瓣孪生
-  → 否则同分类精确标题 + 年份
+  → NeoDB catalog fetch（直链 A）
+  → 找带豆瓣外链的同名候选 B
+  → 标题 + 年份筛选
+  → NeoDB 媒体形态软裁决
+  → 唯一候选才写
 ```
 
 - 分类由 Bangumi `subject_type` 决定：
   - 1 书籍 → `book`
-  - 2 动画 → `anime`
+  - 2 动画 → `movie,tv`
   - 3 音乐 → `music`
   - 4 游戏 → `game`
   - 6 真人 → `movie,tv`
-- **禁止跨分类回退**；
-- 年份双方可用且相差超过 1 年 → 拒绝；
-- 直链 > 豆瓣孪生 > 仅标题匹配。
+- **只允许 movie/tv 内部互搜；book/music/game 各自封闭，禁止跨大类**；
+- 年份双方可用且相差超过 1 年 → 拒绝；任一侧缺失 → 不立即判断；
+- 同名多候选先收集，不允许 first-hit；
+- 最终用直链 A 的 NeoDB `category` / URL 判断媒体形态：
+  - A 类型未知 → B 唯一即选 B；
+  - A 与 B 同类型 → B 唯一即选 B；
+  - A 与 B 不同类型 → 选 A；
+  - 仍无法唯一 → ambiguous，不写；
+- Bangumi `subject_type` 只用于搜索分类，不能用来直接判断电影/TV；
+- 直链 A 没有可用豆瓣孪生时，仍使用 A。
 
 ## 状态映射
 
@@ -357,13 +366,10 @@ Bangumi subject URL
 
 ### created_time
 
-| 模式             | 新建            | 更新                        |
-| ---------------- | --------------- | --------------------------- |
-| `target`（默认） | 用 Bangumi 时间 | 省略，保留 NeoDB 原日期     |
-| `source`         | 用 Bangumi 时间 | 用 Bangumi 时间，允许倒退   |
-| `source-newer`   | 用 Bangumi 时间 | 仅当 Bangumi 时间更晚才覆盖 |
-
-源时间缺失/非法 → 省略，不写 `now()`。
+- 新建标记：源时间合法 → 写 Bangumi 时间；否则省略；
+- 已有标记：更新时一律省略，保留 NeoDB 原 `created_time`；
+- 只改评分/短评/状态都不会重置创建日期；
+- `SYNC_BANGUMI_NEODB_CREATED_TIME` 的旧模式不再影响已有标记更新。
 
 ### 进度
 
@@ -391,13 +397,13 @@ Bangumi subject URL
 
 ② 先执行，④ 后执行；④ 的 `targetClaims` 不包含 ②。
 
-| 字段         | ② 豆瓣                        | ④ Bangumi                      | 最终结果                                |
-| ------------ | ----------------------------- | ------------------------------ | --------------------------------------- |
-| 状态         | 豆瓣状态                      | Bangumi 状态 + 可选 guard      | ④ 后写；guard 可阻止 complete 降级      |
-| 评分         | 按 `SYNC_DOUBAN_NEODB_RATING` | 按 `SYNC_BANGUMI_NEODB_RATING` | ④ 读取 ② 的结果后再合并                 |
-| 短评         | 同上                          | 同上                           | 同上                                    |
-| 可见性       | `NEODB_VISIBILITY`            | 同                             | 最后一次写按配置                        |
-| created_time | 总是豆瓣 `time`               | 按 created_time 模式           | 默认 ④ 保留 ② 的日期；source 模式可能改 |
+| 字段         | ② 豆瓣                        | ④ Bangumi                      | 最终结果                           |
+| ------------ | ----------------------------- | ------------------------------ | ---------------------------------- |
+| 状态         | 豆瓣状态                      | Bangumi 状态 + 可选 guard      | ④ 后写；guard 可阻止 complete 降级 |
+| 评分         | 按 `SYNC_DOUBAN_NEODB_RATING` | 按 `SYNC_BANGUMI_NEODB_RATING` | ④ 读取 ② 的结果后再合并            |
+| 短评         | 同上                          | 同上                           | 同上                               |
+| 可见性       | `NEODB_VISIBILITY`            | 同                             | 最后一次写按配置                   |
+| created_time | 仅新建写豆瓣 `time`           | 仅新建写 Bangumi 时间          | 已有标记都不再改写日期             |
 
 因此，②/④ 都启用时，最终状态通常由 ④ 决定；若只想让 Bangumi 作最终状态源，应关闭 ② 或接受 ④ 后写。
 

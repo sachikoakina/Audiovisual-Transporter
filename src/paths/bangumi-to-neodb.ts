@@ -209,6 +209,7 @@ export default async function syncBangumiToNeodb(
     string,
     Awaited<ReturnType<typeof resolveNeodbItemForBangumiUrlDetailed>>
   >();
+  const yearCache = new Map<number, number | undefined>();
 
   for (const subjectType of typePasses) {
     // One cursor per pass: a full sync can run several, and each has its own offset.
@@ -278,6 +279,7 @@ export default async function syncBangumiToNeodb(
             mangaPlatformCheck,
             targetClaims,
             resolutionCache,
+            yearCache,
           );
           switch (outcome) {
             case 'written':
@@ -462,6 +464,7 @@ async function syncCollectionToNeodb(
     string,
     Awaited<ReturnType<typeof resolveNeodbItemForBangumiUrlDetailed>>
   >,
+  yearCache: Map<number, number | undefined>,
 ): Promise<CollectionOutcome> {
   const url = bangumiSubjectUrl(collection.subject_id);
   const title = collectionTitle(collection);
@@ -475,7 +478,33 @@ async function syncCollectionToNeodb(
     return 'skipped-platform';
   }
 
-  const expectedYear = Number(collection.subject?.date?.slice(0, 4)) || undefined;
+  const yearFromSummary =
+    Number(collection.subject?.date?.slice(0, 4)) ||
+    Number(collection.subject?.air_date?.slice(0, 4)) ||
+    collection.subject?.air_year ||
+    undefined;
+  let expectedYear = yearFromSummary;
+  let yearSource = yearFromSummary ? 'summary' : 'missing';
+  if (!expectedYear) {
+    if (!yearCache.has(collection.subject_id)) {
+      const subject = readOptionalOrThrow(
+        await getBangumiSubject(collection.subject_id),
+        'Bangumi subject year',
+      );
+      const fullYear =
+        Number(subject?.date?.slice(0, 4)) ||
+        Number(subject?.air_date?.slice(0, 4)) ||
+        subject?.air_year ||
+        undefined;
+      yearCache.set(collection.subject_id, fullYear);
+    }
+    expectedYear = yearCache.get(collection.subject_id);
+    yearSource = expectedYear ? 'full-subject' : 'missing';
+  }
+  consola.info(
+    'Bangumi year: ',
+    `subject=${collection.subject_id} source=${yearSource} year=${expectedYear ?? 'missing'}`,
+  );
   let resolution = resolutionCache.get(url);
   if (!resolution) {
     resolution = await resolveNeodbItemForBangumiUrlDetailed(url, {
@@ -488,6 +517,18 @@ async function syncCollectionToNeodb(
     }
   }
   const neodbItem = resolution.item;
+  consola.info(
+    'NeoDB resolution: ',
+    `subject=${collection.subject_id} expectedYear=${expectedYear ?? 'missing'} ` +
+      `via=${resolution.via} chosen=${neodbItem?.uuid ?? 'none'}` +
+      `${resolution.ambiguous ? ' ambiguous=true' : ''}`,
+  );
+  if (resolution.ambiguous) {
+    consola.warn(
+      'NeoDB match ambiguous, skip: ',
+      `subject=${collection.subject_id} year=${expectedYear ?? 'missing'}`,
+    );
+  }
   if (!neodbItem?.uuid) {
     // The title leads and the URL follows, instead of the URL alone. The review list has to name
     // the entry it is asking about, and a bare `bgm.tv/subject/N` is only an address — the list
@@ -533,15 +574,19 @@ async function syncCollectionToNeodb(
   // mistaken for "not marked yet" and created over.
   // 读取失败会抛出：标记原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
   const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
-  const createdTime = resolveCreatedTime({
-    mode: syncConfig.bangumiNeodbCreatedTime,
-    isNew: !mark,
-    sourceRaw: collection.updated_at,
-    targetRaw: mark?.created_time,
-  });
+  // Only a new mark gets a created_time. Updating an existing mark must not reset its creation
+  // date just because a rating/comment/status field changed.
+  // 只有新建标记才写 created_time；已有标记更新不应因为评分/短评/状态变化而重置创建日期。
+  const createdTime = mark
+    ? undefined
+    : resolveCreatedTime({
+        mode: 'source',
+        isNew: true,
+        sourceRaw: collection.updated_at,
+      });
   consola.debug(
     `NeoDB created_time plan: source=${collection.updated_at ?? 'none'} ` +
-      `target=${mark?.created_time ?? 'none'} mode=${syncConfig.bangumiNeodbCreatedTime} ` +
+      `target=${mark?.created_time ?? 'none'} existing=${mark ? 'omit' : 'new'} ` +
       `chosen=${createdTime ?? 'omit'}`,
   );
   const effectiveShelf = applyStatusGuard(
@@ -596,6 +641,20 @@ async function syncCollectionToNeodb(
           title,
         );
       }
+      const reasons = [
+        mark.shelf_type !== merged.shelfType ? 'status' : null,
+        (mark.rating_grade || 0) !== merged.ratingGrade ? 'rating' : null,
+        (mark.comment_text || '') !== merged.comment ? 'comment' : null,
+        (mark.visibility ?? neodbVisibility) !== neodbVisibility ? 'visibility' : null,
+      ].filter(Boolean);
+      consola.info(
+        'NeoDB write: ',
+        `subject=${collection.subject_id} shelf=${mark.shelf_type}→${merged.shelfType} ` +
+          `rating=${mark.rating_grade || 0}→${merged.ratingGrade} ` +
+          `comment="${mark.comment_text || ''}"→"${merged.comment}" ` +
+          `visibility=${mark.visibility ?? neodbVisibility}→${neodbVisibility} ` +
+          `reason=${reasons.join('+') || 'unknown'}`,
+      );
       // 默认模式会让 createdTime 为空，客户端序列化时省略该字段；source 模式按配置更新日期。
       if (
         !(await markNeodbItem(neodbItem, {

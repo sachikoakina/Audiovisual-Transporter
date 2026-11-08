@@ -325,7 +325,9 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
     shelfType: merged.shelfType,
     comment: merged.comment,
     ratingGrade: merged.ratingGrade,
-    createdTime: item.time,
+    // Existing marks keep their original created_time; only a new mark gets the RSS time.
+    // 已有标记保留原创建时间；只有新建标记使用 RSS 时间。
+    createdTime: undefined,
   });
   return ok ? 'written' : 'failed';
 }

@@ -11,8 +11,11 @@ vi.mock('../../src/clients/neodb-http', () => ({
   neodbFailureCode: () => 'test',
 }));
 
-const { findDoubanLinkedTwinByTitle, resolveNeodbItemForBangumiUrlDetailed } =
-  await import('../../src/clients/neodb-catalog');
+const {
+  findDoubanLinkedTwinByTitle,
+  pickDoubanLinkedTwin,
+  resolveNeodbItemForBangumiUrlDetailed,
+} = await import('../../src/clients/neodb-catalog');
 
 function item(over: Record<string, unknown>) {
   return {
@@ -110,6 +113,52 @@ describe('findDoubanLinkedTwinByTitle', () => {
 
     expect(result.item).toBeNull();
     expect(result.failure).toBe('not-found');
+  });
+
+  it('picks the candidate matching the expected year instead of the first hit', () => {
+    const direct = item({ uuid: 'direct', category: 'movie', pub_year: 2007 });
+    const result = pickDoubanLinkedTwin(
+      [
+        item({ uuid: 'wrong', category: 'movie', pub_year: 2014 }),
+        item({ uuid: 'right', category: 'movie', pub_year: 2007 }),
+      ],
+      direct,
+      2007,
+    );
+
+    expect(result.item?.uuid).toBe('right');
+    expect(result.ambiguous).toBe(false);
+  });
+
+  it('does not let a movie twin replace a TV direct item', () => {
+    const direct = item({
+      uuid: 'tv',
+      category: 'tv',
+      url: 'https://neodb.social/tv/season/x',
+    });
+    const result = pickDoubanLinkedTwin(
+      [item({ uuid: 'movie', category: 'movie', pub_year: 2007 })],
+      direct,
+      2007,
+    );
+
+    expect(result.item).toBeNull();
+    expect(result.ambiguous).toBe(false);
+  });
+
+  it('marks multiple same-year candidates as ambiguous', () => {
+    const direct = item({ uuid: 'direct', category: 'movie', pub_year: 2007 });
+    const result = pickDoubanLinkedTwin(
+      [
+        item({ uuid: 'a', category: 'movie', pub_year: 2007 }),
+        item({ uuid: 'b', category: 'movie', pub_year: 2007 }),
+      ],
+      direct,
+      2007,
+    );
+
+    expect(result.item).toBeNull();
+    expect(result.ambiguous).toBe(true);
   });
 
   it('accepts a same-category twin when the year is within tolerance', async () => {

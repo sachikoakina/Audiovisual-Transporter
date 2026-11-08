@@ -132,6 +132,7 @@ jobs:
       # The manual `neodb_tmdb_full_sync` input wins; otherwise fall back to the Variables value (default 0).
       # 手动 `neodb_tmdb_full_sync` 输入优先；否则取 Variables 的值（默认 0）。
       NEODB_TMDB_FULL_SYNC: ${{ inputs.neodb_tmdb_full_sync && '1' || vars.NEODB_TMDB_FULL_SYNC || '0' }}
+      SYNC_NEODB_TMDB_RATING: ${{ vars.SYNC_NEODB_TMDB_RATING || 'tmdb_prefer' }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       # Writes need a v3 session id or a user-scoped v4 token. A v4 *read*
       # token (scopes: api_read) authenticates reads but fails every write.

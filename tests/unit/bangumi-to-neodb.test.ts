@@ -240,7 +240,7 @@ describe('④ full-sync cursor / 全量游标', () => {
 });
 
 describe('④ created_time / 标记日期', () => {
-  it('passes the normalized Bangumi time through in source mode', async () => {
+  it('omits created_time when updating an existing mark', async () => {
     syncConfig.bangumiNeodbCreatedTime = 'source';
     getNeodbMark.mockResolvedValue({
       status: 'found',
@@ -257,7 +257,7 @@ describe('④ created_time / 标记日期', () => {
 
     expect(markNeodbItem).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ createdTime: '2026-01-01T00:00:00.000Z' }),
+      expect.objectContaining({ createdTime: undefined }),
     );
     syncConfig.bangumiNeodbCreatedTime = 'target';
   });

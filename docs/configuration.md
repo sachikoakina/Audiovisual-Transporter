@@ -98,7 +98,7 @@
 - 用豆瓣条目 URL 解析 NeoDB 目录；
 - 目录不存在 → `unresolved`，不创建目录；
 - 现有 NeoDB `dropped` 不被豆瓣覆盖；
-- 更新时 `created_time` 仍传豆瓣 RSS `time`，可能改变标记日期；
+- `created_time` 仅在新建标记时传豆瓣 RSS `time`；更新已有标记不传，保留原日期；
 - 不写进度。
 
 ---
@@ -151,13 +151,13 @@
 | `SYNC_BANGUMI_NEODB_RATING`       | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                               |
 | `SYNC_BANGUMI_NEODB_COMMENT`      | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                              |
 | `SYNC_BANGUMI_NEODB_STATUS_GUARD` | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖              |
-| `SYNC_BANGUMI_NEODB_CREATED_TIME` | `target`       | NeoDB 标记日期策略                                                      |
+| `SYNC_BANGUMI_NEODB_CREATED_TIME` | `target`       | 兼容保留；已有标记更新不再使用该模式                                    |
 
-`SYNC_BANGUMI_NEODB_CREATED_TIME`：
+`created_time` 当前行为：
 
-- `target`：更新时不传，保留 NeoDB 原日期；新建用 Bangumi 时间；
-- `source`：更新时也用 Bangumi 时间，允许倒退；
-- `source-newer`：仅当 Bangumi 时间更晚才覆盖。
+- 新建标记：用 Bangumi 时间；
+- 已有标记：更新时一律不传，保留 NeoDB 原日期；
+- 旧 `target` / `source` / `source-newer` 模式不再影响已有标记更新。
 
 ### 6.2 全量分页
 

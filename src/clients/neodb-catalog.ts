@@ -281,19 +281,40 @@ function yearMatches(
   return Math.abs(expectedYear - actualYear) <= 1;
 }
 
-export async function findDoubanLinkedTwinByTitle(
+/** Coarse NeoDB media form, used only as a final tie-break. / 仅用于最终软裁决的 NeoDB 媒体形态。 */
+function mediaFormOf(item: NeodbItem): NeodbSearchCategory | undefined {
+  if (item.category === 'movie' || item.category === 'tv') {
+    return item.category;
+  }
+  if (
+    item.category === 'book' ||
+    item.category === 'music' ||
+    item.category === 'game'
+  ) {
+    return item.category;
+  }
+  const url = item.url || '';
+  if (/\/movie\//.test(url)) return 'movie';
+  if (/\/tv\//.test(url)) return 'tv';
+  if (/\/book\//.test(url)) return 'book';
+  if (/\/music\//.test(url)) return 'music';
+  if (/\/game\//.test(url)) return 'game';
+  return undefined;
+}
+
+export async function findDoubanLinkedTwinCandidates(
   fromBangumi: NeodbItem,
   titles: Array<string | null | undefined>,
   category?: NeodbSearchCategory,
   expectedYear?: number,
-): Promise<NeodbItem | null> {
+): Promise<NeodbItem[]> {
   const queries = uniqueNonEmptyTitles([
     ...titles,
     fromBangumi.title,
     fromBangumi.display_title,
   ]);
   if (!queries.length) {
-    return null;
+    return [];
   }
 
   const queryKeys = new Set(queries.map(normalizeTitleKey));
@@ -306,6 +327,7 @@ export async function findDoubanLinkedTwinByTitle(
     ? [category]
     : [undefined];
   const seenUuid = new Set<string>([fromBangumi.uuid]);
+  const candidates: NeodbItem[] = [];
 
   for (const cat of categories) {
     for (const query of queries) {
@@ -325,17 +347,66 @@ export async function findDoubanLinkedTwinByTitle(
         }
         if (!matched) continue;
         if (!yearMatches(expectedYear, itemYear(hit))) continue;
-
-        consola.info(
-          'NeoDB Douban twin found via title search: ',
-          `${fromBangumi.uuid} → ${hit.uuid} (${hit.title || hit.display_title})`,
-        );
-        return hit;
+        candidates.push(hit);
       }
     }
   }
 
-  return null;
+  return candidates;
+}
+
+/** Pick one twin, preferring a matching year and the same NeoDB media form. / 按年份与媒体形态选一个孪生。 */
+export function pickDoubanLinkedTwin(
+  candidates: NeodbItem[],
+  fromBangumi: NeodbItem,
+  expectedYear?: number,
+): { item: NeodbItem | null; ambiguous: boolean } {
+  const directForm = mediaFormOf(fromBangumi);
+  const sameForm = directForm
+    ? candidates.filter((candidate) => mediaFormOf(candidate) === directForm)
+    : candidates;
+  if (!sameForm.length) {
+    return { item: null, ambiguous: false };
+  }
+  if (sameForm.length === 1) {
+    return { item: sameForm[0], ambiguous: false };
+  }
+
+  const scored = sameForm.map((item) => {
+    const year = itemYear(item);
+    const score =
+      expectedYear == null || year == null
+        ? 0
+        : Math.abs(expectedYear - year) <= 1
+          ? 2
+          : -1;
+    return { item, score };
+  });
+  const viable = scored.filter((entry) => entry.score >= 0);
+  if (!viable.length) {
+    return { item: null, ambiguous: false };
+  }
+  const max = Math.max(...viable.map((entry) => entry.score));
+  const best = viable.filter((entry) => entry.score === max);
+  if (best.length !== 1) {
+    return { item: null, ambiguous: true };
+  }
+  return { item: best[0].item, ambiguous: false };
+}
+
+export async function findDoubanLinkedTwinByTitle(
+  fromBangumi: NeodbItem,
+  titles: Array<string | null | undefined>,
+  category?: NeodbSearchCategory,
+  expectedYear?: number,
+): Promise<NeodbItem | null> {
+  const candidates = await findDoubanLinkedTwinCandidates(
+    fromBangumi,
+    titles,
+    category,
+    expectedYear,
+  );
+  return pickDoubanLinkedTwin(candidates, fromBangumi, expectedYear).item;
 }
 
 export type ResolveBangumiNeodbOptions = {
@@ -352,6 +423,8 @@ export type NeodbResolution = {
   item: NeodbItem | null;
   via: NeodbResolutionVia;
   failure?: NeodbFetchFailure;
+  /** Multiple same-title candidates could not be reduced to one. / 同名候选无法唯一收敛。 */
+  ambiguous?: boolean;
 };
 
 /**
@@ -400,13 +473,26 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
       ? bangumiSubjectTypeToNeodbSearchCategory(options.subjectType)
       : neodbCategoryToSearchCategory(fromBangumi.category);
 
-  const twin = await findDoubanLinkedTwinByTitle(
+  const candidates = await findDoubanLinkedTwinCandidates(
     fromBangumi,
     options.titles || [],
     category,
     options.expectedYear,
   );
-  return twin
-    ? { item: twin, via: 'title-twin' }
-    : { item: fromBangumi, via: 'direct' };
+  const picked = pickDoubanLinkedTwin(candidates, fromBangumi, options.expectedYear);
+  if (picked.ambiguous) {
+    consola.warn(
+      'NeoDB same-title twins are ambiguous; refusing to pick one: ',
+      `${fromBangumi.uuid} candidates=${candidates.map((candidate) => candidate.uuid).join(',')}`,
+    );
+    return { item: null, via: 'none', ambiguous: true };
+  }
+  if (picked.item) {
+    consola.info(
+      'NeoDB Douban twin found via title search: ',
+      `${fromBangumi.uuid} → ${picked.item.uuid} (${picked.item.title || picked.item.display_title})`,
+    );
+    return { item: picked.item, via: 'title-twin' };
+  }
+  return { item: fromBangumi, via: 'direct' };
 }
