@@ -25,6 +25,7 @@ import {
   type BangumiMergeProfile,
   type BangumiNeodbCategory,
 } from './rules/bangumi-neodb';
+import type { MarkTimePolicy } from './rules/neodb-mark-time';
 
 dotenv.config();
 
@@ -135,6 +136,25 @@ export function parseBangumiMergeProfile(
   }
   consola.warn(
     `${envName}=${raw} is invalid (use overwrite|bangumi_prefer); falling back to ${defaultValue}`,
+  );
+  return defaultValue;
+}
+
+/** Parse a per-path mark-time policy. / 解析按链路设置的标记时间策略。 */
+export function parseMarkTimePolicy(
+  envName: string,
+  defaultValue: MarkTimePolicy = 'status',
+): MarkTimePolicy {
+  const raw = process.env[envName];
+  if (raw === undefined || raw.trim() === '') {
+    return defaultValue;
+  }
+  const value = raw.trim().toLowerCase();
+  if (value === 'status' || value === 'initial-source' || value === 'always-source') {
+    return value;
+  }
+  consola.warn(
+    `${envName}=${raw} is invalid (use status|initial-source|always-source); falling back to ${defaultValue}`,
   );
   return defaultValue;
 }
@@ -265,8 +285,12 @@ export const syncConfig = {
 
   doubanNeodbRating: parseMergeProfile('SYNC_DOUBAN_NEODB_RATING'),
   doubanNeodbComment: parseMergeProfile('SYNC_DOUBAN_NEODB_COMMENT'),
+  doubanNeodbMarkTimePolicy: parseMarkTimePolicy('SYNC_DOUBAN_NEODB_MARK_TIME_POLICY'),
   bangumiNeodbRating: parseMergeProfile('SYNC_BANGUMI_NEODB_RATING'),
   bangumiNeodbComment: parseMergeProfile('SYNC_BANGUMI_NEODB_COMMENT'),
+  bangumiNeodbMarkTimePolicy: parseMarkTimePolicy(
+    'SYNC_BANGUMI_NEODB_MARK_TIME_POLICY',
+  ),
   // Opt-in only: same-subject downgrades must stay possible; this guard is for users who treat
   // their archive as append-only. / 默认关闭：同一 subject 的降级必须仍可发生；只有把归档当作
   // 只增不减的用户才需要开启。
@@ -274,16 +298,6 @@ export const syncConfig = {
     process.env.SYNC_BANGUMI_NEODB_STATUS_GUARD === 'no-downgrade'
       ? ('no-downgrade' as const)
       : ('off' as const),
-  // Bangumi only has `updated_at` (last edit), not a status-marked-at field. Default keeps
-  // NeoDB's own date; `source` / `source-newer` are explicit opt-ins.
-  // Bangumi 只有 `updated_at`（最后修改），没有状态标记时间。默认保留 NeoDB 自己的日期；
-  // `source` / `source-newer` 需要显式开启。
-  bangumiNeodbCreatedTime:
-    process.env.SYNC_BANGUMI_NEODB_CREATED_TIME === 'source'
-      ? ('source' as const)
-      : process.env.SYNC_BANGUMI_NEODB_CREATED_TIME === 'source-newer'
-        ? ('source-newer' as const)
-        : ('target' as const),
 };
 
 export function needsDoubanRss(): boolean {
@@ -368,11 +382,23 @@ export function needsBangumiMangaPlatformCheck(
 }
 
 export function describeSyncConfig(): string {
+  if (
+    syncConfig.doubanNeodb &&
+    syncConfig.bangumiNeodb &&
+    syncConfig.doubanNeodbMarkTimePolicy !== syncConfig.bangumiNeodbMarkTimePolicy
+  ) {
+    consola.warn(
+      'Mark-time policies differ: ' +
+        `Douban→NeoDB=${syncConfig.doubanNeodbMarkTimePolicy}, ` +
+        `Bangumi→NeoDB=${syncConfig.bangumiNeodbMarkTimePolicy}. ` +
+        'If both write the same NeoDB uuid, ④ runs later and its policy wins.',
+    );
+  }
   const lines = [
     `Douban→Notion: ${syncConfig.doubanNotion ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNotionCategories)})`,
-    `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment})`,
+    `Douban→NeoDB: ${syncConfig.doubanNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanNeodbCategories)}, rating=${syncConfig.doubanNeodbRating}, comment=${syncConfig.doubanNeodbComment}, markTime=${syncConfig.doubanNeodbMarkTimePolicy})`,
     `Douban→Bangumi: ${syncConfig.doubanBangumi ? 'on' : 'off'} (${formatAllowlist(syncConfig.doubanBangumiCategories)}, rating=${syncConfig.doubanBangumiRating}, comment=${syncConfig.doubanBangumiComment}, progress=${syncConfig.doubanBangumiEpisodes ? 'on' : 'off'}${syncConfig.doubanBangumiIncludeSp ? ', sp=on' : ''})`,
-    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
+    `Bangumi→NeoDB: ${syncConfig.bangumiNeodb ? 'on' : 'off'} (${formatAllowlist(syncConfig.bangumiNeodbCategories)}, rating=${syncConfig.bangumiNeodbRating}, comment=${syncConfig.bangumiNeodbComment}, markTime=${syncConfig.bangumiNeodbMarkTimePolicy}, progress=${syncConfig.bangumiNeodbProgress ? 'on' : 'off'})`,
   ];
   return lines.join(', ');
 }

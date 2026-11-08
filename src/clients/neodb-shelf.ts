@@ -89,7 +89,8 @@ export type MarkNeodbOptions = {
   rating?: number | null;
   /** Already in the NeoDB 0–10 scale. Takes precedence over `rating` when set. / 已是 NeoDB 的 0–10 分制；设置时优先于 `rating`。 */
   ratingGrade?: number | null;
-  createdTime?: string | null;
+  /** Mark time sent as NeoDB `created_time`; already normalized by the caller. / 标记时间；以 NeoDB `created_time` 发送，调用方已归一化。 */
+  markTime?: string | null;
   visibility?: number;
 };
 
@@ -126,7 +127,7 @@ export async function markNeodbItem(
         visibility: options.visibility ?? neodbVisibility,
         comment_text: options.comment || '',
         rating_grade: ratingGrade,
-        created_time: options.createdTime || undefined,
+        created_time: options.markTime || undefined,
         post_to_fediverse: false,
       },
     });

@@ -12,6 +12,54 @@
 
 ---
 
+## NeoDB 标记时间策略（②④）
+
+NeoDB 的请求字段仍叫 `created_time`，同步侧把这次写入的时间称为“标记时间”。② 与 ④ 各自使用：
+
+```bash
+SYNC_DOUBAN_NEODB_MARK_TIME_POLICY=status
+SYNC_BANGUMI_NEODB_MARK_TIME_POLICY=status
+```
+
+可选值：
+
+```text
+status
+initial-source
+always-source
+```
+
+| 策略             | 新建标记 | 已有标记，状态相同 | 已有标记，状态变化 |
+| ---------------- | -------- | ------------------ | ------------------ |
+| `status`（默认） | 来源时间 | 目标时间           | 来源时间           |
+| `initial-source` | 来源时间 | 目标时间           | 目标时间           |
+| `always-source`  | 来源时间 | 来源时间           | 来源时间           |
+
+来源时间：
+
+- ② 豆瓣 RSS：`item.time`；
+- ④ Bangumi：`collection.updated_at`。
+
+“状态变化”以最终实际写入状态为准；④ 经过 `no-downgrade` 后如果仍保持 complete，就属于状态未变，保留目标时间。
+
+### 适用场景
+
+| 策略             | 适用场景                                                |
+| ---------------- | ------------------------------------------------------- |
+| `status`         | 默认；标记时间跟随收藏状态变化，评分/短评更新不重置时间 |
+| `initial-source` | 已有标记时间不可变，只给新标记播种来源时间              |
+| `always-source`  | 每次写入都对齐来源时间，适合重建或强制同步              |
+
+### 边界
+
+- 只改评分、只改短评、短评有↔无都不是状态变化；`status` / `initial-source` 下保留目标时间。
+- 状态相同且目标时间缺失 → 不写、不回填。
+- 来源时间缺失/非法 → 省略，不使用 `now()`。
+- 发生写请求可能新增 NeoDB 历史更新记录，但 `created_time` 不一定变化。
+- ②④ 同时写同一 NeoDB uuid 时，② 先执行、④ 后执行；最终时间由 ④ 的策略决定。
+
+---
+
 # ① 豆瓣 RSS → Notion
 
 ## 作用
@@ -103,7 +151,7 @@ item.link（豆瓣 URL）
 | `rating_grade` | `SYNC_DOUBAN_NEODB_RATING`：默认 `neodb_prefer` 保留目标非 0 分；`overwrite` 才由源覆盖   |
 | `comment_text` | `SYNC_DOUBAN_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才由源覆盖 |
 | `visibility`   | 与配置的目标可见性比较，不一致才写                                                        |
-| `created_time` | 仅新建时传豆瓣 RSS `time`；已有标记更新不传，保留原日期                                   |
+| `created_time` | 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY`；见《NeoDB 标记时间策略》                         |
 
 ## 是否写入
 
@@ -361,15 +409,12 @@ Bangumi subject URL
 | `rating_grade` | `SYNC_BANGUMI_NEODB_RATING`：默认 `neodb_prefer` 保留目标非 0 分；`overwrite` 才用源分     |
 | `comment_text` | `SYNC_BANGUMI_NEODB_COMMENT`：默认 `neodb_prefer` 保留目标非空短评；`overwrite` 才用源短评 |
 | `visibility`   | 与 `NEODB_VISIBILITY` 比较，不一致才写                                                     |
-| `created_time` | 见下                                                                                       |
+| `created_time` | 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY`；见《NeoDB 标记时间策略》                         |
 | 进度           | `SYNC_BANGUMI_NEODB_PROGRESS=1` 时写；0 不清空                                             |
 
 ### created_time
 
-- 新建标记：源时间合法 → 写 Bangumi 时间；否则省略；
-- 已有标记：更新时一律省略，保留 NeoDB 原 `created_time`；
-- 只改评分/短评/状态都不会重置创建日期；
-- `SYNC_BANGUMI_NEODB_CREATED_TIME` 的旧模式不再影响已有标记更新。
+按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理，具体规则见《NeoDB 标记时间策略》。
 
 ### 进度
 
@@ -397,13 +442,13 @@ Bangumi subject URL
 
 ② 先执行，④ 后执行；④ 的 `targetClaims` 不包含 ②。
 
-| 字段         | ② 豆瓣                        | ④ Bangumi                      | 最终结果                           |
-| ------------ | ----------------------------- | ------------------------------ | ---------------------------------- |
-| 状态         | 豆瓣状态                      | Bangumi 状态 + 可选 guard      | ④ 后写；guard 可阻止 complete 降级 |
-| 评分         | 按 `SYNC_DOUBAN_NEODB_RATING` | 按 `SYNC_BANGUMI_NEODB_RATING` | ④ 读取 ② 的结果后再合并            |
-| 短评         | 同上                          | 同上                           | 同上                               |
-| 可见性       | `NEODB_VISIBILITY`            | 同                             | 最后一次写按配置                   |
-| created_time | 仅新建写豆瓣 `time`           | 仅新建写 Bangumi 时间          | 已有标记都不再改写日期             |
+| 字段         | ② 豆瓣                                  | ④ Bangumi                                | 最终结果                           |
+| ------------ | --------------------------------------- | ---------------------------------------- | ---------------------------------- |
+| 状态         | 豆瓣状态                                | Bangumi 状态 + 可选 guard                | ④ 后写；guard 可阻止 complete 降级 |
+| 评分         | 按 `SYNC_DOUBAN_NEODB_RATING`           | 按 `SYNC_BANGUMI_NEODB_RATING`           | ④ 读取 ② 的结果后再合并            |
+| 短评         | 同上                                    | 同上                                     | 同上                               |
+| 可见性       | `NEODB_VISIBILITY`                      | 同                                       | 最后一次写按配置                   |
+| created_time | 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` | 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` | ④ 后写，最终时间由 ④ 的策略决定    |
 
 因此，②/④ 都启用时，最终状态通常由 ④ 决定；若只想让 Bangumi 作最终状态源，应关闭 ② 或接受 ④ 后写。
 

@@ -8,8 +8,8 @@
  * 这是唯一会遍历分页的链路（`while (true)`，以收藏总数为界），也是唯一可以「只跑一页」的链路：
  * 若 `bangumiNeodbFullSync` 为假，它在第一页之后就退出循环。
  *
- * 更新日期由 `SYNC_BANGUMI_NEODB_CREATED_TIME` 决定：默认保留 NeoDB 日期，显式模式才会使用
- * Bangumi 的 `updated_at`。新建标记在有有效源日期时可用该日期初始化。
+ * 标记时间由 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 决定：新建用 Bangumi 时间；状态不变时
+ * 保留目标时间，状态变化时用 Bangumi 时间覆盖。`initial-source` / `always-source` 可改变后续行为。
  *
  * When resolving a Bangumi URL it prefers the Douban-linked twin, so that marks land on the same
  * NeoDB uuid as path ② (Douban → NeoDB).
@@ -54,7 +54,7 @@ import {
   shouldSkipClaim,
   type TargetClaim,
 } from '../rules/bangumi-target-conflict';
-import { resolveCreatedTime } from '../rules/bangumi-created-time';
+import { planNeodbMarkTime } from '../rules/neodb-mark-time';
 import {
   bangumiSubjectTypesForAllowlist,
   needsBangumiMangaPlatformCheck,
@@ -574,25 +574,25 @@ async function syncCollectionToNeodb(
   // mistaken for "not marked yet" and created over.
   // 读取失败会抛出：标记原样不动并计入失败，而不是被当成「还没有标记」直接新建覆盖。
   const mark = readOptionalOrThrow(await getNeodbMark(neodbItem.uuid), 'NeoDB mark');
-  // Only a new mark gets a created_time. Updating an existing mark must not reset its creation
-  // date just because a rating/comment/status field changed.
-  // 只有新建标记才写 created_time；已有标记更新不应因为评分/短评/状态变化而重置创建日期。
-  const createdTime = mark
-    ? undefined
-    : resolveCreatedTime({
-        mode: 'source',
-        isNew: true,
-        sourceRaw: collection.updated_at,
-      });
-  consola.debug(
-    `NeoDB created_time plan: source=${collection.updated_at ?? 'none'} ` +
-      `target=${mark?.created_time ?? 'none'} existing=${mark ? 'omit' : 'new'} ` +
-      `chosen=${createdTime ?? 'omit'}`,
-  );
   const effectiveShelf = applyStatusGuard(
     (mark?.shelf_type as Parameters<typeof applyStatusGuard>[0]) ?? null,
     shelfType,
     syncConfig.bangumiNeodbStatusGuard,
+  );
+  const statusChanged = mark != null && mark.shelf_type !== effectiveShelf;
+  const markTimePlan = planNeodbMarkTime({
+    policy: syncConfig.bangumiNeodbMarkTimePolicy,
+    isNew: !mark,
+    statusChanged,
+    sourceRaw: collection.updated_at,
+    targetRaw: mark?.created_time,
+  });
+  consola.info(
+    'NeoDB mark time: ',
+    `subject=${collection.subject_id} source=${collection.updated_at || 'none'} ` +
+      `target=${mark?.created_time || 'none'} statusChanged=${statusChanged} ` +
+      `policy=${syncConfig.bangumiNeodbMarkTimePolicy} ` +
+      `chosen=${markTimePlan.markTime || 'omit'} reason=${markTimePlan.reason}`,
   );
   consola.debug(
     `NeoDB mark plan: subject=${collection.subject_id} type=${collection.type} ` +
@@ -610,7 +610,7 @@ async function syncCollectionToNeodb(
         shelfType: effectiveShelf,
         comment,
         ratingGrade,
-        createdTime,
+        markTime: markTimePlan.markTime,
       }))
     ) {
       // The refusal has to reach the counters, the detail list and the exit code, and this
@@ -655,13 +655,12 @@ async function syncCollectionToNeodb(
           `visibility=${mark.visibility ?? neodbVisibility}→${neodbVisibility} ` +
           `reason=${reasons.join('+') || 'unknown'}`,
       );
-      // 默认模式会让 createdTime 为空，客户端序列化时省略该字段；source 模式按配置更新日期。
       if (
         !(await markNeodbItem(neodbItem, {
           shelfType: merged.shelfType,
           comment: merged.comment,
           ratingGrade: merged.ratingGrade,
-          createdTime,
+          markTime: markTimePlan.markTime,
         }))
       ) {
         throw new Error('NeoDB rejected the mark update');

@@ -91,7 +91,7 @@
 4. 与目标现有值逐字段比较，并叠加状态、可见性/watchlist 条件；
 5. 全部相同 → `unchanged`，零请求；
 6. 任一不同 → 发送一次写请求，带上全部最终字段；
-7. 时间字段按各链路规则处理：② 用豆瓣 RSS `time`，③ 由 Bangumi 服务端写 `updated_at`，④ 按 `SYNC_BANGUMI_NEODB_CREATED_TIME`，⑤ 不写时间。
+7. 时间字段按各链路规则处理：②④ 按各链路的 `*_MARK_TIME_POLICY`（默认 `status`），③ 由 Bangumi 服务端写 `updated_at`，⑤ 不写时间。详见 [五条同步链路](docs/sync-paths.md) 的《NeoDB 标记时间策略》。
 
 **与其他规则的关系**：
 

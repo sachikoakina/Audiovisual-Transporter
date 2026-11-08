@@ -22,6 +22,7 @@ import dotenv from 'dotenv';
 import { consola } from 'consola';
 import { DOUBAN_EXPRESSED_STATUSES, doubanStarsToTenPoint } from '../rules/douban';
 import { mergeNeodbMark } from '../rules/neodb-mark-merge';
+import { planNeodbMarkTime } from '../rules/neodb-mark-time';
 import type { FeedItem, ItemStatus, ItemSyncOutcome, PathReport } from '../types';
 import { newPathReport } from '../types';
 import { fetchNeodbItemByUrl } from '../clients/neodb-catalog';
@@ -272,11 +273,17 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
 
   if (!mark) {
     consola.info('Item is not marked, going to mark now: ', label);
+    const markTime = planNeodbMarkTime({
+      policy: syncConfig.doubanNeodbMarkTimePolicy,
+      isNew: true,
+      statusChanged: true,
+      sourceRaw: item.time,
+    }).markTime;
     const ok = await markNeodbItem(neodbItem, {
       shelfType: item.status,
       comment: item.comment,
       ratingGrade: sourceGrade,
-      createdTime: item.time,
+      markTime,
     });
     return ok ? 'written' : 'failed';
   }
@@ -321,13 +328,25 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
   }
 
   consola.info('Item mark changed, going to update: ', label);
+  const statusChanged = existingStatus !== merged.shelfType;
+  const markTimePlan = planNeodbMarkTime({
+    policy: syncConfig.doubanNeodbMarkTimePolicy,
+    isNew: false,
+    statusChanged,
+    sourceRaw: item.time,
+    targetRaw: mark.created_time,
+  });
+  consola.info(
+    'NeoDB mark time: ',
+    `source=${item.time || 'none'} target=${mark.created_time || 'none'} ` +
+      `statusChanged=${statusChanged} policy=${syncConfig.doubanNeodbMarkTimePolicy} ` +
+      `chosen=${markTimePlan.markTime || 'omit'} reason=${markTimePlan.reason}`,
+  );
   const ok = await markNeodbItem(neodbItem, {
     shelfType: merged.shelfType,
     comment: merged.comment,
     ratingGrade: merged.ratingGrade,
-    // Existing marks keep their original created_time; only a new mark gets the RSS time.
-    // 已有标记保留原创建时间；只有新建标记使用 RSS 时间。
-    createdTime: undefined,
+    markTime: markTimePlan.markTime,
   });
   return ok ? 'written' : 'failed';
 }

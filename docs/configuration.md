@@ -75,12 +75,13 @@
 
 ### 4.1 专属开关
 
-| 变量                           | 默认           | 说明                                       |
-| ------------------------------ | -------------- | ------------------------------------------ |
-| `SYNC_DOUBAN_NEODB`            | `1`            | 总开关                                     |
-| `SYNC_DOUBAN_NEODB_CATEGORIES` | 空（全部）     | `movie,music,book,game,drama`              |
-| `SYNC_DOUBAN_NEODB_RATING`     | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`  |
-| `SYNC_DOUBAN_NEODB_COMMENT`    | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite` |
+| 变量                                 | 默认           | 说明                                                        |
+| ------------------------------------ | -------------- | ----------------------------------------------------------- |
+| `SYNC_DOUBAN_NEODB`                  | `1`            | 总开关                                                      |
+| `SYNC_DOUBAN_NEODB_CATEGORIES`       | 空（全部）     | `movie,music,book,game,drama`                               |
+| `SYNC_DOUBAN_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                   |
+| `SYNC_DOUBAN_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                  |
+| `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source` |
 
 `neodb_prefer`：保留目标非 0 分/非空短评，源值只填空；`overwrite`：对应字段由源覆盖。评分和短评开关彼此独立。
 
@@ -98,7 +99,7 @@
 - 用豆瓣条目 URL 解析 NeoDB 目录；
 - 目录不存在 → `unresolved`，不创建目录；
 - 现有 NeoDB `dropped` 不被豆瓣覆盖；
-- `created_time` 仅在新建标记时传豆瓣 RSS `time`；更新已有标记不传，保留原日期；
+- `created_time` 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` 处理，详见 [五条同步链路](sync-paths.md#neodb-标记时间策略24)；
 - 不写进度。
 
 ---
@@ -143,21 +144,21 @@
 
 ### 6.1 专属开关
 
-| 变量                              | 默认           | 说明                                                                    |
-| --------------------------------- | -------------- | ----------------------------------------------------------------------- |
-| `SYNC_BANGUMI_NEODB`              | `1`            | 总开关                                                                  |
-| `SYNC_BANGUMI_NEODB_CATEGORIES`   | 空（全部）     | `anime,manga,book,music,game,real`；`manga` 仅漫画平台，`book` 全部书籍 |
-| `SYNC_BANGUMI_NEODB_PROGRESS`     | `0`            | 是否写 NeoDB 进度                                                       |
-| `SYNC_BANGUMI_NEODB_RATING`       | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                               |
-| `SYNC_BANGUMI_NEODB_COMMENT`      | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                              |
-| `SYNC_BANGUMI_NEODB_STATUS_GUARD` | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖              |
-| `SYNC_BANGUMI_NEODB_CREATED_TIME` | `target`       | 兼容保留；已有标记更新不再使用该模式                                    |
+| 变量                                  | 默认           | 说明                                                                    |
+| ------------------------------------- | -------------- | ----------------------------------------------------------------------- |
+| `SYNC_BANGUMI_NEODB`                  | `1`            | 总开关                                                                  |
+| `SYNC_BANGUMI_NEODB_CATEGORIES`       | 空（全部）     | `anime,manga,book,music,game,real`；`manga` 仅漫画平台，`book` 全部书籍 |
+| `SYNC_BANGUMI_NEODB_PROGRESS`         | `0`            | 是否写 NeoDB 进度                                                       |
+| `SYNC_BANGUMI_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                               |
+| `SYNC_BANGUMI_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                              |
+| `SYNC_BANGUMI_NEODB_STATUS_GUARD`     | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖              |
+| `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source`             |
 
-`created_time` 当前行为：
+`created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：
 
-- 新建标记：用 Bangumi 时间；
-- 已有标记：更新时一律不传，保留 NeoDB 原日期；
-- 旧 `target` / `source` / `source-newer` 模式不再影响已有标记更新。
+- `status`：新建用 Bangumi 时间；状态不变保留目标时间；状态变化用 Bangumi 时间；
+- `initial-source`：仅新建用 Bangumi 时间；已有标记永远保留目标时间；
+- `always-source`：每次写入都使用 Bangumi 时间。
 
 ### 6.2 全量分页
 
@@ -190,7 +191,7 @@ NeoDB 侧（同 ②）：
 - 同轮同 uuid 冲突按 `direct > douban-twin > title-twin`、`complete > progress/wishlist > dropped` 裁决；
 - 评分/短评默认目标优先；
 - 进度只在类型兼容时写；
-- `created_time` 不是“状态更新时间”，缺省保留目标创建日期。
+- `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：默认 `status` 下状态变化用来源时间，状态不变保留目标时间。
 
 ---
 
