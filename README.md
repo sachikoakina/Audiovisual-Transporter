@@ -2,9 +2,30 @@
 
 按开关在豆瓣 RSS、Bangumi、NeoDB、Notion 与 TMDB 之间同步影音收藏。程序是 TypeScript 命令行工具，只写入配置明确开启的目标端；未匹配不单独导致失败，认证失败会中止相关链路。
 
+![五条同步链路及其对应开关](docs/sync-paths.svg)
+
+> **阅读分工**：本文件是使用说明与整体结构；逐链路的匹配顺序、状态映射与异常分类见[五条同步链路](docs/sync-paths.md)，平台边界与运行数据契约见[参考手册](docs/reference.md)。
+
 ## 在 GitHub Actions 中运行
 
 `.github/workflows/sync.yml` 每天**上海时间 23:30**（当日 15:30 UTC）运行，也可在 Actions 页面手动触发。运行顺序固定：`npm ci` → `npm run verify:all` → `npm run sync` → 发布作业摘要与 JSON 报告 → `review-queue` 读取日志与报告、更新待核对名单。
+
+```mermaid
+sequenceDiagram
+    participant T as 触发
+    participant S as sync job
+    participant A as Artifacts
+    participant Q as review-queue job
+    participant M as 待核对名单
+    T->>S: 每日 23:30（上海）或手动触发
+    S->>S: npm run verify:all → npm run sync
+    S->>A: sync-report-<run_id>-<UTC>（保留 7 天）
+    Note over A: 作业摘要随 run 发布，失败的轮次也可见
+    Q->>A: 取上一轮 review-state + 本轮日志 + 运行报表
+    Q->>Q: 解析日志 → 覆盖集合 → 合并 → 渲染
+    Q->>M: 名单追加到 Job Summary
+    Q->>A: review-state-…-stock（保留 90 天，供下一轮携带）
+```
 
 手动运行有两个相互独立的选项：
 
@@ -34,9 +55,23 @@
 - 作业摘要写入 Actions Job Summary；控制台完整日志在 `Run the sync` 步骤；
 - 摘要的“本轮运行”同时标注 UTC 与上海时间，机器字段和时间排序仍只用 UTC。
 
-失败时先看 `Run the sync` 日志，再对照 `sync-report.json` 的 `failedItems` / `unresolvedItems`，最后看 review-state 是否已进入待核对名单。
+失败时先看 `Run the sync` 日志，再对照 `sync-report.json` 的 `failedItems` / `unresolvedItems`，最后看 review-state 是否已进入待核对名单。可选的**定向复核**（对仍未解决条目做一轮只读复查，`shadow` / `enforce` 两种模式）见 [GitHub Actions 与运行配置](docs/github-actions.md)。
 
 ## 五条链路
+
+```mermaid
+flowchart LR
+    RSS["豆瓣 RSS<br/>任一豆瓣链路开启时抓取一次"] --> P1["① Notion<br/>仅 Complete"]
+    RSS --> P2["② NeoDB<br/>三种状态"]
+    RSS --> P3["③ Bangumi<br/>三种状态"]
+    BG["Bangumi 收藏<br/>默认只读第一页"] --> P4["④ NeoDB"]
+    P1 --> NO[("Notion")]
+    P2 --> N[("NeoDB")]
+    P4 --> N
+    P3 --> BM[("Bangumi")]
+    N --> P5["⑤ TMDB<br/>读 NeoDB 自己的书架"]
+    P5 --> T[("TMDB")]
+```
 
 | #   | 链路               | 匹配方式（简）                                                     | 写入                             |
 | --- | ------------------ | ------------------------------------------------------------------ | -------------------------------- |
@@ -46,13 +81,116 @@
 | ④   | Bangumi → NeoDB    | Bangumi URL 直链 → 豆瓣孪生 → 同分类精确标题 + 年份                | 状态、评分、短评；可选进度       |
 | ⑤   | NeoDB → TMDB       | TMDB 外链 → IMDb → 精确标题+必需年份 → TV 季父剧标题               | TMDB 评分、watchlist             |
 
-豆瓣 RSS 只抓一次，①②③复用同一份归一化结果；④⑤分别读取自己的平台书架。逐链路的匹配顺序、状态映射与异常分类见[链路说明](docs/sync-paths.md)。
+豆瓣 RSS 只抓一次，①②③复用同一份归一化结果；④⑤分别读取自己的平台书架。
+
+### ① 豆瓣 RSS → Notion
+
+```mermaid
+flowchart TD
+    A["豆瓣 RSS（仅 complete）"] --> B["类别白名单过滤"]
+    B --> C["按分类分组，每组一个 Notion 数据源"]
+    C --> D["查库内已有条目链接<br/>100 条一批构造 or 条件，并跟随翻页"]
+    D --> E["差集 = 待插入"]
+    E --> F["每分类读一次库结构<br/>不在库里的列直接丢弃"]
+    F --> G["逐条：抓豆瓣条目页（PoW 自解）<br/>→ 建页 → 间隔 1s"]
+    G --> H["PathReport<br/>自检：五项计数之和 = scanned"]
+```
+
+### ② 豆瓣 RSS → NeoDB
+
+```mermaid
+flowchart TD
+    A["豆瓣条目"] --> B["按链接取 NeoDB 条目<br/>无 uuid 时重试 3 次"]
+    B -->|始终无| U["unresolved · 数据缺口"]
+    B -->|取到| C["读现有标记：found / absent / error"]
+    C -->|error| X["绝不覆盖<br/>单条失败或整链中止"]
+    C -->|absent| D["新建标记"]
+    C -->|found| E{"现有状态豆瓣能否表达？"}
+    E -->|否| S["skipped · 不覆盖"]
+    E -->|是| F["mergeNeodbMark 四字段比对<br/>评分/短评/可见性/时间策略"]
+    F -->|无差异| G["unchanged"]
+    F -->|有差异| H["更新标记"]
+```
+
+### ③ 豆瓣 RSS → Bangumi
+
+```mermaid
+flowchart TD
+    A["豆瓣条目 + 其 NeoDB 条目"] --> B{"外链已带 Bangumi 链接？"}
+    B -->|是| C["直接取 subject id"]
+    B -->|否| D{"话剧？"}
+    D -->|是| U["unresolved"]
+    D -->|否| E["标题搜索（限定类型）<br/>→ 精确同名 → 年份软过滤（动画/真人）"]
+    E -->|未命中| U
+    E -->|命中| F["读现有收藏：found / absent / error"]
+    F --> G["写计划：既有评分/短评优先<br/>private 按配置写入"]
+    G --> H{"书籍进度可规划？"}
+    H -->|否·收藏也无变化| S["skipped · progress-unplannable"]
+    H -->|可规划| I["写收藏 → 逐集补齐进度"]
+    G --> J["写 / unchanged / skipped（搁置·抛弃）"]
+    I --> J
+```
+
+### ④ Bangumi 收藏 → NeoDB
+
+```mermaid
+flowchart TD
+    A["Bangumi 收藏"] --> B["uuid 归一：优先带豆瓣外链的孪生条目<br/>（直链 → 豆瓣孪生 → 同分类精确标题 + 年份）"]
+    B --> C["读现有标记：found / absent / error"]
+    C -->|absent| D["新建标记"]
+    C -->|found| E["mergeNeodbMark 四字段比对"]
+    E -->|有差异| F["更新标记<br/>时间按 *_MARK_TIME_POLICY"]
+    E -->|无差异| G["unchanged"]
+    D --> H{"可见性模式？<br/>target | source"}
+    F --> H
+    G --> H
+    H --> I["可选：同步进度<br/>episode / chapter / track"]
+    I --> Z["计数"]
+    H --> Z
+```
+
+### ⑤ NeoDB 书架 → TMDB
+
+```mermaid
+flowchart TD
+    A["NeoDB 书架标记"] --> B{"分类能映射 TMDB？<br/>（movie / tv）"}
+    B -->|否| S1["skipped"]
+    B -->|是| C{"内容指纹未变？（增量模式）"}
+    C -->|是| S2["skipped · 零请求"]
+    C -->|否| D{"人工确认 TMDB 没有它？<br/>（tmdb-known-absent 名单）"}
+    D -->|是| S3["skipped"]
+    D -->|否| E["三级匹配：外链 → IMDb → 标题 + 年份 → 季父剧标题"]
+    E -->|未命中| U["unresolved（9 种细分原因）"]
+    E -->|命中| F["读 account_states：found / error"]
+    F --> G["planTmdbWrites 逐字段 diff"]
+    G -->|无差异| H["unchanged"]
+    G -->|有差异| I["写评分 / watchlist"]
+```
 
 ## 关键规则
 
 - **状态**：Bangumi `1/2/3/4/5` 映射 NeoDB `wishlist/complete/progress/progress/dropped`；NeoDB `wishlist/progress/dropped` 都映射 TMDB watchlist。`complete` 有评分时写评分并移出 watchlist，无评分时只能加入 watchlist。
 - **进度**：仅 ④ 写入。Bangumi 动画/真人 → `episode`，书籍 → `chapter`，音乐 → `track`，游戏不写；零值不会清除已有进度，默认关闭。
 - **年份**：③④⑤ 的标题匹配都要求双方年份可用时不超过 1 年；年份缺失不会退化成“只按标题写”。
+- **配额**：⑤ 的 `SYNC_MAX_ITEMS`（默认 50）**按书架×分类独立计数**，`NEODB_MAX_PAGES`（默认 10）限制每个组合的分页；设为 `0` 不是「不限量」，而是回落默认。
+
+### 读取三态
+
+目标端读取由 4 个读原语统一返回三态，分类规则只有一条：
+
+```mermaid
+flowchart TD
+    A["读取目标端现状<br/>4 个读原语统一返回三态"] --> B{"HTTP 结果？"}
+    B -->|2xx| C["found · 携带数据"]
+    B -->|404| D{"该端点上 404 的含义？"}
+    D -->|"「还没有标记」"| E["absent · 允许新建"]
+    D -->|"「记录本身不存在」"| F["error"]
+    B -->|"401 / 403"| G["auth · 凭据失效"]
+    B -->|超时 · 5xx 等| H["item · 单条读取失败"]
+    G --> I["整条链路中止<br/>其余链路继续"]
+    F --> J["本条失败 · 绝不覆盖"]
+    H --> J
+```
 
 ### 评分与短评
 
@@ -83,6 +221,8 @@
 
 注意：默认目标优先时，来源评分/短评变化本身**不会**触发写入，因为最终值仍等于目标现值。只有目标为空、或用 `overwrite` 时，来源变化才会改变最终值。
 
+**可见性（②④）**：默认写入私密（`2`），每条链路可用 `SYNC_DOUBAN_NEODB_VISIBILITY` / `SYNC_BANGUMI_NEODB_VISIBILITY` 覆盖为 `0/1/2`；④ 另可设 `SYNC_BANGUMI_NEODB_VISIBILITY_MODE=source`，逐条跟随 Bangumi 的公开/私密标记。详见 [五条同步链路](docs/sync-paths.md)。
+
 **更新流程**：
 
 1. 读取目标记录；读取失败则本条 `failed`，不写入；
@@ -104,7 +244,16 @@
 
 ## 运行结果与退出码
 
-每条链路返回统一 `PathReport`，按 `scanned / written / unchanged / skipped / unresolved / failed` 计数，并满足：
+每条链路返回统一 `PathReport`，按 `scanned / written / unchanged / skipped / unresolved / failed` 计数，`scanned` 是分母：
+
+```mermaid
+flowchart TD
+    S["scanned<br/>进入本链路的每一条"] --> W["written · 实际写出"]
+    S --> U["unchanged · 读完无差异"]
+    S --> K["skipped · 规则内跳过"]
+    S --> R["unresolved · 找不到对应条目"]
+    S --> F["failed · 读取或写入出错"]
+```
 
 ```text
 scanned = written + unchanged + skipped + unresolved + failed
@@ -124,7 +273,7 @@ scanned = written + unchanged + skipped + unresolved + failed
 | `SYNC_BANGUMI_NEODB`  | `1`  | Bangumi → NeoDB    |
 | `SYNC_NEODB_TMDB`     | `0`  | NeoDB → TMDB       |
 
-分类白名单、合并策略、节流、状态文件路径等完整配置见 [`.env.example`](.env.example)。Actions 使用仓库 Secrets/Variables，不依赖提交 `.env` 文件。
+分类白名单、合并策略、节流、状态文件路径等完整配置见 [`.env.example`](.env.example) 与[配置参数说明](docs/configuration.md)。Actions 使用仓库 Secrets/Variables，不依赖提交 `.env` 文件。
 
 ## 本地运行
 
@@ -145,6 +294,42 @@ npm run verify:all
 ```
 
 `verify:all` 包含单元测试、TMDB 映射、规则、豆瓣解析器、文档链接与日志契约。改动匹配、状态或日志文案时，同时核对对应 verify 项。
+
+## 模块职责
+
+```mermaid
+flowchart TD
+    E["入口层<br/>index.ts + 2 个全量 cli"] --> P["编排层 paths/ ×5<br/>每链路返回 PathReport"]
+    P --> C["客户端层 clients/ ×10<br/>HTTP · 鉴权 · 重试 · 节流"]
+    P --> R["规则层 rules/ ×14<br/>纯函数 · 零 I/O 零 env"]
+    C --> R
+    P --> G["read-guards<br/>三态 → 值或异常"]
+```
+
+```text
+src/
+  index.ts                  入口，按开关依次执行链路
+  sync-config.ts            环境变量解析（唯一 env 入口）
+  sync-report.ts            控制台汇总
+  sync-summary-markdown.ts  作业摘要
+  read-guards.ts            读取三态与 401/403 处理
+  utils.ts                  状态/游标/年份缓存/留档
+  types.ts                  共享类型与计数
+  paths/                    各链路编排
+  clients/                  平台客户端
+  rules/                    映射、比对、匹配等纯逻辑
+  bangumi-neodb-full-sync-cli.ts
+  neodb-tmdb-full-sync-cli.ts
+scripts/
+  review-queue.mjs          待核对名单生成
+  review-verify.ts          定向复核 CLI（只读）
+  verify-*.ts               离线断言
+tests/unit/                 单元测试
+data/tmdb-known-absent.json 人工确认 TMDB 缺失的条目名单
+docs/                       五篇文档 + 本文件引用的架构图
+```
+
+依赖方向单向：`rules/` 不依赖任何模块，`clients/` 只依赖 `rules/` 与配置，`paths/` 编排两者，入口层只看报告；`scripts/review-queue.mjs` 与 `src/` 仅靠日志哨兵契约和 `sync-report.json` 解耦，两侧由 `npm run verify:log-contract` 钉住。
 
 ## 文档
 
