@@ -86,6 +86,30 @@ export function envEnabled(name: string, defaultValue: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
+/**
+ * Strict boolean: only the literal `true` enables it.
+ *
+ * This intentionally differs from `envEnabled`: `SYNC_DOUBAN_BANGUMI_VISIBILITY` historically
+ * accepted only `true`, and widening it to `1/yes/on` would change existing behaviour.
+ * 严格布尔：只有字面值 `true` 为真。它与 `envEnabled` 刻意不同，避免扩大既有可见性语义。
+ */
+export function strictTrue(name: string): boolean {
+  return process.env[name] === 'true';
+}
+
+/** Parse the Bangumi status guard without widening its accepted values. / 解析 Bangumi 状态守卫。 */
+export function parseStatusGuard(name: string): 'off' | 'no-downgrade' {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') {
+    return 'off';
+  }
+  if (raw === 'no-downgrade') {
+    return 'no-downgrade';
+  }
+  consola.warn(`${name}=${raw} is invalid (use off|no-downgrade); falling back to off`);
+  return 'off';
+}
+
 /** Douban RSS category tokens (English + Chinese aliases). / 豆瓣 RSS 分类标识（含中英别名）。 */
 const DOUBAN_CATEGORY_ALIASES: Record<string, ItemCategory> = {
   movie: ItemCategory.Movie,
@@ -282,7 +306,7 @@ export const syncConfig = {
   /** Write episode/book progress for completed Douban items. Default off. */
   doubanBangumiEpisodes: envEnabled('SYNC_DOUBAN_BANGUMI_EPISODES', false),
   /** Only the literal true makes new/updated Bangumi collections private. / 仅字面值 true 表示私密收藏。 */
-  doubanBangumiPrivate: process.env.SYNC_DOUBAN_BANGUMI_VISIBILITY === 'true',
+  doubanBangumiPrivate: strictTrue('SYNC_DOUBAN_BANGUMI_VISIBILITY'),
   /** Include SP episodes for TV progress. Default off. */
   doubanBangumiIncludeSp: envEnabled('SYNC_DOUBAN_BANGUMI_INCLUDE_SP', false),
   /** Include OP/ED theme episodes for TV progress. Default off. */
@@ -344,10 +368,7 @@ export const syncConfig = {
   // Opt-in only: same-subject downgrades must stay possible; this guard is for users who treat
   // their archive as append-only. / 默认关闭：同一 subject 的降级必须仍可发生；只有把归档当作
   // 只增不减的用户才需要开启。
-  bangumiNeodbStatusGuard:
-    process.env.SYNC_BANGUMI_NEODB_STATUS_GUARD === 'no-downgrade'
-      ? ('no-downgrade' as const)
-      : ('off' as const),
+  bangumiNeodbStatusGuard: parseStatusGuard('SYNC_BANGUMI_NEODB_STATUS_GUARD'),
 };
 
 export function needsDoubanRss(): boolean {
@@ -690,8 +711,6 @@ export const neodbTmdbConfig = {
    * 而两道上限的 `min` 都是 `1` —— 所以 `SYNC_MAX_ITEMS=0` **不是**「无限」，而是静默回落到 50。
    */
   neodbTmdbFullSync: envEnabled('NEODB_TMDB_FULL_SYNC', false),
-  /** Unmatched items are dumped here for review. Empty disables. / 未匹配条目登记在此供复查；空值表示关闭。 */
-  unmatchedLogFile,
   // The `REVIEW_VERIFY_*` knobs used to be parsed here as `reviewVerify`. Nothing ever read that
   // object: the only consumer is `scripts/review-queue.mjs`, which is a separate process started by
   // `review-queue.yml` and reads `process.env` itself. Parsing them here made five variables look

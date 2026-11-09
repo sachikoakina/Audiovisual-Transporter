@@ -51,6 +51,7 @@ import {
   describeNeodbTmdbConfig,
   resolveNeodbTmdbRunMode,
   resolveTargetCategories,
+  unmatchedLogFile,
   validateNeodbTmdbCredentials,
   type NeodbTmdbRunMode,
 } from '../sync-config';
@@ -364,7 +365,7 @@ function fillReport(report: PathReport, ctx: SyncContext): void {
   // `unmatched > 0` alone would claim the log even when every write failed; the flag is set by
   // the writer itself.
   // 只看 `unmatched > 0` 会在每次写入都失败时仍然声明留档；这个标志由写入方自己置位。
-  report.reviewLog = ctx.reviewLogWritten ? neodbTmdbConfig.unmatchedLogFile : '';
+  report.reviewLog = ctx.reviewLogWritten ? unmatchedLogFile : '';
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -684,7 +685,7 @@ async function syncMark(
         );
       }
     }
-    const logged = upsertReviewEntry(neodbTmdbConfig.unmatchedLogFile, {
+    const logged = upsertReviewEntry(unmatchedLogFile, {
       source: 'neodb→tmdb',
       // Replaces the old constant `no-tmdb-match`: an entry that was never searched must not be
       // filed as "searched and not found", or the archive cannot tell a data gap from a refusal.

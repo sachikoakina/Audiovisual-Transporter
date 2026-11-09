@@ -91,6 +91,7 @@ vi.mock('../../src/sync-config', () => ({
     requestDelayMs: 0,
     maxPages: 10,
   },
+  unmatchedLogFile: '',
   neodbTmdbConfig: {
     enabled: true,
     shelfTypes: ['complete'],

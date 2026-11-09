@@ -519,7 +519,7 @@ const srcEnvNames = new Set(
     ...srcSources.matchAll(/envEnabled\('([A-Z][A-Z0-9_]+)'/g),
     ...srcSources.matchAll(/envInt\('([A-Z][A-Z0-9_]+)'/g),
     ...srcSources.matchAll(
-      /(?:parseMergeProfile|parseBangumiMergeProfile|parseCategoryAllowlist)\(\s*'([A-Z][A-Z0-9_]+)'/g,
+      /(?:parseMergeProfile|parseBangumiMergeProfile|parseMarkTimePolicy|parseNeodbVisibilityMode|parseNeodbVisibility|parseCategoryAllowlist|strictTrue|parseStatusGuard)\(\s*'([A-Z][A-Z0-9_]+)'/g,
     ),
   ].map((match) => match[1]),
 );
@@ -535,6 +535,26 @@ check(
   'sync.yml forwards every env var src/ reads (minus the documented exceptions)',
   notForwarded.length === 0,
   `read by src/ but never set in sync.yml: ${notForwarded.join(', ')}`,
+);
+
+// The opposite direction: a SYNC_* key forwarded by the workflow must have a reader, unless it is
+// a documented exception. This catches a renamed or retired switch that still looks configurable.
+// 反方向：工作流转发的 SYNC_* 必须有读取方，除非属于已记录的例外。这样能抓住改名/废弃后仍
+// 看起来可配置的开关。
+const unreadWorkflowSyncKeys = [...syncYmlKeys]
+  .filter((name) => name.startsWith('SYNC_'))
+  .filter(
+    (name) =>
+      !srcEnvNames.has(name) &&
+      !RUNTIME_PROVIDED.has(name) &&
+      !REVIEW_QUEUE_ONLY.has(name) &&
+      !PINNED_BY_WORKFLOW.has(name),
+  )
+  .sort();
+check(
+  'sync.yml does not forward SYNC_* vars that src/ never reads',
+  unreadWorkflowSyncKeys.length === 0,
+  `forwarded by sync.yml but unread by src/: ${unreadWorkflowSyncKeys.join(', ')}`,
 );
 
 // The exceptions must actually be exceptions: a name on the pinned list that `src/` no longer reads
