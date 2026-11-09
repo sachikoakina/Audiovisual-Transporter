@@ -108,10 +108,10 @@ jobs:
       SYNC_DOUBAN_BANGUMI_CATEGORIES: ${{ vars.SYNC_DOUBAN_BANGUMI_CATEGORIES || '' }}
       SYNC_BANGUMI_NEODB_CATEGORIES: ${{ vars.SYNC_BANGUMI_NEODB_CATEGORIES || '' }}
       # Rating and comment are independent switches, one pair per destination. Passing them here is
-      # not optional: `src/sync-config.ts` reads exactly these ten names, so a Variables value this
-      # file does not forward never reaches the process at all.
-      # 评分与短评是按目标端成对出现的独立开关。在这里透传不是可选项：`src/sync-config.ts` 读的正是
-      # 这十个名字，本文件不转发，Variables 里设了也到不了进程。
+      # not optional: every switch `src/sync-config.ts` reads must be forwarded, or a Variables
+      # value never reaches the process at all.
+      # 评分与短评是按目标端成对出现的独立开关。在这里透传不是可选项：`src/sync-config.ts` 读取的
+      # 每一个开关都必须转发，否则 Variables 里设了也到不了进程。
       SYNC_DOUBAN_NEODB_RATING: ${{ vars.SYNC_DOUBAN_NEODB_RATING || 'neodb_prefer' }}
       SYNC_DOUBAN_NEODB_COMMENT: ${{ vars.SYNC_DOUBAN_NEODB_COMMENT || 'neodb_prefer' }}
       SYNC_BANGUMI_NEODB_RATING: ${{ vars.SYNC_BANGUMI_NEODB_RATING || 'neodb_prefer' }}
@@ -149,7 +149,6 @@ jobs:
       TMDB_INCLUDE_ADULT: ${{ vars.TMDB_INCLUDE_ADULT || 'false' }}
       SYNC_SHELF_TYPES: ${{ vars.SYNC_SHELF_TYPES || 'wishlist,progress,complete,dropped' }}
       SYNC_CATEGORIES: ${{ vars.SYNC_CATEGORIES || 'movie,tv' }}
-      SYNC_RATING_PROFILE: ${{ vars.SYNC_RATING_PROFILE || 'tmdb_prefer' }}
       SYNC_YEAR_TOLERANCE: ${{ vars.SYNC_YEAR_TOLERANCE || '1' }}
       SYNC_MAX_ITEMS: ${{ vars.SYNC_MAX_ITEMS || '50' }}
       SYNC_DRY_RUN: ${{ vars.SYNC_DRY_RUN || '0' }}

@@ -66,7 +66,7 @@ review-queue 工作流另用 Actions artifact 携带待核对名单状态；它�
 
 ## 豆瓣 → Bangumi 进度
 
-`SYNC_DOUBAN_BANGUMI_EPISODES=1` 时，③ 只对豆瓣 `complete` 条目补进度。电影标记第一个正片；TV/动画/真人只补 `type!=2` 的正片分集，已有集不写；SP 默认关闭，`SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 才纳入。书籍按 `ep_status`/`vol_status` 是否大于 0 判断未知，只拉满已知维度，总量缺失则跳过。分集 `updated_at` 是 Unix 秒，已有集通过不写入保留，新增集使用服务端时间。
+`SYNC_DOUBAN_BANGUMI_EPISODES=1` 时，③ 只对豆瓣 `complete` 条目补进度。电影标记第一个正片；TV/动画/真人只补正片（`episode.type=0`）中尚未被用户标为看过（分集收藏 `type=2`）的集，已有集不写；SP 默认关闭，`SYNC_DOUBAN_BANGUMI_INCLUDE_SP=1` 才纳入。书籍按 `ep_status`/`vol_status` 是否大于 0 判断未知，只拉满已知维度，总量缺失则跳过。分集 `updated_at` 是 Unix 秒，已有集通过不写入保留，新增集使用服务端时间。
 
 ## 请求节流
 
