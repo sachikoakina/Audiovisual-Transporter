@@ -20,6 +20,33 @@
 
 工作流权限只有 `contents: read`，并设置 `concurrency: sync`、`cancel-in-progress: false`，避免两次同步争用 `.cache` 状态或重复写入。
 
+## `keepalive` 工作流
+
+`.github/workflows/keepalive.yml` 独立运行，每 **周一 03:17 UTC** 检查一次默认分支最后一次提交时间：
+
+- 距最后一次提交不足 45 天：跳过，不产生提交；
+- 超过 45 天：创建一个空提交并推送到 `main`；
+- 手动触发时可传 `force=true`，立即验证提交与推送是否正常。
+
+它只用于避免公开仓库因 60 天无活动而自动禁用 `sync` 等定时工作流。`sync` 本身不负责保活，仍保持 `contents: read`；`keepalive` 单独使用 `contents: write`，并设置独立的 `concurrency: keepalive`，因此不会与同步任务争用锁或修改同步逻辑。
+
+手动验证：
+
+```bash
+gh workflow run keepalive.yml -f force=true
+gh run list --workflow keepalive.yml --limit 5
+git log origin/main -1 --format='%cI %s'
+```
+
+检查状态：
+
+```bash
+gh api repos/sachikoakina/Audiovisual-Transporter/actions/workflows \
+  --jq '.workflows[] | [.name, .state, .path] | @tsv'
+```
+
+期望 `sync` 与 `keepalive` 都是 `active`；出现 `disabled_inactivity` 时需要手动启用，并强制执行一次 `keepalive`。
+
 ## Secrets 与 Variables
 
 仅为启用的链路配置凭据：

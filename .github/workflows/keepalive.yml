@@ -1,0 +1,55 @@
+# Keep the public repository active so GitHub does not disable scheduled workflows after 60 days
+# without repository activity. This is deliberately separate from sync.yml: sync is a long-running,
+# read-only job and must not be coupled to a write-capable maintenance step.
+# 保持公开仓库有活动，避免 GitHub 在 60 天无活动后禁用定时工作流。刻意与 sync.yml 分离：
+# 同步是长耗时、只读的作业，不应和需要写权限的维护步骤耦合。
+name: keepalive
+
+on:
+  # Weekly check; only commit when the repository has been quiet for 45 days.
+  # 每周检查；仅在仓库已连续 45 天没有提交时创建一次活动提交。
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force an activity commit'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v4
+
+      - name: Commit an activity marker when needed
+        env:
+          FORCE: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+
+          last_ts=$(git log -1 --format=%ct)
+          now_ts=$(date -u +%s)
+          age_days=$(( (now_ts - last_ts) / 86400 ))
+          echo "Last commit age: ${age_days} days"
+
+          if [ "${FORCE}" != "true" ] && [ "${age_days}" -lt 45 ]; then
+            echo "Repository has recent activity; no keepalive commit needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore(keepalive): $(date -u +%Y-%m-%d) [skip ci]"
+          git push
