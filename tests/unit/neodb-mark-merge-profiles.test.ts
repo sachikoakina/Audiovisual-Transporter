@@ -3,7 +3,10 @@
  * NeoDB 的评分与短评是两个独立开关。
  */
 import { describe, expect, it } from 'vitest';
-import { mergeNeodbMark } from '../../src/rules/neodb-mark-merge';
+import {
+  describeCommentChange,
+  mergeNeodbMark,
+} from '../../src/rules/neodb-mark-merge';
 
 const source = {
   shelfType: 'complete',
@@ -51,5 +54,23 @@ describe('mergeNeodbMark independent profiles', () => {
     expect(merged.shouldWrite).toBe(false);
     expect(merged.keptRating).toBe(true);
     expect(merged.keptComment).toBe(true);
+  });
+});
+
+describe('describeCommentChange', () => {
+  it('does not include the comment text', () => {
+    const before = 'private old comment';
+    const after = 'private new comment';
+
+    expect(describeCommentChange(before, after)).toBe(
+      `changed oldLen=${before.length} newLen=${after.length}`,
+    );
+    expect(describeCommentChange(before, after)).not.toContain('private');
+  });
+
+  it('describes fill, clear, and unchanged states', () => {
+    expect(describeCommentChange('', 'new')).toBe('filled newLen=3');
+    expect(describeCommentChange('old', '')).toBe('cleared oldLen=3');
+    expect(describeCommentChange('same', 'same')).toBe('unchanged');
   });
 });

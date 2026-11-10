@@ -32,6 +32,27 @@ export type NeodbMarkSource = {
   comment: string;
 };
 
+/**
+ * Describe a comment change without putting the comment text in logs.
+ *
+ * Length is safe metadata; the text itself may contain private content or line breaks.
+ * 用不含正文的方式描述短评变化：只记录状态和长度，避免隐私内容或多行文本进入日志。
+ */
+export function describeCommentChange(before: string, after: string): string {
+  const oldComment = before || '';
+  const newComment = after || '';
+  if (oldComment === newComment) {
+    return 'unchanged';
+  }
+  if (!oldComment) {
+    return `filled newLen=${newComment.length}`;
+  }
+  if (!newComment) {
+    return `cleared oldLen=${oldComment.length}`;
+  }
+  return `changed oldLen=${oldComment.length} newLen=${newComment.length}`;
+}
+
 /** The merged result, plus why it was or was not scheduled. / 合并结果，以及它被排入或未排入的原因。 */
 type MergedNeodbMark = {
   shelfType: string;

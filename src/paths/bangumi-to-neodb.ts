@@ -48,7 +48,7 @@ import {
   markNeodbItem,
   setNeodbProgress,
 } from '../clients/neodb-shelf';
-import { mergeNeodbMark } from '../rules/neodb-mark-merge';
+import { describeCommentChange, mergeNeodbMark } from '../rules/neodb-mark-merge';
 import {
   applyStatusGuard,
   shouldSkipClaim,
@@ -681,7 +681,7 @@ async function syncCollectionToNeodb(
         'NeoDB write: ',
         `subject=${collection.subject_id} shelf=${mark.shelf_type}→${merged.shelfType} ` +
           `rating=${mark.rating_grade || 0}→${merged.ratingGrade} ` +
-          `comment="${mark.comment_text || ''}"→"${merged.comment}" ` +
+          `comment=${describeCommentChange(mark.comment_text || '', merged.comment)} ` +
           `visibility=${mark.visibility ?? targetVisibility}→${targetVisibility} ` +
           `reason=${reasons.join('+') || 'unknown'}`,
       );
