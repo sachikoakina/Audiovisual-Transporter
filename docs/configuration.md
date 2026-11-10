@@ -101,7 +101,8 @@
 - 目录不存在 → `unresolved`，不创建目录；
 - 现有 NeoDB `dropped` 不被豆瓣覆盖；
 - `SYNC_DOUBAN_NEODB_VISIBILITY`（默认 `2`）与现有 mark 不同会触发更新；缺失时视为目标值并告警；
-- ② 只支持目标值模式；豆瓣 RSS 没有隐私字段，因此不提供 `source` 模式；
+- ② 没有 `SYNC_DOUBAN_NEODB_VISIBILITY_MODE` 开关；始终使用 `SYNC_DOUBAN_NEODB_VISIBILITY` 的目标值；
+- 豆瓣 RSS 没有隐私字段，因此 ② 不支持 `source` 模式；
 - `created_time` 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` 处理，详见 [五条同步链路](sync-paths.md#neodb-标记时间策略24)；
 - 不写进度。
 
@@ -152,17 +153,19 @@
 
 ### 6.1 专属开关
 
-| 变量                                  | 默认           | 说明                                                                    |
-| ------------------------------------- | -------------- | ----------------------------------------------------------------------- |
-| `SYNC_BANGUMI_NEODB`                  | `1`            | 总开关                                                                  |
-| `SYNC_BANGUMI_NEODB_CATEGORIES`       | 空（全部）     | `anime,manga,book,music,game,real`；`manga` 仅漫画平台，`book` 全部书籍 |
-| `SYNC_BANGUMI_NEODB_PROGRESS`         | `0`            | 是否写 NeoDB 进度                                                       |
-| `SYNC_BANGUMI_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                               |
-| `SYNC_BANGUMI_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                              |
-| `SYNC_BANGUMI_NEODB_STATUS_GUARD`     | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖              |
-| `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source`             |
-| `SYNC_BANGUMI_NEODB_VISIBILITY`       | `2`            | ④ 可见性：`0` / `1` / `2`；未设置时默认私密 2                           |
-| `SYNC_BANGUMI_NEODB_VISIBILITY_MODE`  | `target`       | ④ 可见性模式：`target` 统一配置；`source` 逐条跟随 Bangumi `private`    |
+| 变量                                  | 默认           | 说明                                                                                                      |
+| ------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
+| `SYNC_BANGUMI_NEODB`                  | `1`            | 总开关                                                                                                    |
+| `SYNC_BANGUMI_NEODB_CATEGORIES`       | 空（全部）     | `anime,manga,book,music,game,real`；`manga` 仅漫画平台，`book` 全部书籍                                   |
+| `SYNC_BANGUMI_NEODB_PROGRESS`         | `0`            | 是否写 NeoDB 进度                                                                                         |
+| `SYNC_BANGUMI_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                                                                 |
+| `SYNC_BANGUMI_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                                                                |
+| `SYNC_BANGUMI_NEODB_STATUS_GUARD`     | `off`          | `no-downgrade` 时目标 complete 不被 progress/wishlist 覆盖                                                |
+| `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` | `status`       | 标记时间策略：`status` / `initial-source` / `always-source`                                               |
+| `SYNC_BANGUMI_NEODB_VISIBILITY`       | `2`            | ④ 可见性：`0` / `1` / `2`；未设置时默认私密 2                                                             |
+| `SYNC_BANGUMI_NEODB_VISIBILITY_MODE`  | `target`       | ④ 可见性模式：`target` 统一使用配置值；`source` 逐条跟随 Bangumi `private`；`source` 下配置值仅作缺失兜底 |
+
+`source` 模式下，`SYNC_BANGUMI_NEODB_VISIBILITY` 不是所有条目的统一目标值；只有源端 `private` 缺失时才回退到目标现有值或该配置值。完整规则见 [五条同步链路](sync-paths.md) 的 ④《可见性》。
 
 `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：
 

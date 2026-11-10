@@ -157,7 +157,8 @@ item.link（豆瓣 URL）
 ### 可见性
 
 - 配置：`SYNC_DOUBAN_NEODB_VISIBILITY`；默认 `2`。`0` 公开、`1` 仅关注者、`2` 私密；非法值回退 `2` 并告警；
-- ② 只支持目标值模式，不提供 `source` 模式；豆瓣 RSS 没有隐私字段；
+- ② 没有可见性模式开关；始终使用 `SYNC_DOUBAN_NEODB_VISIBILITY` 的目标值；
+- 豆瓣 RSS 没有隐私字段，因此不支持 `source` 模式；
 - 新建标记直接使用配置值；
 - 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
 - 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
@@ -479,13 +480,63 @@ Bangumi subject URL
 - 配置：`SYNC_BANGUMI_NEODB_VISIBILITY`；默认 `2`。`0` 公开、`1` 仅关注者、`2` 私密；
 - 模式：`SYNC_BANGUMI_NEODB_VISIBILITY_MODE=target|source`；默认 `target`；
   - `target`：所有条目统一使用 `SYNC_BANGUMI_NEODB_VISIBILITY`；
-  - `source`：逐条跟随 Bangumi `private`，`true → 2`、`false → 0`；源端缺失时保留目标原值并告警；
+  - `source`：逐条跟随 Bangumi `private`，`true → 2`、`false → 0`；源端缺失时保留目标原值，目标也没有时回退配置值并告警；
   - `source` 不会产生 `visibility=1`（仅关注者），因为 Bangumi 没有对应值；
-- 新建标记使用配置值；
+- 新建标记使用当前模式计算出的 `chosen`：`target` 用配置值，`source` 用源端映射；
 - 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
 - 状态保护只影响 `shelf_type`，不影响可见性比较；
 - 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
-- ②④ 可以分别设置可见性；同时写同一 uuid 时，④ 后执行，最终可见性由 ④ 的配置决定。
+- ②④ 可以分别设置可见性；同时写同一 uuid 时，④ 后执行，最终可见性由 ④ 的模式及源端值决定。
+
+#### 日志字段：configured 与 chosen
+
+`NeoDB visibility:` 日志中的两个字段含义不同：
+
+- `configured`：`SYNC_BANGUMI_NEODB_VISIBILITY` 的值；`target` 模式下是统一目标值，`source` 模式下仅作兜底；
+- `chosen`：本次按模式计算出的实际写入值：
+  - `0` 公开；
+  - `1` 仅关注者；
+  - `2` 私密；
+- `sourcePrivate`：Bangumi 收藏的 `private` 值；
+- `reason`：本次选择的原因：
+  - `target`：使用配置值；
+  - `source-public`：源端公开，选择 `0`；
+  - `source-private`：源端私密，选择 `2`；
+  - `source-missing`：源端 `private` 缺失，保留目标现有值或回退配置值。
+
+因此：
+
+```text
+configured=2
+chosen=0
+reason=source-public
+```
+
+表示：
+
+```text
+配置值是 2（私密）
+但 source 模式读取到源端公开
+所以本次实际选择 0（公开）
+```
+
+这不是配置冲突，而是 `source` 模式覆盖了 `configured`。
+
+若希望所有条目统一私密，应使用：
+
+```bash
+SYNC_BANGUMI_NEODB_VISIBILITY_MODE=target
+SYNC_BANGUMI_NEODB_VISIBILITY=2
+```
+
+若希望逐条跟随源端，应使用：
+
+```bash
+SYNC_BANGUMI_NEODB_VISIBILITY_MODE=source
+SYNC_BANGUMI_NEODB_VISIBILITY=2
+```
+
+此时 `VISIBILITY=2` 只作为源端缺失时的兜底，不能强制公开源端变为私密。
 
 ### 可见性模式适用场景
 
