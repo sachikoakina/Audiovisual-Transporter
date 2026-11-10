@@ -286,47 +286,32 @@ describe('④ mark time / 标记时间', () => {
 });
 
 describe('④ visibility mode / 可见性模式', () => {
-  it('follows a private source in source mode', async () => {
-    const previousMode = syncConfig.bangumiNeodbVisibilityMode;
-    const previousPrivate = collection.private;
-    syncConfig.bangumiNeodbVisibilityMode = 'source';
-    collection.private = true;
-    getNeodbMark.mockResolvedValue({ status: 'absent' });
-    markNeodbItem.mockResolvedValue(true);
+  it.each([
+    ['private', true, 2],
+    ['public', false, 0],
+  ] as const)(
+    'follows a %s source in source mode',
+    async (_label, sourcePrivate, expectedVisibility) => {
+      const previousMode = syncConfig.bangumiNeodbVisibilityMode;
+      const previousPrivate = collection.private;
+      syncConfig.bangumiNeodbVisibilityMode = 'source';
+      collection.private = sourcePrivate;
+      getNeodbMark.mockResolvedValue({ status: 'absent' });
+      markNeodbItem.mockResolvedValue(true);
 
-    try {
-      await syncBangumiToNeodb(false);
-    } finally {
-      syncConfig.bangumiNeodbVisibilityMode = previousMode;
-      collection.private = previousPrivate;
-    }
+      try {
+        await syncBangumiToNeodb(false);
+      } finally {
+        syncConfig.bangumiNeodbVisibilityMode = previousMode;
+        collection.private = previousPrivate;
+      }
 
-    expect(markNeodbItem).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ visibility: 2 }),
-    );
-  });
-
-  it('follows a public source in source mode', async () => {
-    const previousMode = syncConfig.bangumiNeodbVisibilityMode;
-    const previousPrivate = collection.private;
-    syncConfig.bangumiNeodbVisibilityMode = 'source';
-    collection.private = false;
-    getNeodbMark.mockResolvedValue({ status: 'absent' });
-    markNeodbItem.mockResolvedValue(true);
-
-    try {
-      await syncBangumiToNeodb(false);
-    } finally {
-      syncConfig.bangumiNeodbVisibilityMode = previousMode;
-      collection.private = previousPrivate;
-    }
-
-    expect(markNeodbItem).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ visibility: 0 }),
-    );
-  });
+      expect(markNeodbItem).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ visibility: expectedVisibility }),
+      );
+    },
+  );
 });
 
 describe('④ duplicate target / 同一 NeoDB uuid 多个 Bangumi subject', () => {

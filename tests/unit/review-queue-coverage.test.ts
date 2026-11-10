@@ -80,12 +80,18 @@ describe('coverageFromReport', () => {
   });
 
   it('marks a capped, aborted or truncated path as incomplete', () => {
-    expect(coverage([], { capped: true }).get('neodb→tmdb')?.complete).toBe(false);
-    expect(coverage([], { aborted: true }).get('neodb→tmdb')?.complete).toBe(false);
-    // A failed page is not a configured limit: without this the stats file keeps claiming the
-    // run covered the whole shelf while ageing has to be frozen.
-    // 分页失败不是配置上限：漏掉它，统计文件会继续声称这一轮覆盖了整个书架，而老化其实必须冻结。
-    expect(coverage([], { truncated: true }).get('neodb→tmdb')?.complete).toBe(false);
+    const cases = [
+      ['capped', { capped: true }],
+      ['aborted', { aborted: true }],
+      ['truncated', { truncated: true }],
+    ] as const;
+
+    for (const [label, flags] of cases) {
+      // A failed page is not a configured limit: without this the stats file keeps claiming the
+      // run covered the whole shelf while ageing has to be frozen.
+      // 分页失败不是配置上限：漏掉它，统计文件会继续声称这一轮覆盖了整个书架，而老化其实必须冻结。
+      expect(coverage([], flags).get('neodb→tmdb')?.complete, label).toBe(false);
+    }
   });
 
   it('ignores a report path that is not a review-list source', () => {

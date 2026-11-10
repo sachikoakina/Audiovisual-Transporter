@@ -24,9 +24,6 @@ describe('category vocabulary consistency', () => {
 
   it('keeps movie/tv as the only TMDB media types', () => {
     expect(NEODB_TO_TMDB_MEDIA_TYPE).toEqual({ movie: 'movie', tv: 'tv' });
-    expect(NEODB_TO_TMDB_MEDIA_TYPE).not.toHaveProperty('book');
-    expect(NEODB_TO_TMDB_MEDIA_TYPE).not.toHaveProperty('music');
-    expect(NEODB_TO_TMDB_MEDIA_TYPE).not.toHaveProperty('game');
   });
 
   it('keeps Bangumi subject types and NeoDB status mappings aligned', () => {

@@ -123,6 +123,11 @@ describe('render — 链路作为一级标题', () => {
 
     expect(text).toContain('**待核对名单（1 条）**');
     expect(text).not.toContain('# 待核对名单');
+  });
+
+  it('shows the run time in UTC and Shanghai time', () => {
+    const text = renderText({ items: [tmdbMovie] });
+
     expect(text).toContain(
       '本轮运行（UTC）：2026-10-26T08:00:00.000Z' +
         '（上海时间为2026-10-26的16:00:00）',
@@ -161,7 +166,7 @@ describe('render — 结果、类型与状态', () => {
     expect(body.indexOf('#### 想看')).toBeLessThan(body.indexOf('#### 抛弃'));
   });
 
-  it('renders the entry line with checkbox, ordinal, link, reason and age under the H4', () => {
+  it('renders the entry line with checkbox, ordinal, link, reason and age, leaving the path to the H1', () => {
     const text = renderText({ items: [bangumiUnresolved] });
     const body = section(text, '# Bangumi → NeoDB（1）');
 
@@ -169,15 +174,8 @@ describe('render — 结果、类型与状态', () => {
     expect(body).toContain(
       '- [ ] **1.** 狐妖小红娘13 黄风岭篇 — https://bgm.tv/subject/391457',
     );
-  });
-
-  it('keeps link, reason and age on the item line, and leaves the path to the H1', () => {
-    const text = renderText({ items: [bangumiUnresolved] });
-
     expect(text).toContain('· neodb-unresolved · 已存在 0 天');
-    expect(section(text, '# Bangumi → NeoDB（1）')).not.toContain(
-      '（Bangumi → NeoDB）',
-    );
+    expect(body).not.toContain('（Bangumi → NeoDB）');
   });
 });
 
