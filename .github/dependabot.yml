@@ -1,11 +1,18 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/en/code-security/supply-chain-security/keeping-your-dependencies-updated-automatically/configuration-options-for-dependency-updates
-
 version: 2
 updates:
   - package-ecosystem: 'npm' # See documentation for possible values
     directory: '/' # Location of package manifests
     schedule:
       interval: 'weekly'
+    open-pull-requests-limit: 5
+    groups:
+      # Keep the ESLint config package and its peers in one PR. Splitting them caused
+      # @eslint/js@10 to arrive without eslint@10 and broke `npm ci`.
+      # 将 ESLint 配置包与其 peer 依赖放在同一个 PR，避免再次出现只升级其中一个而破坏 `npm ci`。
+      eslint:
+        patterns:
+          - 'eslint'
+          - '@eslint/js'
+          - 'eslint-config-prettier'
+          - 'typescript-eslint'
+          - '@typescript-eslint/*'

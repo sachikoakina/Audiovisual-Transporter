@@ -47,6 +47,19 @@ gh api repos/sachikoakina/Audiovisual-Transporter/actions/workflows \
 
 期望 `sync` 与 `keepalive` 都是 `active`；出现 `disabled_inactivity` 时需要手动启用，并强制执行一次 `keepalive`。
 
+## `ci` 工作流与 Dependabot
+
+`.github/workflows/ci.yml` 在 `pull_request` 上运行：
+
+```text
+npm ci
+npm run typecheck
+npm run lint
+npm run verify:all
+```
+
+Dependabot 的 npm 更新仍由 `.github/dependabot.yml` 每周检查，但 ESLint 相关依赖被放在同一个 PR 中，避免 `@eslint/js` 与 `eslint` 主版本错位。PR 必须通过 `ci` 后再合并；当前不启用自动合并。
+
 ## Secrets 与 Variables
 
 仅为启用的链路配置凭据：
