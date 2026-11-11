@@ -49,6 +49,11 @@ jobs:
         with:
           node-version: 22
       - name: Install verification dependencies
+        # The default collect path uses Node built-ins only. Install the full dev tree only when
+        # the optional verifier is enabled, so an unrelated lint dependency cannot block the queue.
+        # 默认收集路径只使用 Node 内置模块；仅在启用可选验证器时安装完整开发依赖，
+        # 避免无关的 lint 依赖阻断名单作业。
+        if: ${{ (vars.REVIEW_VERIFY_MODE || 'off') != 'off' }}
         run: npm ci
       - name: Compute the sync run's UTC stamp
         id: utc
