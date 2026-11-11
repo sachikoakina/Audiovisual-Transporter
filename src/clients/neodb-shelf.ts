@@ -111,12 +111,10 @@ export async function markNeodbItem(
   const label = `${neodbItem.title || neodbItem.display_title}[${neodbItem.uuid}]`;
   consola.info('Going to mark on NeoDB: ', label);
 
-  let ratingGrade = 0;
-  if (options.ratingGrade != null) {
-    ratingGrade = options.ratingGrade;
-  } else {
-    ratingGrade = doubanStarsToTenPoint(options.rating);
-  }
+  const ratingGrade =
+    options.ratingGrade != null
+      ? options.ratingGrade
+      : doubanStarsToTenPoint(options.rating);
 
   try {
     await neodbClient.post(`api/me/shelf/item/${neodbItem.uuid}`, {
