@@ -946,11 +946,11 @@ export function render({
     out.push('');
   }
 
-  // Four levels, outermost first, in the order a reader works through them: sync path (the unit
-  // one goes and fixes) → result → item type → user state. The path moved here from the end of
+  // Outer to inner, in the order a reader works through them: sync path (the unit one goes and
+  // fixes) → collapsible item type → result → user state. The path moved here from the end of
   // the line: as a heading it carries the per-entry label's job, so the label is gone from the
   // entry line — the change blocks above are NOT under a heading and still spell it out.
-  // 四级、由外到内，按读者处理的顺序：同步链路（去处理的对象）→ 结果 → 条目类型 → 用户状态。
+  // 由外到内，按读者处理的顺序：同步链路（去处理的对象）→ 可折叠条目类型 → 结果 → 用户状态。
   // 链路从行尾移到这里：升为标题后它接管了行尾标注的职责，因此正文条目不再带标注 —— 上面的
   // 变化块不在任何标题之下，仍然逐条写明链路。
   const sources = [...new Set(live.map((item) => item.source))].sort(compareSource);
@@ -959,32 +959,44 @@ export function render({
     out.push(`# ${sourceLabel(source)}（${sourceItems.length}）`);
     out.push('');
 
-    const kinds = [...new Set(sourceItems.map((item) => item.kind))].sort(compareKind);
-    for (const kind of kinds) {
-      const kindItems = sourceItems.filter((item) => item.kind === kind);
-      out.push(`## ${kind}（${kindItems.length}）`);
+    // Categories are the collapsible unit inside each path. Movie and TV open by default
+    // because they are the two types readers most often work through; all other types stay
+    // folded until requested. Keep the tags unindented and put a blank line after </summary>:
+    // that is what lets GitHub render the headings and task lists inside the HTML block.
+    // 分类是每条链路内的折叠单位。电影与电视剧默认展开，因为这两类最常直接处理；其他类型默认
+    // 收起。标签必须顶格，且 </summary> 后要留空行，GitHub 才会渲染内部的标题与任务列表。
+    const categories = [
+      ...new Set(sourceItems.map((item) => normalizeCategory(item.category))),
+    ].sort(compareCategory);
+    for (const category of categories) {
+      const categoryItems = sourceItems.filter(
+        (item) => normalizeCategory(item.category) === category,
+      );
+      const categoryLabel = CATEGORY_LABELS.get(category) ?? category;
+      const openByDefault = category === 'movie' || category === 'tv';
+
+      out.push(openByDefault ? '<details open>' : '<details>');
+      out.push(
+        `<summary><strong>${categoryLabel}（${categoryItems.length} 条）</strong></summary>`,
+      );
       out.push('');
 
-      const categories = [
-        ...new Set(kindItems.map((item) => normalizeCategory(item.category))),
-      ].sort(compareCategory);
-      for (const category of categories) {
-        const categoryItems = kindItems.filter(
-          (item) => normalizeCategory(item.category) === category,
-        );
-        out.push(
-          `### ${CATEGORY_LABELS.get(category) ?? category}（${categoryItems.length}）`,
-        );
+      const kinds = [...new Set(categoryItems.map((item) => item.kind))].sort(
+        compareKind,
+      );
+      for (const kind of kinds) {
+        const kindItems = categoryItems.filter((item) => item.kind === kind);
+        out.push(`## ${kind}（${kindItems.length}）`);
         out.push('');
 
         const shelves = [
-          ...new Set(categoryItems.map((item) => normalizeShelf(item.shelf))),
+          ...new Set(kindItems.map((item) => normalizeShelf(item.shelf))),
         ].sort(compareShelf);
         for (const shelf of shelves) {
-          const bucket = categoryItems.filter(
+          const bucket = kindItems.filter(
             (item) => normalizeShelf(item.shelf) === shelf,
           );
-          out.push(`#### ${SHELF_LABELS.get(shelf) ?? shelf}（${bucket.length}）`);
+          out.push(`### ${SHELF_LABELS.get(shelf) ?? shelf}（${bucket.length}）`);
           out.push('');
           bucket.forEach((item, index) => {
             const age = daysSince(item.firstSeenAt, now);
@@ -1003,6 +1015,9 @@ export function render({
           out.push('');
         }
       }
+
+      out.push('</details>');
+      out.push('');
     }
   }
 

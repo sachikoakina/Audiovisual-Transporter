@@ -1,13 +1,14 @@
 /**
- * The shape of the review list: sync path → result → item type → user state.
- * 待核对名单的形状：同步链路 → 结果 → 条目类型 → 用户状态。
+ * The shape of the review list: sync path → collapsible item type → result → user state.
+ * 待核对名单的形状：同步链路 → 可折叠条目类型 → 结果 → 用户状态。
  *
- * The claims pinned here are the ones a future refactor can silently break: the heading levels,
- * the group order, the fallback buckets, and the fact that an entry keeps its link, reason and
- * age no matter which group it lands in — while the path lives in the H1 above it, not in the
- * line.
- * 这里钉住的是将来重构容易悄悄弄坏的东西：标题层级、分组顺序、兜底分组，以及条目无论落到哪一组
- * 都保留链接、reason 与已存在天数 —— 而链路由它上方的 H1 承载，不再出现在条目行里。
+ * The claims pinned here are the ones a future refactor can silently break: the details blocks,
+ * their default open/closed state, the group order, the fallback buckets, and the fact that an
+ * entry keeps its link, reason and age no matter which group it lands in — while the path lives
+ * in the H1 above it, not in the line.
+ * 这里钉住的是将来重构容易悄悄弄坏的东西：details 区块、默认展开/收起、分组顺序、兜底分组，
+ * 以及条目无论落到哪一组都保留链接、reason 与已存在天数 —— 而链路由它上方的 H1 承载，不再出现
+ * 在条目行里。
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -146,31 +147,38 @@ describe('render — 结果、类型与状态', () => {
     expect(body.indexOf('## unresolved')).toBeLessThan(body.indexOf('## skipped'));
   });
 
-  it('groups by item type under each result (H3), in the fixed order', () => {
+  it('renders item types as collapsible categories, opening movie and TV by default', () => {
     const tv = item({ category: 'tv', shelf: 'complete' });
-    const text = renderText({ items: [tmdbMovie, tv] });
+    const text = renderText({ items: [tmdbMovie, tv, doubanBook] });
     const body = section(text, '# NeoDB → TMDB（2）');
 
-    expect(body).toContain('### 电影（1）');
-    expect(body).toContain('### 电视剧（1）');
-    expect(body.indexOf('### 电影')).toBeLessThan(body.indexOf('### 电视剧'));
+    expect(body).toContain(
+      '<details open>\n<summary><strong>电影（1 条）</strong></summary>',
+    );
+    expect(body).toContain(
+      '<details open>\n<summary><strong>电视剧（1 条）</strong></summary>',
+    );
+    expect(body.indexOf('电影（1 条）')).toBeLessThan(body.indexOf('电视剧（1 条）'));
+    expect(text).toContain(
+      '<details>\n<summary><strong>书籍（1 条）</strong></summary>',
+    );
   });
 
-  it('groups by user state under each type (H4), in the fixed order', () => {
+  it('groups by user state under each category (H3), in the fixed order', () => {
     const wishing = item({ shelf: 'wishlist' });
     const text = renderText({ items: [tmdbMovie, wishing] });
     const body = section(text, '# NeoDB → TMDB（2）');
 
-    expect(body).toContain('#### 想看（1）');
-    expect(body).toContain('#### 抛弃（1）');
-    expect(body.indexOf('#### 想看')).toBeLessThan(body.indexOf('#### 抛弃'));
+    expect(body).toContain('### 想看（1）');
+    expect(body).toContain('### 抛弃（1）');
+    expect(body.indexOf('### 想看')).toBeLessThan(body.indexOf('### 抛弃'));
   });
 
   it('renders the entry line with checkbox, ordinal, link, reason and age, leaving the path to the H1', () => {
     const text = renderText({ items: [bangumiUnresolved] });
     const body = section(text, '# Bangumi → NeoDB（1）');
 
-    expect(body).toContain('#### 在看（1）');
+    expect(body).toContain('### 在看（1）');
     expect(body).toContain(
       '- [ ] **1.** 狐妖小红娘13 黄风岭篇 — https://bgm.tv/subject/391457',
     );
@@ -180,21 +188,35 @@ describe('render — 结果、类型与状态', () => {
 });
 
 describe('render — 缺失类型与状态', () => {
-  it('folds a missing type into 其他 (H3) and a missing state into 未知 (H4)', () => {
+  it('folds a missing type into 其他 and a missing state into 未知', () => {
     const bare = item({ title: '无名', url: '', category: '', shelf: '' });
     const text = renderText({ items: [bare] });
 
-    expect(text).toContain('### 其他（1）');
-    expect(text).toContain('#### 未知（1）');
+    expect(text).toContain(
+      '<details>\n<summary><strong>其他（1 条）</strong></summary>',
+    );
+    expect(text).toContain('### 未知（1）');
   });
 
   it('counts every entry exactly once at every level', () => {
     const text = renderText({ items: [tmdbMovie, doubanBook, bangumiUnresolved] });
     const h1 = [...text.matchAll(/^# .+（(\d+)）$/gm)].map((m) => Number(m[1]));
-    const h4 = [...text.matchAll(/^#### .+（(\d+)）$/gm)].map((m) => Number(m[1]));
+    const categories = [
+      ...text.matchAll(/<summary><strong>.+（(\d+) 条）<\/strong><\/summary>/g),
+    ].map((m) => Number(m[1]));
+    const shelves = [...text.matchAll(/^### .+（(\d+)）$/gm)].map((m) => Number(m[1]));
 
     expect(h1.reduce((a, b) => a + b, 0)).toBe(3);
-    expect(h4.reduce((a, b) => a + b, 0)).toBe(3);
+    expect(categories.reduce((a, b) => a + b, 0)).toBe(3);
+    expect(shelves.reduce((a, b) => a + b, 0)).toBe(3);
+  });
+
+  it('keeps every category details block balanced', () => {
+    const tv = item({ category: 'tv', shelf: 'complete' });
+    const text = renderText({ items: [tmdbMovie, tv, doubanBook] });
+
+    expect([...text.matchAll(/<details(?: open)?>/g)]).toHaveLength(3);
+    expect([...text.matchAll(/<\/details>/g)]).toHaveLength(3);
   });
 });
 
