@@ -271,6 +271,7 @@ const DETAIL_REASONS = new Map([
   ['bangumi-write-rejected', ['failed', 'douban→bangumi']],
   ['bangumi-item-threw', ['failed', 'douban→bangumi']],
   ['bangumi-read-failed', ['failed', 'douban→bangumi']],
+  ['duplicate-bangumi-target', ['skipped', 'douban→bangumi']],
   ['item-threw', ['failed', 'bangumi→neodb']],
   ['duplicate-target', ['skipped', 'bangumi→neodb']],
   ['tmdb-known-absent', ['skipped', 'neodb→tmdb']],

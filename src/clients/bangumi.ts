@@ -73,6 +73,12 @@ function logUnauthorized(): void {
   );
 }
 
+/** Bangumi infobox entry; `版本:*` values contain nested key/value pairs. / Bangumi 信息表项。 */
+export type BangumiInfoboxItem = {
+  key: string;
+  value: string | { k: string; v: string }[];
+};
+
 export type BangumiSubject = {
   id: number;
   type: BangumiSubjectType;
@@ -100,6 +106,8 @@ export type BangumiSubject = {
   eps?: number;
   /** Total volumes for a book. / 书籍总卷数。 */
   volumes?: number;
+  /** Full subject only: book ISBN/author/edition metadata. / 完整条目才有：书籍 ISBN/作者/版次信息。 */
+  infobox?: BangumiInfoboxItem[];
 };
 
 export type BangumiEpisode = {

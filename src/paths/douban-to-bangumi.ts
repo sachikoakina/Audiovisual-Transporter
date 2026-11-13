@@ -59,6 +59,12 @@ import {
 import { neodbThrottle } from '../clients/neodb-http';
 import { doubanStarsToTenPoint } from '../rules/douban';
 import { planBookProgress, planEpisodeProgress } from '../rules/bangumi-progress';
+import { pickBookByIsbn } from '../rules/bangumi-book-match';
+import { normalizeIsbn } from '../rules/isbn';
+import {
+  shouldSkipDoubanClaim,
+  type DoubanTargetClaim,
+} from '../rules/douban-bangumi-claim';
 import {
   normalizeReviewCategory,
   normalizeReviewShelf,
@@ -96,7 +102,14 @@ type YearCache = {
   neodb: Map<string, number | null>;
   /** Bangumi subject id → year (or null). / Bangumi subject id → 年份（或 null）。 */
   bangumi: Map<number, number | null>;
+  /** NeoDB uuid → normalized ISBN (or null). / NeoDB uuid → 归一化 ISBN（或 null）。 */
+  neodbIsbn: Map<string, string | null>;
+  /** Bangumi subject id → full subject (or null). / Bangumi subject id → 完整条目（或 null）。 */
+  bangumiSubjects: Map<number, BangumiSubject | null>;
 };
+
+type MatchVia = 'link' | 'isbn' | 'title';
+type ResolvedBangumiSubject = { id: number; via: MatchVia };
 
 /**
  * Sync Douban RSS feed items to Bangumi collections.
@@ -160,7 +173,17 @@ export default async function syncDoubanToBangumi(
 
   // Shared across every item in this run: a year is immutable, so a uuid/id hit is always safe.
   // 本轮所有条目共用：年份不可变，uuid/id 命中永远安全。
-  const years: YearCache = { neodb: new Map(), bangumi: new Map() };
+  const years: YearCache = {
+    neodb: new Map(),
+    bangumi: new Map(),
+    neodbIsbn: new Map(),
+    bangumiSubjects: new Map(),
+  };
+  // One target may be claimed by several feed entries. The map is run-local on purpose: a
+  // cross-run winner would flip with feed order and cause repeated writes.
+  // 同一目标可能被多个 feed 条目认领。映射刻意只在单轮内有效：跨轮保存会让胜负随 feed
+  // 顺序翻转，造成反复写入。
+  const targetClaims = new Map<number, DoubanTargetClaim>();
 
   consola.start('Going to sync Douban → Bangumi...');
   for (const item of filtered) {
@@ -171,6 +194,7 @@ export default async function syncDoubanToBangumi(
         me.username,
         scanned,
         years,
+        targetClaims,
       );
       report[outcome] += 1;
       if (outcome === 'unresolved') {
@@ -294,14 +318,16 @@ async function syncFeedItemToBangumi(
   scanned: Set<string>,
   /** Run-local year lookups shared by every title-search attempt. / 本轮共享的年份查表。 */
   years: YearCache,
+  /** Run-local target claims, keyed by Bangumi subject id. / 单轮目标认领表，按 Bangumi subject 索引。 */
+  targetClaims: Map<number, DoubanTargetClaim>,
 ): Promise<{ outcome: ItemSyncOutcome; skipReason?: string }> {
   const label = itemLabel(item.title || item.id, item.link);
   consola.info('Douban → Bangumi: ', label);
 
   const neodbItem = await fetchNeodbItemByUrl(item.link);
-  const subjectId = await resolveBangumiSubjectId(item, neodbItem, years);
+  const resolved = await resolveBangumiSubjectId(item, neodbItem, years);
 
-  if (!subjectId) {
+  if (!resolved) {
     consola.warn(
       'No Bangumi match, skip: ',
       `${label} ${reviewMetaSuffix(item.category, item.status)}`,
@@ -309,6 +335,7 @@ async function syncFeedItemToBangumi(
     return { outcome: 'unresolved' };
   }
 
+  const subjectId = resolved.id;
   // The guard below is the one review entry on this path whose key is not the Douban link: its
   // log line names `subject/N`, and the parser derives `bangumi:N` from it. Record that identity
   // for every resolved subject — not only when the guard fires — so an entry created by an older
@@ -317,6 +344,23 @@ async function syncFeedItemToBangumi(
   // `bangumi:N`。只要 subject 解析成功就记下这个身份 —— 不只在守卫触发时记，这样更早一轮留下的
   // 守卫条目在 Bangumi 状态改变后仍能正常老化。
   scanned.add(`bangumi:${subjectId}`);
+
+  const claim: DoubanTargetClaim = {
+    subjectId,
+    sourceId: item.link,
+    via: resolved.via,
+    status: item.status,
+  };
+  const incumbent = targetClaims.get(subjectId);
+  if (incumbent && shouldSkipDoubanClaim(incumbent, claim)) {
+    consola.info(
+      'Duplicate Bangumi target, keeping stronger claim: ',
+      `subject/${subjectId} kept=${incumbent.sourceId}(${incumbent.via},${incumbent.status}) ` +
+        `skipped=${claim.sourceId}(${claim.via},${claim.status})`,
+    );
+    return { outcome: 'skipped', skipReason: 'duplicate-bangumi-target' };
+  }
+  targetClaims.set(subjectId, claim);
 
   const desiredType = NEODB_TO_BANGUMI_COLLECTION[item.status];
   const desiredRate = doubanStarsToTenPoint(item.rating);
@@ -474,18 +518,27 @@ async function resolveBangumiSubjectId(
   item: FeedItem,
   neodbItem: NeodbItem | null,
   years: YearCache,
-): Promise<number | null> {
+): Promise<ResolvedBangumiSubject | null> {
   if (neodbItem) {
     const fromNeodb = extractBangumiIdFromNeodb(neodbItem);
     if (fromNeodb) {
       consola.info('Matched Bangumi via NeoDB external_resources: ', fromNeodb);
-      return fromNeodb;
+      return { id: fromNeodb, via: 'link' };
     }
   }
 
   // Drama has no Bangumi type; only sync when NeoDB already linked it.
   if (item.category === ItemCategory.Drama) {
     return null;
+  }
+
+  // Books need ISBN adjudication before the generic title path. The generic path intentionally
+  // keeps its first-exact behaviour for anime/real; books must not silently pick an edition when
+  // several exact-title candidates exist.
+  // 书籍必须先做 ISBN 裁决。通用路径对动画/真人保留 first-exact；书籍在多个精确同名候选时
+  // 不能静默选一个版次。
+  if (item.category === ItemCategory.Book) {
+    return resolveBookSubjectId(item, neodbItem, years);
   }
 
   const keyword = neodbItem?.display_title || neodbItem?.title || item.title;
@@ -530,7 +583,7 @@ async function resolveBangumiSubjectId(
   const exact = await pick(exactBangumiCandidates(results, keyword));
   if (exact) {
     consola.info('Matched Bangumi via exact title search: ', exact.id);
-    return exact.id;
+    return { id: exact.id, via: 'title' };
   }
 
   // Also try FeedItem.title if NeoDB title differed
@@ -538,17 +591,163 @@ async function resolveBangumiSubjectId(
     const again = await pick(exactBangumiCandidates(results, item.title));
     if (again) {
       consola.info('Matched Bangumi via FeedItem title: ', again.id);
-      return again.id;
+      return { id: again.id, via: 'title' };
     }
     const secondSearch = await searchBangumiSubjects(item.title, types);
     const secondExact = await pick(exactBangumiCandidates(secondSearch, item.title));
     if (secondExact) {
       consola.info('Matched Bangumi via second title search: ', secondExact.id);
-      return secondExact.id;
+      return { id: secondExact.id, via: 'title' };
     }
   }
 
   return null;
+}
+
+/**
+ * Search candidates for one book without falling back to response order.
+ *
+ * A single exact candidate is still accepted as before. Multiple candidates are only settled by
+ * a unique ISBN; every candidate must be read in full first, because the search payload does not
+ * carry infobox ISBNs. A failed candidate read is not treated as "no ISBN" — it aborts the
+ * adjudication and records an unresolved item, which is safer than guessing.
+ *
+ * 书籍候选搜索：唯一精确候选保持原行为；多个候选只用唯一 ISBN 定案。搜索载荷不含 infobox，
+ * 因此必须先完整读取每个候选。候选读取失败不能被当成「没有 ISBN」继续猜，直接转 unresolved。
+ */
+async function resolveBookSubjectId(
+  item: FeedItem,
+  neodbItem: NeodbItem | null,
+  years: YearCache,
+): Promise<ResolvedBangumiSubject | null> {
+  const exactById = new Map<number, BangumiSubject>();
+  for (const title of bookTitleCandidates(item, neodbItem)) {
+    const results = await searchBangumiSubjects(title, [1]);
+    for (const candidate of exactBangumiCandidates(results, title)) {
+      exactById.set(candidate.id, candidate);
+    }
+  }
+
+  const candidates = [...exactById.values()];
+  if (!candidates.length) {
+    return null;
+  }
+  if (candidates.length === 1) {
+    consola.info('Matched Bangumi via exact title search: ', candidates[0]!.id);
+    return { id: candidates[0]!.id, via: 'title' };
+  }
+
+  const sourceIsbn = await resolveNeodbBookIsbn(neodbItem, years);
+  const fullCandidates: BangumiSubject[] = [];
+  for (const candidate of candidates) {
+    const full = await resolveBangumiSubjectDetail(candidate, years);
+    if (!full) {
+      consola.warn(
+        'Bangumi book candidate read failed; keep unresolved instead of guessing: ',
+        `subject/${candidate.id} candidates=${candidates.map((c) => c.id).join(',')}`,
+      );
+      return null;
+    }
+    fullCandidates.push(full);
+  }
+
+  const picked = pickBookByIsbn(fullCandidates, sourceIsbn);
+  if (picked.status === 'matched') {
+    consola.info(
+      'Matched Bangumi via ISBN: ',
+      `subject/${picked.subject.id} isbn=${sourceIsbn ?? 'missing'}`,
+    );
+    return { id: picked.subject.id, via: 'isbn' };
+  }
+  if (picked.status === 'ambiguous') {
+    consola.warn(
+      'Ambiguous Bangumi book match, skip: ',
+      `reason=${picked.reason} candidates=${picked.candidates
+        .map((candidate) => candidate.id)
+        .join(',')} isbn=${sourceIsbn ?? 'missing'}`,
+    );
+  }
+  return null;
+}
+
+/** Stable, deduplicated title candidates for a book. / 书籍标题候选，稳定去重。 */
+function bookTitleCandidates(item: FeedItem, neodbItem: NeodbItem | null): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [
+    neodbItem?.display_title,
+    neodbItem?.title,
+    ...(neodbItem?.localized_title ?? []).map((title) => title.text),
+    item.title,
+  ]) {
+    const trimmed = raw?.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/**
+ * Normalized ISBN for the NeoDB source item. The shelf payload usually omits it, so the item's
+ * own `api_url` is read once and cached. A missing ISBN stays null; it never rejects a candidate.
+ * NeoDB 源条目的归一化 ISBN。书架载荷通常没有该字段，因此按 `api_url` 读一次并缓存；
+ * 缺失保持 null，绝不据此拒绝候选。
+ */
+async function resolveNeodbBookIsbn(
+  neodbItem: NeodbItem | null,
+  years: YearCache,
+): Promise<string | null> {
+  if (!neodbItem) {
+    return null;
+  }
+  if (years.neodbIsbn.has(neodbItem.uuid)) {
+    return years.neodbIsbn.get(neodbItem.uuid) ?? null;
+  }
+
+  const inline = normalizeIsbn(neodbItem.isbn);
+  if (inline) {
+    years.neodbIsbn.set(neodbItem.uuid, inline);
+    return inline;
+  }
+  if (!neodbItem.api_url) {
+    years.neodbIsbn.set(neodbItem.uuid, null);
+    return null;
+  }
+
+  await neodbThrottle();
+  const detail = await getNeodbItemDetail(neodbItem.api_url);
+  const isbn = normalizeIsbn(detail?.isbn ?? neodbItem.isbn);
+  years.neodbIsbn.set(neodbItem.uuid, isbn);
+  return isbn;
+}
+
+/**
+ * Full Bangumi subject for candidate evidence, cached for this run. A failed read is cached as
+ * null so one bad candidate does not turn into repeated requests; the caller treats it as
+ * unresolved rather than as an ISBN miss.
+ * 候选完整条目缓存；失败也缓存为 null，避免反复请求；调用方将其视为 unresolved，而不是
+ * 「没有 ISBN」。
+ */
+async function resolveBangumiSubjectDetail(
+  candidate: BangumiSubject,
+  years: YearCache,
+): Promise<BangumiSubject | null> {
+  if (years.bangumiSubjects.has(candidate.id)) {
+    return years.bangumiSubjects.get(candidate.id) ?? null;
+  }
+  if (candidate.infobox?.length) {
+    years.bangumiSubjects.set(candidate.id, candidate);
+    return candidate;
+  }
+
+  await bangumiThrottle();
+  const result = await getBangumiSubject(candidate.id);
+  const value = result.status === 'found' ? result.value : null;
+  years.bangumiSubjects.set(candidate.id, value);
+  return value;
 }
 
 /**

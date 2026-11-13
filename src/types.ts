@@ -244,6 +244,8 @@ export type NeodbItem = {
   year?: number;
   /** EditionSchema (books) only. */
   pub_year?: number;
+  /** EditionSchema (books) only; the shelf listing does not carry it. */
+  isbn?: string;
 };
 
 /**
