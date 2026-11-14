@@ -72,6 +72,8 @@ export type ReviewItem = {
   lastSeenAt?: string;
   missedRuns?: number;
   seenCount?: number;
+  /** Set only on removed entries; absent means the legacy two-miss reason. / 仅移出项使用。 */
+  removedReason?: 'two-covered-misses' | 'verified-resolved';
 };
 
 /** Per-path coverage built from the run report. / 由运行报表折算出的逐链路覆盖信息。 */
@@ -109,6 +111,12 @@ export function render(input: {
 }): string;
 
 export function coverageFromReport(report: RunReport | null): Map<string, Coverage>;
+
+export function removalRecord(
+  entry: ReviewItem,
+  removedAt: string,
+  runUrl?: string,
+): Record<string, unknown>;
 
 export function merge(
   previous: ReadonlyArray<ReviewItem>,

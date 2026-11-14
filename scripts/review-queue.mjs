@@ -596,6 +596,59 @@ function loadState(file) {
   }
 }
 
+/** Load the append-only removal ledger; a corrupt line is skipped, not fatal. / 读取移出账本，坏行跳过。 */
+function loadRemovals(file) {
+  if (!file || !fs.existsSync(file)) {
+    return [];
+  }
+  const out = [];
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === 'object') out.push(parsed);
+    } catch {
+      // Keep the rest of the ledger even if one line was truncated.
+      // 单行损坏不应丢掉整本账。
+    }
+  }
+  return out;
+}
+
+/** One durable removal record, deliberately free of comment text. / 一条持久移出记录，不包含短评正文。 */
+export function removalRecord(entry, removedAt, runUrl = '') {
+  return {
+    removedAt,
+    key: entry.key,
+    source: entry.source,
+    title: entry.title,
+    url: entry.url || '',
+    reason: entry.reason || '',
+    removedReason: entry.removedReason || 'two-covered-misses',
+    missedRuns: entry.missedRuns || 0,
+    seenCount: entry.seenCount || 0,
+    firstSeenAt: entry.firstSeenAt || '',
+    lastSeenAt: entry.lastSeenAt || '',
+    runUrl: runUrl || '',
+  };
+}
+
+function writeRemovalLedger(outDir, previousFile, removed, runStartedAt, runUrl) {
+  if (!removed.length && !previousFile) {
+    return;
+  }
+  const history = [
+    ...loadRemovals(previousFile),
+    ...removed.map((entry) => removalRecord(entry, runStartedAt, runUrl)),
+  ];
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(outDir, 'removals.jsonl'),
+    history.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+    'utf8',
+  );
+}
+
 /**
  * The identity part of an entry's key — the same string `scannedIds` records for that item.
  *
@@ -736,9 +789,31 @@ export function merge(
       continue;
     }
 
+    // A per-source partial parse is the dangerous case the global `degraded` guard misses:
+    // some lines were parsed, so the run does not look empty, but this source's unresolved log
+    // lines are fewer than its report says. Freeze the source's absences rather than turning a
+    // parser gap into two misses.
+    // 全局 `degraded` 抓不到「只解析到一部分」：运行不空，但该链路的未匹配日志行少于报表。
+    // 此时冻结该来源的缺席，避免把解析缺口累计成两次 miss。
+    const observedUnresolved = observed.filter(
+      (item) => item.source === entry.source && item.kind === 'unresolved',
+    ).length;
+    if (
+      sourceCoverage.unresolved > 0 &&
+      observedUnresolved < sourceCoverage.unresolved
+    ) {
+      uncovered.push(entry);
+      items.push({ ...entry, missedRuns: 0 });
+      continue;
+    }
+
     const missedRuns = (entry.missedRuns || 0) + 1;
     if (missedRuns >= MISSES_BEFORE_REMOVAL && !deferRemoval) {
-      removed.push(entry);
+      removed.push({
+        ...entry,
+        missedRuns,
+        removedReason: 'two-covered-misses',
+      });
       continue;
     }
     items.push({ ...entry, missedRuns });
@@ -826,6 +901,16 @@ const compareKind = (a, b) => {
  * `strike` 标记已移除的条目，且只有名字加删除线：链接保持可点 —— 「它真的匹配上了吗」正是移除会
  * 引出的那个问题。
  */
+const REMOVAL_REASON_LABELS = {
+  'two-covered-misses': '连续两轮被扫描到且未再出现',
+  'verified-resolved': '验证器确认已解决',
+};
+
+/** Human label for a removal reason, keeping old snapshots readable. / 移出原因的显示文案，兼容旧快照。 */
+function removalReasonLabel(reason) {
+  return REMOVAL_REASON_LABELS[reason] ?? REMOVAL_REASON_LABELS['two-covered-misses'];
+}
+
 function diffLine(item, { strike = false } = {}) {
   const name = strike ? `~~${item.title}~~` : item.title;
   // The name falls back to the URL when the log had nothing better to name it with (④ before
@@ -904,7 +989,7 @@ export function render({
     out.push('');
   } else if (uncovered > 0) {
     out.push(
-      `> 本轮有 **${uncovered}** 条不在扫描集合里（配额截断、分页上限或链路未运行），` +
+      `> 本轮有 **${uncovered}** 条未被采信（未进入扫描集合，或该链路解析到的未匹配条数少于报表），` +
         '已保留、不计缺席。',
     );
     out.push('');
@@ -931,12 +1016,22 @@ export function render({
     out.push('');
   }
   if (removed.length) {
-    out.push(`**本轮移除（${removed.length}，连续两轮被扫描到且未再出现）**`);
-    out.push('');
+    const groups = new Map();
     for (const item of removed) {
-      out.push(`${diffLine(item, { strike: true })}（${sourceLabel(item.source)}）`);
+      const reason = item.removedReason || 'two-covered-misses';
+      if (!groups.has(reason)) groups.set(reason, []);
+      groups.get(reason).push(item);
     }
-    out.push('');
+    for (const reason of ['two-covered-misses', 'verified-resolved']) {
+      const group = groups.get(reason);
+      if (!group?.length) continue;
+      out.push(`**本轮移除（${group.length}，${removalReasonLabel(reason)}）**`);
+      out.push('');
+      for (const item of group) {
+        out.push(`${diffLine(item, { strike: true })}（${sourceLabel(item.source)}）`);
+      }
+      out.push('');
+    }
   }
   if (observing.length) {
     out.push(`**观察中（${observing.length}，下一轮仍出现才入名单）**`);
@@ -1028,7 +1123,7 @@ export function render({
     '条目来自本轮 `sync` 的控制台日志，**只包含同步过程打印过的条目**；是否移除由 ' +
       '`sync-report.json` 的**扫描集合**（`PathReport.scannedIds`）决定 —— 只有本轮确实检查过、' +
       '且日志里不再出现的条目才计入缺席。被 `SYNC_MAX_ITEMS` / `NEODB_MAX_PAGES` 截断、' +
-      '或链路未运行的部分会冻结在原处。' +
+      '或链路未运行的部分会冻结在原处；来源日志解析条数少于报表统计时同样冻结。' +
       '类别白名单过滤、增量命中、重复跳过属于设计行为，不采集；' +
       'reason 被多条链路共用（如 `category-not-allowed`）时不做猜测，只计入上面的「无法归属」计数。',
   );
@@ -1317,7 +1412,7 @@ function main() {
       for (const entry of items) {
         const result = byKey.get(entry.key);
         if (result?.status === 'resolved') {
-          removed.push(entry);
+          removed.push({ ...entry, removedReason: 'verified-resolved' });
           continue;
         }
         if (result && result.status !== 'resolved') {
@@ -1337,7 +1432,7 @@ function main() {
           if (verifySources.has(entry.source)) {
             next.push({ ...entry, missedRuns: 1 });
           } else {
-            removed.push(entry);
+            removed.push({ ...entry, removedReason: 'two-covered-misses' });
           }
           continue;
         }
@@ -1353,6 +1448,15 @@ function main() {
     `${JSON.stringify({ version: 1, runStartedAt, items }, null, 2)}\n`,
     'utf8',
   );
+
+  // The snapshot only carries the current list. The ledger is the long-lived evidence for why an
+  // entry left it; it is kept beside state.json in the same artifact, and appended across runs.
+  // 快照只承载当前名单；账本是「为什么移出」的长期证据，与 state.json 放在同一 artifact 中，
+  // 跨轮追加。
+  const previousLedger = stateFile
+    ? path.join(path.dirname(stateFile), 'removals.jsonl')
+    : '';
+  writeRemovalLedger(outDir, previousLedger, removed, runStartedAt, runUrl);
 
   const summary = [
     render({
@@ -1380,6 +1484,11 @@ function main() {
         kept: items.length,
         added: added.length,
         removed: removed.length,
+        removedReasons: removed.reduce((counts, entry) => {
+          const reason = entry.removedReason || 'two-covered-misses';
+          counts[reason] = (counts[reason] || 0) + 1;
+          return counts;
+        }, {}),
         uncovered: uncovered.length,
         unattributable,
         degraded,

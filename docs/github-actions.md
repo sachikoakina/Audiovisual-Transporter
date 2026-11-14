@@ -101,7 +101,8 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
 3. 本轮没有触发 `degraded` 冻结；
 4. 该条目所属链路在 `sync-report` 中有 coverage；
 5. 条目身份在该链路的 `scannedIds` 中；
-6. `missedRuns + 1 >= 2`，即连续第二轮“被扫描到但未再出现”。
+6. 该链路解析到的 `unresolved` 条数不少于报表统计，避免“只解析到一部分”被当成缺席；
+7. `missedRuns + 1 >= 2`，即连续第二轮“被扫描到但未再出现”。
 
 ```text
 上一份条目
@@ -109,19 +110,24 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
   └─ 本轮未出现
        ├─ degraded → 冻结，不计缺席
        ├─ 无 coverage / identity 不在 scannedIds → 冻结，missedRuns = 0
-       └─ 有 coverage 且 identity 在 scannedIds
+       ├─ 来源解析条数少于报表 unresolved → 冻结，missedRuns = 0
+       └─ 有 coverage、identity 在 scannedIds、解析条数足够
             ├─ missedRuns = 1 → 保留
             └─ missedRuns = 2 → 移出
 ```
 
+验证器在 `enforce` 模式下确认 `resolved` 时可以在当轮直接移出，并单独标记为
+`verified-resolved`；不要把它和“连续两轮缺席”混为一谈。
+
 ### 会触发移出的场景
 
-| 场景                          | 说明                                             |
-| ----------------------------- | ------------------------------------------------ |
-| 连续两轮扫描到但不再报错      | 条目已修复、已匹配，或不再产生该档位记录         |
-| `unresolved` 变为可匹配       | 日志不再输出 `No ... match` / `neodb-unresolved` |
-| `failed` / `skipped` 恢复正常 | 本轮被扫描到，但没有再次失败或跳过               |
-| 目标端已存在对应条目          | ②③④⑤ 的匹配成功后不再进入名单                    |
+| 场景                          | 说明                                             | 移出原因             |
+| ----------------------------- | ------------------------------------------------ | -------------------- |
+| 连续两轮扫描到但不再报错      | 条目已修复、已匹配，或不再产生该档位记录         | `two-covered-misses` |
+| `unresolved` 变为可匹配       | 日志不再输出 `No ... match` / `neodb-unresolved` | `two-covered-misses` |
+| `failed` / `skipped` 恢复正常 | 本轮被扫描到，但没有再次失败或跳过               | `two-covered-misses` |
+| 目标端已存在对应条目          | ②③④⑤ 的匹配成功后不再进入名单                    | `two-covered-misses` |
+| 验证器确认已解决              | `enforce` 模式且验证结果为 `resolved`            | `verified-resolved`  |
 
 `MIN_ROUNDS` 只决定条目何时显示为已入名单，不改变移出条件。
 
@@ -144,21 +150,25 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
 
 ### 判断时应核对
 
-| 字段                | 含义                                                       |
-| ------------------- | ---------------------------------------------------------- |
-| `removed`           | 本轮真正移出的条目                                         |
-| `uncovered`         | 因未扫描而冻结的条目数                                     |
-| `degraded`          | 是否因解析异常整轮冻结                                     |
-| `coverage.sources`  | 有覆盖信息的链路数                                         |
-| `coverage.complete` | 是否所有链路都完整扫描；仅用于摘要说明，不参与单条移出判断 |
-| `missedRuns`        | 单条连续缺席次数                                           |
-| `scannedIds`        | 该链路本轮真正检查过的 identity                            |
+| 字段                | 含义                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| `removed`           | 本轮真正移出的条目                                                                   |
+| `removedReasons`    | 本轮的移出原因计数：`two-covered-misses` / `verified-resolved`                       |
+| `removals.jsonl`    | 跨轮追加的移出账本，含条目身份、原因、missedRuns、runUrl；仍受 90 天 artifact 链限制 |
+| `uncovered`         | 因未扫描或来源解析不足而冻结的条目数                                                 |
+| `degraded`          | 是否因解析异常整轮冻结                                                               |
+| `coverage.sources`  | 有覆盖信息的链路数                                                                   |
+| `coverage.complete` | 是否所有链路都完整扫描；仅用于摘要说明，不参与单条移出判断                           |
+| `missedRuns`        | 单条连续缺席次数                                                                     |
+| `scannedIds`        | 该链路本轮真正检查过的 identity                                                      |
 
 快速判断：
 
 ```text
 removed > 0
-  → 条目连续两轮在 scannedIds 中但未再出现
+  → 先看 removedReasons：
+     two-covered-misses → 连续两轮在 scannedIds 中但未再出现
+     verified-resolved  → 验证器当轮确认已解决
 
 removed = 0，uncovered > 0
   → 多数是没扫描到，不是修好了

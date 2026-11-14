@@ -115,6 +115,8 @@ describe('merge — covered absences', () => {
     const second = merge(first.items, [], RUN_AT, coverage([TMDB_URL]));
 
     expect(second.removed.map((item) => item.key)).toEqual([`neodb→tmdb::${TMDB_URL}`]);
+    expect(second.removed[0]?.missedRuns).toBe(2);
+    expect(second.removed[0]?.removedReason).toBe('two-covered-misses');
     expect(second.items).toHaveLength(0);
   });
 
@@ -167,6 +169,24 @@ describe('merge — uncovered absences', () => {
     expect(result.removed).toHaveLength(0);
     expect(result.uncovered).toHaveLength(1);
     expect(result.items).toHaveLength(1);
+  });
+
+  it('freezes a source when parsed unresolved lines are fewer than the report', () => {
+    const previous = entry({ missedRuns: 1 });
+    const other = entry({
+      key: `neodb→tmdb::${TMDB_URL_2}`,
+      url: TMDB_URL_2,
+    });
+    const reportCoverage = coverage([TMDB_URL, TMDB_URL_2], {
+      unresolved: 2,
+    });
+
+    const result = merge([previous], [other], RUN_AT, reportCoverage);
+
+    expect(result.degraded).toBe('');
+    expect(result.removed).toHaveLength(0);
+    expect(result.uncovered.map((item) => item.key)).toEqual([previous.key]);
+    expect(result.items[0]?.missedRuns).toBe(0);
   });
 
   it('treats a report without scannedIds as empty coverage, not as "nothing scanned"', () => {

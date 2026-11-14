@@ -239,6 +239,15 @@ describe('render — 变化摘要块', () => {
     expect(text).toContain('（Douban → Bangumi）');
   });
 
+  it('labels verified removals separately from two-miss removals', () => {
+    const verified = { ...doubanBook, removedReason: 'verified-resolved' as const };
+    const text = renderText({ items: [], removed: [doubanBook, verified] });
+
+    expect(text).toContain('**本轮移除（1，连续两轮被扫描到且未再出现）**');
+    expect(text).toContain('**本轮移除（1，验证器确认已解决）**');
+    expect(text.match(/~~天仙配~~/g)).toHaveLength(2);
+  });
+
   it('shows an entry still inside its observation window only under 观察中', () => {
     const observing = item({ kind: 'failed', reason: 'tmdb-item-threw', seenCount: 1 });
     const text = renderText({ items: [observing], added: [observing] });
