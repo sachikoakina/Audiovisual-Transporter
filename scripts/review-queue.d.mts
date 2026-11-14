@@ -56,6 +56,8 @@ export type RunReport = { version: number; paths: RunReportPath[] };
  * 三个时间线字段是可选的：刚解析出的条目还没经过 `merge`，只有 `render` 用得到它们，而它对缺省值
  * 的处理与 `merge` 一致。
  */
+export type RemovalReason = 'two-covered-misses' | 'verified-resolved';
+
 export type ReviewItem = {
   key: string;
   kind: string;
@@ -73,7 +75,23 @@ export type ReviewItem = {
   missedRuns?: number;
   seenCount?: number;
   /** Set only on removed entries; absent means the legacy two-miss reason. / 仅移出项使用。 */
-  removedReason?: 'two-covered-misses' | 'verified-resolved';
+  removedReason?: RemovalReason;
+};
+
+/** Durable record in `removals.jsonl`; intentionally excludes comment text. / 移出账本记录。 */
+export type RemovalRecord = {
+  removedAt: string;
+  key: string;
+  source: string;
+  title: string;
+  url: string;
+  reason: string;
+  removedReason: RemovalReason;
+  missedRuns: number;
+  seenCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  runUrl: string;
 };
 
 /** Per-path coverage built from the run report. / 由运行报表折算出的逐链路覆盖信息。 */
@@ -116,7 +134,7 @@ export function removalRecord(
   entry: ReviewItem,
   removedAt: string,
   runUrl?: string,
-): Record<string, unknown>;
+): RemovalRecord;
 
 export function merge(
   previous: ReadonlyArray<ReviewItem>,

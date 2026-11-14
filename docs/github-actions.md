@@ -162,6 +162,8 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
 | `missedRuns`        | 单条连续缺席次数                                                                     |
 | `scannedIds`        | 该链路本轮真正检查过的 identity                                                      |
 
+`removals.jsonl` 随 `review-state` artifact 一起上传；artifact 过期后账本无法恢复，因此它是“artifact 生命周期内的跨轮账本”，不是独立永久存储。
+
 快速判断：
 
 ```text
