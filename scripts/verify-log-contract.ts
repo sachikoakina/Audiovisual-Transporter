@@ -362,11 +362,9 @@ const INTENTIONALLY_UNROUTED_REASONS = new Set([
   // Shared by ①②③ — see the note above `DETAIL_REASONS` in the queue.
   // ①②③ 共用 —— 见名单里 `DETAIL_REASONS` 上方的说明。
   'category-not-allowed',
-  // ④'s manga platform gate and ⑤'s four designed-in skips. All four reach `skippedItems`, and all
-  // four are the intended outcome of a configuration, not a defect.
-  // ④ 的漫画平台闸门与 ⑤ 的四种设计内跳过。四种都会进入 `skippedItems`，且都是配置的预期结果，
-  // 不是缺陷。
-  'platform-mismatch',
+  // ⑤'s designed-in skips. They reach `skippedItems`, and are the intended outcome of a
+  // configuration, not a defect.
+  // ⑤ 的设计内跳过。它们会进入 `skippedItems`，且都是配置的预期结果，不是缺陷。
   'unchanged-since-last-run',
   'duplicate-in-run',
   'shelf-not-mapped',

@@ -156,7 +156,7 @@
 | 变量                                  | 默认           | 说明                                                                                                      |
 | ------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
 | `SYNC_BANGUMI_NEODB`                  | `1`            | 总开关                                                                                                    |
-| `SYNC_BANGUMI_NEODB_CATEGORIES`       | 空（全部）     | `anime,manga,book,music,game,real`；`manga` 仅漫画平台，`book` 全部书籍                                   |
+| `SYNC_BANGUMI_NEODB_CATEGORIES`       | 空（全部）     | `anime,book,music,game,real`                                                                              |
 | `SYNC_BANGUMI_NEODB_PROGRESS`         | `0`            | 是否写 NeoDB 进度                                                                                         |
 | `SYNC_BANGUMI_NEODB_RATING`           | `neodb_prefer` | 评分策略：目标非 0 分优先，或 `overwrite`                                                                 |
 | `SYNC_BANGUMI_NEODB_COMMENT`          | `neodb_prefer` | 短评策略：目标非空短评优先，或 `overwrite`                                                                |

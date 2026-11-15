@@ -6,9 +6,9 @@
  *
  * Identity confidence is ranked before status: a direct Bangumi link beats a Douban twin, which
  * beats a title-only twin. Only when two claims have the same confidence does the status rank
- * decide, so a manga's "在读" cannot downgrade an anime's "看过".
+ * decide, so a weaker claim cannot downgrade a stronger one.
  * 身份置信度优先于状态：Bangumi 直链高于豆瓣孪生，豆瓣孪生高于仅标题匹配。只有置信度相同时才看
- * 状态等级，因此漫画的「在读」不能把动画的「看过」降级。
+ * 状态等级，因此弱认领不能把强认领降级。
  */
 import type { BangumiCollectionType, BangumiSubjectType, ShelfType } from '../types';
 import type { NeodbResolutionVia } from '../clients/neodb-catalog';

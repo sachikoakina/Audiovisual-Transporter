@@ -38,7 +38,7 @@ vi.mock('../../src/clients/bangumi', () => ({
   bangumiThrottle: async () => {},
   bangumiToken: 'test-token',
   getBangumiMe: async () => ({ username: 'tester' }),
-  getBangumiSubject: async () => ({ status: 'found', value: { platform: '漫画' } }),
+  getBangumiSubject: async () => ({ status: 'found', value: { date: '2020-01-01' } }),
   listBangumiCollections: (...args: unknown[]) => listBangumiCollections(...args),
   searchBangumiSubjects: async () => [],
   upsertBangumiCollection: async () => true,
@@ -81,7 +81,6 @@ vi.mock('../../src/sync-config', () => ({
     },
   },
   bangumiSubjectTypesForAllowlist: () => undefined,
-  needsBangumiMangaPlatformCheck: () => false,
 }));
 
 // Partial: the cursor helpers run for real (they are plain fs), only the review log is stubbed.
@@ -315,7 +314,7 @@ describe('④ visibility mode / 可见性模式', () => {
 });
 
 describe('④ duplicate target / 同一 NeoDB uuid 多个 Bangumi subject', () => {
-  it('keeps the complete claim and skips the manga progress claim', async () => {
+  it('keeps the complete claim and skips the book progress claim', async () => {
     getNeodbMark.mockResolvedValue({ status: 'absent' });
     markNeodbItem.mockResolvedValue(true);
     resolveNeodbItemForBangumiUrl.mockResolvedValue({
@@ -324,7 +323,7 @@ describe('④ duplicate target / 同一 NeoDB uuid 多个 Bangumi subject', () =
       display_title: '标题',
     });
 
-    const manga = {
+    const book = {
       ...collection,
       subject_id: 999,
       subject_type: 1,
@@ -333,7 +332,7 @@ describe('④ duplicate target / 同一 NeoDB uuid 多个 Bangumi subject', () =
     };
     listBangumiCollections.mockResolvedValue({
       total: 2,
-      data: [manga, collection],
+      data: [book, collection],
     });
 
     const report = await syncBangumiToNeodb(true);

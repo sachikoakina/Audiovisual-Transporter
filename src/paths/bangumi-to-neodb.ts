@@ -58,7 +58,6 @@ import { planNeodbMarkTime } from '../rules/neodb-mark-time';
 import { planNeodbVisibility } from '../rules/neodb-visibility';
 import {
   bangumiSubjectTypesForAllowlist,
-  needsBangumiMangaPlatformCheck,
   syncConfig,
   unmatchedLogFile,
 } from '../sync-config';
@@ -74,35 +73,24 @@ import {
   reviewMetaSuffix,
 } from '../rules/review-vocab';
 import { printPathSummary } from '../sync-report';
-import {
-  PathAbortedError,
-  readOptionalOrThrow,
-  readValueOrThrow,
-} from '../read-guards';
+import { PathAbortedError, readOptionalOrThrow } from '../read-guards';
 
 dotenv.config();
 
 const LABEL = 'Bangumi → NeoDB';
 
 /**
- * What happened to one collection. The four cases partition every scanned
- * collection, which is what lets `printPathSummary` self-check the totals.
+ * What happened to one collection. These cases partition every scanned collection,
+ * which is what lets `printPathSummary` self-check the totals.
  */
 type CollectionOutcome =
-  | 'written'
-  | 'unchanged'
-  | 'skipped-platform'
-  | 'skipped-duplicate'
-  | 'unresolved'
-  | 'unresolved-not-found';
+  'written' | 'unchanged' | 'skipped-duplicate' | 'unresolved' | 'unresolved-not-found';
 
 /** Counters for this path, mirroring the shape of `SyncCounters`. */
 type BangumiCounters = {
   scanned: number;
   written: number;
   unchanged: number;
-  /** Non-manga books dropped by a manga-only category allowlist. */
-  skippedPlatform: number;
   /** A different Bangumi subject claimed the same NeoDB uuid first. */
   skippedDuplicate: number;
   /** Collections NeoDB has no catalog entry for. */
@@ -116,7 +104,6 @@ function newBangumiCounters(): BangumiCounters {
     scanned: 0,
     written: 0,
     unchanged: 0,
-    skippedPlatform: 0,
     skippedDuplicate: 0,
     unresolved: 0,
     failed: 0,
@@ -174,8 +161,6 @@ export default async function syncBangumiToNeodb(
       : 'Going to sync recent Bangumi → NeoDB...',
   );
 
-  const mangaPlatformCheck = needsBangumiMangaPlatformCheck(allowlist);
-
   // Only a full walk resumes. A capped run must start at the head every time, on purpose: its
   // whole window *is* the newest page, so honouring a leftover cursor there would silently hide
   // exactly the marks that run exists to catch. The cursor also never decides whether to write —
@@ -192,16 +177,15 @@ export default async function syncBangumiToNeodb(
     : [undefined];
 
   // Two identities per collection on purpose: `unresolved` is keyed by the Bangumi URL (its log
-  // line is `标题[链接]`), while `item-threw` and `platform-mismatch` are keyed by the title (their
-  // lines carry no link). Recording both is what lets each entry age out independently.
+  // line is `标题[链接]`), while `item-threw` is keyed by the title (its line carries no link).
+  // Recording both is what lets each entry age out independently.
   // 每个收藏刻意记两个身份：`unresolved` 按 Bangumi 链接建 key（日志行是 `标题[链接]`），而
-  // `item-threw` 与 `platform-mismatch` 按标题建 key（日志行不带链接）。两个都记，两类条目才能
-  // 各自独立老化。
+  // `item-threw` 按标题建 key（日志行不带链接）。两个都记，两类条目才能各自独立老化。
   const scanned = new Set<string>();
-  // One target may be claimed by several Bangumi subjects (a manga and its anime, two duplicate
-  // subjects, …). The first claim is remembered for the whole run so a lower-confidence or
-  // lower-status subject cannot overwrite it later in the same run.
-  // 一个 NeoDB 目标可能被多个 Bangumi subject 认领（漫画与动画、重复条目等）。整轮记住第一个
+  // One target may be claimed by several Bangumi subjects (a work and its adaptation, two
+  // duplicate subjects, …). The first claim is remembered for the whole run so a lower-confidence
+  // or lower-status subject cannot overwrite it later in the same run.
+  // 一个 NeoDB 目标可能被多个 Bangumi subject 认领（作品与改编、重复条目等）。整轮记住第一个
   // 认领者，避免后续更低置信度/更低状态的 subject 在同一轮里覆盖它。
   const targetClaims = new Map<string, TargetClaim>();
   // Successful resolutions only; failures are retried next run instead of being cached as absent.
@@ -277,7 +261,6 @@ export default async function syncBangumiToNeodb(
         try {
           const outcome = await syncCollectionToNeodb(
             collection,
-            mangaPlatformCheck,
             targetClaims,
             resolutionCache,
             yearCache,
@@ -288,21 +271,6 @@ export default async function syncBangumiToNeodb(
               break;
             case 'unchanged':
               counters.unchanged += 1;
-              break;
-            case 'skipped-platform':
-              counters.skippedPlatform += 1;
-              // Only reachable when the allowlist asked for manga: the subject sits in Bangumi's
-              // book type but its platform is not 「漫画」, so importing it would put a
-              // non-manga book into the manga shelf.
-              // 只有白名单要求漫画时才会走到：该条在 Bangumi 属书籍类型，但平台不是「漫画」，
-              // 导入它会把一本非漫画书塞进漫画书架。
-              report.skippedItems.push({
-                title: collectionTitle(collection),
-                url: bangumiSubjectUrl(collection.subject_id),
-                reason: 'platform-mismatch',
-                category: normalizeReviewCategory(collection.subject_type),
-                shelf: normalizeReviewShelf(collection.type),
-              });
               break;
             case 'skipped-duplicate':
               counters.skippedDuplicate += 1;
@@ -402,7 +370,7 @@ export default async function syncBangumiToNeodb(
   report.scannedIds = [...scanned].sort();
   report.written = counters.written;
   report.unchanged = counters.unchanged;
-  report.skipped = counters.skippedPlatform + counters.skippedDuplicate;
+  report.skipped = counters.skippedDuplicate;
   report.unresolved = counters.unresolved;
   report.failed = counters.failed;
 
@@ -459,7 +427,6 @@ function collectionTitle(collection: BangumiCollection): string {
 
 async function syncCollectionToNeodb(
   collection: BangumiCollection,
-  mangaPlatformCheck: boolean,
   targetClaims: Map<string, TargetClaim>,
   resolutionCache: Map<
     string,
@@ -470,14 +437,6 @@ async function syncCollectionToNeodb(
   const url = bangumiSubjectUrl(collection.subject_id);
   const title = collectionTitle(collection);
   consola.info('Bangumi → NeoDB: ', itemLabel(title, url));
-
-  if (
-    mangaPlatformCheck &&
-    collection.subject_type === 1 &&
-    !(await isBangumiManga(collection.subject_id, title))
-  ) {
-    return 'skipped-platform';
-  }
 
   const yearFromSummary =
     Number(collection.subject?.date?.slice(0, 4)) ||
@@ -707,27 +666,6 @@ async function syncCollectionToNeodb(
     : false;
 
   return markWritten || progressWritten ? 'written' : 'unchanged';
-}
-
-async function isBangumiManga(subjectId: number, title: string): Promise<boolean> {
-  // `readValueOrThrow` rather than a nullable read: "could not read the platform" and "the
-  // platform is not 漫画" both used to end in `skipped-platform`, so a failed read silently
-  // dropped a book this run was supposed to import. Failing the item is the honest answer.
-  // 用 `readValueOrThrow` 而不是可空读取：「读不到平台」与「平台不是漫画」过去都落到
-  // `skipped-platform`，于是一次读取失败会静默丢掉一本本该导入的书。让这一条失败才是诚实的。
-  const subject = readValueOrThrow(
-    await getBangumiSubject(subjectId),
-    'Bangumi subject',
-  );
-  const platform = subject.platform?.trim() || '';
-  if (platform === '漫画') {
-    return true;
-  }
-  consola.info(
-    'Bangumi → NeoDB: skip non-manga book: ',
-    `${title} (platform=${platform || 'unknown'})`,
-  );
-  return false;
 }
 
 /** @returns true when a progress value was actually written. */

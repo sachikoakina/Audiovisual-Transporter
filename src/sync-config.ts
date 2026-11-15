@@ -137,14 +137,12 @@ export type { BangumiNeodbCategory };
 
 const BANGUMI_CATEGORY_ALIASES: Record<string, BangumiNeodbCategory> = {
   anime: 'anime',
-  manga: 'manga',
   book: 'book',
   music: 'music',
   game: 'game',
   real: 'real',
   动画: 'anime',
   动漫: 'anime',
-  漫画: 'manga',
   书籍: 'book',
   书: 'book',
   音乐: 'music',
@@ -434,22 +432,6 @@ export function bangumiSubjectTypesForAllowlist(
     return [];
   }
   return bangumiSubjectTypesForCategories(allowlist.values);
-}
-
-/**
- * True when books must be filtered by platform === "漫画"
- * (manga allowed, full book not).
- *
- * 为真时表示书籍必须再按 platform ===「漫画」过滤（允许漫画、但不允许全部书籍）。
- */
-export function needsBangumiMangaPlatformCheck(
-  allowlist: CategoryAllowlist<BangumiNeodbCategory>,
-): boolean {
-  return (
-    allowlist.mode === 'set' &&
-    allowlist.values.has('manga') &&
-    !allowlist.values.has('book')
-  );
 }
 
 export function describeSyncConfig(): string {

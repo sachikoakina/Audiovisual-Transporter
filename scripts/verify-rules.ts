@@ -296,16 +296,8 @@ check(
   JSON.stringify(bangumiSubjectTypesForCategories(['real', 'anime'])) === '[2,6]',
 );
 check(
-  'manga maps to the book subject_type 1',
-  JSON.stringify(bangumiSubjectTypesForCategories(['manga'])) === '[1]',
-);
-check(
   'book + music map to 1 and 3',
   JSON.stringify(bangumiSubjectTypesForCategories(['music', 'book'])) === '[1,3]',
-);
-check(
-  'book + manga collapse to a single 1',
-  JSON.stringify(bangumiSubjectTypesForCategories(['book', 'manga'])) === '[1]',
 );
 
 // ───────────────────────────────────────────────────────────────────────────

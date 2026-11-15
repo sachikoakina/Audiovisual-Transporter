@@ -44,15 +44,8 @@ export const BANGUMI_TO_NEODB_STATUS: Record<BangumiCollectionType, ItemStatus> 
 export const BANGUMI_STATUSES_ABSENT_FROM_DOUBAN: ReadonlySet<BangumiCollectionType> =
   new Set([4, 5]);
 
-/**
- * Category tokens accepted by `SYNC_BANGUMI_NEODB_CATEGORIES`.
- * `manga` means books whose platform is "漫画"; `book` covers all books.
- *
- * `SYNC_BANGUMI_NEODB_CATEGORIES` 接受的分类标识。`manga` 指 platform 为「漫画」的书籍；
- * `book` 覆盖全部书籍。
- */
-export type BangumiNeodbCategory =
-  'anime' | 'manga' | 'book' | 'music' | 'game' | 'real';
+/** Category tokens accepted by `SYNC_BANGUMI_NEODB_CATEGORIES`. / `SYNC_BANGUMI_NEODB_CATEGORIES` 接受的分类标识。 */
+export type BangumiNeodbCategory = 'anime' | 'book' | 'music' | 'game' | 'real';
 
 /**
  * Category tokens → the Bangumi `subject_type` values they need.
@@ -72,7 +65,6 @@ export function bangumiSubjectTypesForCategories(
   for (const category of categories) {
     switch (category) {
       case 'book':
-      case 'manga':
         types.add(1);
         break;
       case 'anime':

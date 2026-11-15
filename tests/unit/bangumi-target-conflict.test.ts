@@ -55,9 +55,9 @@ describe('shouldSkipClaim', () => {
 
   it('skips a lower-ranked different subject', () => {
     const existing = claim({ subjectId: 1, collectionType: 2 });
-    const manga = claim({ subjectId: 2, collectionType: 3, via: 'title-twin' });
+    const weaker = claim({ subjectId: 2, collectionType: 3, via: 'title-twin' });
 
-    expect(shouldSkipClaim(existing, manga)).toBe(true);
+    expect(shouldSkipClaim(existing, weaker)).toBe(true);
   });
 });
 

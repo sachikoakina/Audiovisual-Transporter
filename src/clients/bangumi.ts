@@ -84,7 +84,7 @@ export type BangumiSubject = {
   type: BangumiSubjectType;
   name: string;
   name_cn: string;
-  /** TV, Web, 漫画, 小说, ... — present on full subject, not SlimSubject */
+  /** TV, Web, 小说, ... — present on full subject, not SlimSubject */
   platform?: string;
   /**
    * Release/air date, as different endpoints name it. Search (`SlimSubject`) carries
@@ -168,12 +168,9 @@ export async function getBangumiMe(): Promise<BangumiUser | null> {
 }
 
 /**
- * Full subject details (includes platform for books: 漫画 / 小说 / ...).
- *
- * A 404 here means the subject itself is gone, which is *not* "no platform": the manga gate
- * cannot be evaluated either way, so 404 is classified as an item-level read failure.
- * 主体详情（书籍的平台 漫画 / 小说 / … 就在这里）。这里的 404 意味着主体本身不存在，
- * 而不是「没有平台」：漫画闸门无论如何都判不了，所以 404 归为条目级读取失败。
+ * Full subject details, including fields the collection summary does not carry.
+ * A 404 here means the subject itself is gone, which is an item-level read failure.
+ * 主体详情，包含收藏摘要不携带的字段。这里的 404 意味着主体本身不存在，归为条目级读取失败。
  */
 export async function getBangumiSubject(
   subjectId: number,

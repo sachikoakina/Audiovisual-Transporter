@@ -318,10 +318,10 @@ export async function findDoubanLinkedTwinCandidates(
   }
 
   const queryKeys = new Set(queries.map(normalizeTitleKey));
-  // Never widen the search beyond the category implied by the Bangumi subject type. A novel or
-  // manga with the same title as a film must not resolve to that film just because the book
-  // category had no Douban-linked hit.
-  // 绝不把搜索扩大到 Bangumi subject type 对应的分类之外。与电影同名的小说/漫画，不能因为书
+  // Never widen the search beyond the category implied by the Bangumi subject type. A book with
+  // the same title as a film must not resolve to that film just because the book category had no
+  // Douban-linked hit.
+  // 绝不把搜索扩大到 Bangumi subject type 对应的分类之外。与电影同名的书籍，不能因为书
   // 分类没有豆瓣孪生就命中那部电影。
   const categories: Array<NeodbSearchCategory | undefined> = category
     ? [category]
