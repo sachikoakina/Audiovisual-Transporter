@@ -132,25 +132,12 @@ async function verifyBangumiNeodb(candidate: ReviewCandidate): Promise<VerifyRes
     };
   }
 
-  const subjectType =
-    candidate.category === 'anime'
-      ? 2
-      : candidate.category === 'book'
-        ? 1
-        : candidate.category === 'music'
-          ? 3
-          : candidate.category === 'game'
-            ? 4
-            : 6;
-  const resolution = await resolveNeodbItemForBangumiUrlDetailed(candidate.url, {
-    titles: [candidate.title],
-    subjectType,
-  });
+  const resolution = await resolveNeodbItemForBangumiUrlDetailed(candidate.url);
   if (resolution.item) {
     return {
       key: candidate.key,
       status: 'resolved',
-      matchedBy: resolution.via,
+      matchedBy: 'direct',
       targetId: resolution.item.uuid,
     };
   }

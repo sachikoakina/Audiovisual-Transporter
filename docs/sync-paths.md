@@ -56,7 +56,7 @@ always-source
 - 状态相同且目标时间缺失 → 不写、不回填。
 - 来源时间缺失/非法 → 省略，不使用 `now()`。
 - 发生写请求可能新增 NeoDB 历史更新记录，但 `created_time` 不一定变化。
-- ②④ 同时写同一 NeoDB uuid 时，② 先执行、④ 后执行；最终时间由 ④ 的策略决定。
+- 若②④恰好写同一 NeoDB uuid：② 先执行、④ 后执行，最终时间由 ④ 的策略决定；若两者写不同 uuid，则各自独立。
 
 ---
 
@@ -442,31 +442,17 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 
 ```text
 Bangumi subject URL
-  → NeoDB catalog fetch（直链 A）
-  → 找带豆瓣外链的同名候选 B
-  → 标题 + 年份筛选
-  → NeoDB 媒体形态软裁决
-  → 唯一候选才写
+  → NeoDB catalog fetch
+  → 直链条目 A
+  → 读取 A.external_resources 是否已有豆瓣链接
+  → 写 A
 ```
 
-- 分类由 Bangumi `subject_type` 决定：
-  - 1 书籍 → `book`
-  - 2 动画 → `movie,tv`
-  - 3 音乐 → `music`
-  - 4 游戏 → `game`
-  - 6 真人 → `movie,tv`
-- **只允许 movie/tv 内部互搜；book/music/game 各自封闭，禁止跨大类**；
-- 年份双方可用且相差超过 1 年 → 拒绝；任一侧缺失 → 不立即判断；
-- 同名多候选先收集，不允许 first-hit；
-- 最终用直链 A 的 NeoDB `category` / URL 判断媒体形态：
-  - A 类型未知 → B 唯一即选 B；
-  - A 与 B 同类型 → B 唯一即选 B；
-  - A 与 B 不同类型 → 选 A；
-  - B 有多个且无法唯一确定 → 记录 `ambiguous`，不使用 B，回退直链 A；
-- 直链 A 由 Bangumi URL 解析，始终是可用目标；只有 A 本身无法解析时才记 `unresolved`；
-- `ambiguous` 是诊断状态，不等于“整条不写”；
-- Bangumi `subject_type` 只用于搜索分类，不能用来直接判断电影/TV；
-- 直链 A 没有可用豆瓣孪生时，仍使用 A。
+- 直链是唯一目标选择依据；不比较标题、年份、媒体形态；
+- 仅使用直链目录条目；不执行任何二次目录查询；
+- `external_resources` 中的豆瓣链接仅用于日志字段 `doubanLinkPresent`；
+- 不能通过 mark API 给条目补写豆瓣链接；
+- ② 与 ④ 可能写到不同 NeoDB 条目，项目不自动合并；重复可接受，错写不可接受；
 - 解析失败的条目记 `unresolved`，落盘两种 reason：`neodb-unresolved-404`（目录 404，条目确实不存在）与 `neodb-unresolved`（202 重试耗尽、429、5xx、超时等临时失败）。两者的**日志行完全相同**（同一哨兵），名单因此统一归 `neodb-unresolved`；区别只写入 `sync-report.json` 并由 review-queue 从报表回填显示——排查「到底是没了还是临时失败」时看报表，不要数日志。
 
 ## 状态映射
@@ -501,7 +487,7 @@ Bangumi subject URL
 - 已有标记的 `visibility` 与配置不同 → 触发整条 mark 写入；
 - 状态保护只影响 `shelf_type`，不影响可见性比较；
 - 已有标记没有返回 `visibility` → 视为与目标一致，不单独触发写入，并打印告警；
-- ②④ 可以分别设置可见性；同时写同一 uuid 时，④ 后执行，最终可见性由 ④ 的模式及源端值决定。
+- ②④ 可以分别设置可见性；两者可能写不同 uuid，各自按自己的模式计算。
 
 #### 日志字段：configured 与 chosen
 
@@ -590,24 +576,17 @@ SYNC_BANGUMI_NEODB_VISIBILITY=2
 
 1. 同一 `subject_id` 再次出现 → 允许修正；
 2. 不同 subject 命中同一 uuid：
-   - 身份置信度：`direct > douban-twin > title-twin`；
-   - 同置信度看状态：`complete > progress/wishlist > dropped`；
+   - 状态：`complete > progress/wishlist > dropped`；
    - 仍相同则较小 `subject_id` 胜出；
 3. 落败者记 `skipped-duplicate`，不写。
 
 ## 与 ② 同时写 NeoDB
 
-② 先执行，④ 后执行；④ 的 `targetClaims` 不包含 ②。
+② 先执行，④ 后执行；④ 的 `targetClaims` 不包含 ②。  
+两者可能命中同一个 uuid，也可能分别写两个条目：
 
-| 字段         | ② 豆瓣                                  | ④ Bangumi                                | 最终结果                           |
-| ------------ | --------------------------------------- | ---------------------------------------- | ---------------------------------- |
-| 状态         | 豆瓣状态                                | Bangumi 状态 + 可选 guard                | ④ 后写；guard 可阻止 complete 降级 |
-| 评分         | 按 `SYNC_DOUBAN_NEODB_RATING`           | 按 `SYNC_BANGUMI_NEODB_RATING`           | ④ 读取 ② 的结果后再合并            |
-| 短评         | 同上                                    | 同上                                     | 同上                               |
-| 可见性       | 按 `SYNC_DOUBAN_NEODB_VISIBILITY`       | 按 `SYNC_BANGUMI_NEODB_VISIBILITY`       | 最后一次写按各自配置               |
-| created_time | 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` | 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` | ④ 后写，最终时间由 ④ 的策略决定    |
-
-因此，②/④ 都启用时，最终状态通常由 ④ 决定；若只想让 Bangumi 作最终状态源，应关闭 ② 或接受 ④ 后写。
+- 同一 uuid：④ 会读取 ② 留下的 mark 后合并；状态/评分/短评/可见性按各自配置和 guard 处理，最终以 ④ 的写入为准；
+- 不同 uuid：两条 mark 相互独立，项目不自动合并，也不保证状态同步。
 
 ---
 

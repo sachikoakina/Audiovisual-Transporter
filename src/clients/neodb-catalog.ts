@@ -10,12 +10,7 @@
 import { neodbClient, neodbFailureCode } from './neodb-http';
 import { consola } from 'consola';
 import { sleep } from '../utils';
-import { normalizeTitleKey } from '../rules/tmdb-matching';
-import type { BangumiSubjectType, NeodbItem } from '../types';
-
-/** NeoDB `/api/catalog/search` category filter. / NeoDB `/api/catalog/search` 的 category 过滤值。 */
-export type NeodbSearchCategory =
-  'book' | 'movie' | 'tv' | 'movie,tv' | 'music' | 'game' | 'podcast' | 'performance';
+import type { NeodbItem } from '../types';
 
 /**
  * Fetch a catalog item from NeoDB by an external site URL (Douban, Bangumi, etc.).
@@ -92,13 +87,13 @@ export async function fetchNeodbItemByUrl(
  * Why this exists: the shelf endpoint (`GET /api/me/shelf/{type}`) inlines `ItemSchema`, and
  * `ItemSchema` has no `year` / `pub_year`. Those two fields live only on the per-item schemas
  * (`MovieSchema`, `TVSchema`, the season schema) served from `api_url`. So the shelf payload is
- * enough to *describe* an item and not enough to *date* one — which is what the title-search level
- * needs, and its absence is why `SYNC_YEAR_TOLERANCE` had no effect for a long time.
+ * enough to *describe* an item and not enough to *date* one — title matching in ③ and ⑤ needs the
+ * year that only this per-item payload carries.
  *
  * 为什么需要它：书架端点（`GET /api/me/shelf/{type}`）内联的是 `ItemSchema`，而 `ItemSchema` 没有
  * `year` / `pub_year`。这两个字段只在 `api_url` 提供的条目级 schema（`MovieSchema`、`TVSchema`、
- * 季 schema）上。因此书架载荷足以**描述**一个条目，却不足以给它**定年** —— 而标题搜索那一级正
- * 需要年份，它的缺席正是 `SYNC_YEAR_TOLERANCE` 长期无效的原因。
+ * 季 schema）上。因此书架载荷足以**描述**一个条目，却不足以给它**定年** —— ③ 与 ⑤ 的标题匹配需要
+ * 这个只存在于条目级载荷中的年份。
  *
  * `api_url` is a catalogue path (`/api/movie/<uuid>`), so it goes through the same client and base
  * URL as every other catalogue call; a self-hosted instance works unchanged. Returns `null` rather
@@ -162,337 +157,35 @@ function extractDoubanUrlFromNeodb(neodbItem: NeodbItem): string | null {
   return null;
 }
 
-/** Bangumi subject type → the catalog search category that can contain it. / Bangumi subject 类型 → 可能包含它的目录搜索分类。 */
-function bangumiSubjectTypeToNeodbSearchCategory(
-  subjectType: BangumiSubjectType,
-): NeodbSearchCategory | undefined {
-  switch (subjectType) {
-    case 1:
-      return 'book';
-    case 2:
-    case 6:
-      return 'movie,tv';
-    case 3:
-      return 'music';
-    case 4:
-      return 'game';
-    default:
-      return undefined;
-  }
-}
-
-/** NeoDB item category → the catalog search category that can contain it. / NeoDB 条目 category → 可能包含它的目录搜索分类。 */
-function neodbCategoryToSearchCategory(
-  category: string | undefined,
-): NeodbSearchCategory | undefined {
-  switch (category) {
-    case 'book':
-      return 'book';
-    case 'movie':
-    case 'tv':
-      return 'movie,tv';
-    case 'music':
-      return 'music';
-    case 'game':
-      return 'game';
-    case 'podcast':
-      return 'podcast';
-    case 'performance':
-      return 'performance';
-    default:
-      return undefined;
-  }
-}
-
-/** All normalized title keys an item can be matched under. / 一个条目可用于匹配的全部规范化标题键。 */
-function collectNeodbItemTitleKeys(item: NeodbItem): Set<string> {
-  const keys = new Set<string>();
-  for (const raw of [
-    item.title,
-    item.display_title,
-    ...(item.localized_title || []).map((t) => t.text),
-  ]) {
-    if (!raw?.trim()) continue;
-    keys.add(normalizeTitleKey(raw));
-  }
-  return keys;
-}
-
-/** Trim, drop empties, and de-duplicate by normalized title key. / 去空格、丢弃空值，并按规范化标题键去重。 */
-function uniqueNonEmptyTitles(titles: Array<string | null | undefined>): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const title of titles) {
-    const trimmed = title?.trim();
-    if (!trimmed) continue;
-    const key = normalizeTitleKey(trimmed);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(trimmed);
-  }
-  return out;
-}
-
-/** Search the NeoDB catalog (internal index only; does not fetch external URLs). / 搜索 NeoDB 目录（仅内部索引，不会去抓取外部 URL）。 */
-async function searchNeodbCatalog(
-  query: string,
-  category?: NeodbSearchCategory,
-): Promise<NeodbItem[]> {
-  const q = query.trim();
-  if (!q) {
-    return [];
-  }
-  try {
-    const searchParams: Record<string, string | number> = { query: q, page: 1 };
-    if (category) {
-      searchParams.category = category;
-    }
-    const result = (await neodbClient('api/catalog/search', {
-      searchParams,
-      headers: { accept: 'application/json' },
-    }).json()) as { data?: NeodbItem[] };
-    return result.data || [];
-  } catch (error) {
-    consola.error('NeoDB catalog search failed: ', neodbFailureCode(error));
-    return [];
-  }
-}
-
-/**
- * Find a Douban-linked catalog twin by exact title match when `external_resources`
- * on the Bangumi-fetched item do not already include a Douban URL.
- *
- * 当从 Bangumi 取到的条目其 `external_resources` 里没有豆瓣 URL 时，按标题精确匹配寻找
- * 一条带豆瓣外链的「孪生条目」。
- */
-function itemYear(item: NeodbItem): number | undefined {
-  return item.year ?? item.pub_year;
-}
-
-function yearMatches(
-  expectedYear: number | undefined,
-  actualYear: number | undefined,
-): boolean {
-  if (expectedYear == null || actualYear == null) {
-    // A missing year on either side is not evidence against the match.
-    // 任一侧缺年份都不构成反对匹配的证据。
-    return true;
-  }
-  return Math.abs(expectedYear - actualYear) <= 1;
-}
-
-/** Coarse NeoDB media form, used only as a final tie-break. / 仅用于最终软裁决的 NeoDB 媒体形态。 */
-function mediaFormOf(item: NeodbItem): NeodbSearchCategory | undefined {
-  if (item.category === 'movie' || item.category === 'tv') {
-    return item.category;
-  }
-  if (
-    item.category === 'book' ||
-    item.category === 'music' ||
-    item.category === 'game'
-  ) {
-    return item.category;
-  }
-  const url = item.url || '';
-  if (/\/movie\//.test(url)) return 'movie';
-  if (/\/tv\//.test(url)) return 'tv';
-  if (/\/book\//.test(url)) return 'book';
-  if (/\/music\//.test(url)) return 'music';
-  if (/\/game\//.test(url)) return 'game';
-  return undefined;
-}
-
-export async function findDoubanLinkedTwinCandidates(
-  fromBangumi: NeodbItem,
-  titles: Array<string | null | undefined>,
-  category?: NeodbSearchCategory,
-  expectedYear?: number,
-): Promise<NeodbItem[]> {
-  const queries = uniqueNonEmptyTitles([
-    ...titles,
-    fromBangumi.title,
-    fromBangumi.display_title,
-  ]);
-  if (!queries.length) {
-    return [];
-  }
-
-  const queryKeys = new Set(queries.map(normalizeTitleKey));
-  // Never widen the search beyond the category implied by the Bangumi subject type. A book with
-  // the same title as a film must not resolve to that film just because the book category had no
-  // Douban-linked hit.
-  // 绝不把搜索扩大到 Bangumi subject type 对应的分类之外。与电影同名的书籍，不能因为书
-  // 分类没有豆瓣孪生就命中那部电影。
-  const categories: Array<NeodbSearchCategory | undefined> = category
-    ? [category]
-    : [undefined];
-  const seenUuid = new Set<string>([fromBangumi.uuid]);
-  const candidates: NeodbItem[] = [];
-
-  for (const cat of categories) {
-    for (const query of queries) {
-      const hits = await searchNeodbCatalog(query, cat);
-      for (const hit of hits) {
-        if (!hit.uuid || seenUuid.has(hit.uuid)) continue;
-        seenUuid.add(hit.uuid);
-        if (!extractDoubanUrlFromNeodb(hit)) continue;
-
-        const hitKeys = collectNeodbItemTitleKeys(hit);
-        let matched = false;
-        for (const key of queryKeys) {
-          if (hitKeys.has(key)) {
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) continue;
-        if (!yearMatches(expectedYear, itemYear(hit))) continue;
-        candidates.push(hit);
-      }
-    }
-  }
-
-  return candidates;
-}
-
-/** Pick one twin, preferring a matching year and the same NeoDB media form. / 按年份与媒体形态选一个孪生。 */
-export function pickDoubanLinkedTwin(
-  candidates: NeodbItem[],
-  fromBangumi: NeodbItem,
-  expectedYear?: number,
-): { item: NeodbItem | null; ambiguous: boolean } {
-  const directForm = mediaFormOf(fromBangumi);
-  const sameForm = directForm
-    ? candidates.filter((candidate) => mediaFormOf(candidate) === directForm)
-    : candidates;
-  if (!sameForm.length) {
-    return { item: null, ambiguous: false };
-  }
-  if (sameForm.length === 1) {
-    return { item: sameForm[0], ambiguous: false };
-  }
-
-  const scored = sameForm.map((item) => {
-    const year = itemYear(item);
-    const score =
-      expectedYear == null || year == null
-        ? 0
-        : Math.abs(expectedYear - year) <= 1
-          ? 2
-          : -1;
-    return { item, score };
-  });
-  const viable = scored.filter((entry) => entry.score >= 0);
-  if (!viable.length) {
-    return { item: null, ambiguous: false };
-  }
-  const max = Math.max(...viable.map((entry) => entry.score));
-  const best = viable.filter((entry) => entry.score === max);
-  if (best.length !== 1) {
-    return { item: null, ambiguous: true };
-  }
-  return { item: best[0].item, ambiguous: false };
-}
-
-export async function findDoubanLinkedTwinByTitle(
-  fromBangumi: NeodbItem,
-  titles: Array<string | null | undefined>,
-  category?: NeodbSearchCategory,
-  expectedYear?: number,
-): Promise<NeodbItem | null> {
-  const candidates = await findDoubanLinkedTwinCandidates(
-    fromBangumi,
-    titles,
-    category,
-    expectedYear,
-  );
-  return pickDoubanLinkedTwin(candidates, fromBangumi, expectedYear).item;
-}
-
-export type ResolveBangumiNeodbOptions = {
-  /** Candidate titles from Bangumi (`name_cn` / `name`). / Bangumi 给出的候选标题（`name_cn` / `name`）。 */
-  titles?: Array<string | null | undefined>;
-  subjectType?: BangumiSubjectType;
-  /** Release year when known, used to reject same-title remakes. / 已知发行年，用于拒绝同名翻拍。 */
-  expectedYear?: number;
-};
-
-export type NeodbResolutionVia = 'direct' | 'douban-twin' | 'title-twin' | 'none';
-
 export type NeodbResolution = {
   item: NeodbItem | null;
-  via: NeodbResolutionVia;
   failure?: NeodbFetchFailure;
-  /** Multiple same-title candidates could not be reduced to one. / 同名候选无法唯一收敛。 */
-  ambiguous?: boolean;
+  /** True when the direct item already carries a Douban external link. / 直链条目已有豆瓣外链。 */
+  doubanLinkPresent: boolean;
 };
 
 /**
- * Resolve the NeoDB catalog item for a Bangumi URL, preferring the Douban-linked
- * twin when NeoDB has separate entries for the same work.
- * This keeps Bangumi→NeoDB marks on the same uuid as Douban→NeoDB.
+ * Resolve the NeoDB catalog item for a Bangumi URL.
+ * The Bangumi URL is the only target identity. A Douban link already present on the returned item
+ * is recorded for diagnostics, never used to choose another item.
  *
- * 1) Prefer a Douban URL already present on the Bangumi-fetched item's `external_resources`
- * 2) Else search the catalog by title for an exact-title hit that has a Douban link
- *
- * 为某个 Bangumi URL 解析出对应的 NeoDB 目录条目；当 NeoDB 对同一作品存在多条记录时，优先
- * 选择带豆瓣外链的那条。这样可以让 Bangumi→NeoDB 的标记落在与 Douban→NeoDB 相同的 uuid 上。
- *
- * 1) 优先使用从 Bangumi 取到的条目 `external_resources` 上已有的豆瓣 URL
- * 2) 否则按标题搜索目录，寻找标题完全相同且带豆瓣外链的结果
+ * 为 Bangumi URL 解析 NeoDB 目录条目。Bangumi URL 是唯一目标身份；返回条目自身已有的豆瓣外链
+ * 只用于诊断，绝不据此改选其他条目。
  */
 export async function resolveNeodbItemForBangumiUrlDetailed(
   bangumiUrl: string,
-  options: ResolveBangumiNeodbOptions = {},
 ): Promise<NeodbResolution> {
   const failure: FetchFailureRef = {};
-  const fromBangumi = await fetchNeodbItemByUrl(bangumiUrl, 3, failure);
-  if (!fromBangumi?.uuid) {
+  const item = await fetchNeodbItemByUrl(bangumiUrl, 3, failure);
+  if (!item?.uuid) {
     return {
       item: null,
-      via: 'none',
       failure: failure.kind ?? 'temporary',
+      doubanLinkPresent: false,
     };
   }
-
-  const doubanUrl = extractDoubanUrlFromNeodb(fromBangumi);
-  if (doubanUrl) {
-    const fromDouban = await fetchNeodbItemByUrl(doubanUrl);
-    if (fromDouban?.uuid && fromDouban.uuid !== fromBangumi.uuid) {
-      consola.info(
-        'NeoDB has separate Douban/Bangumi catalog entries; prefer Douban twin: ',
-        `${fromBangumi.uuid} → ${fromDouban.uuid}`,
-      );
-      return { item: fromDouban, via: 'douban-twin' };
-    }
-    return { item: fromBangumi, via: 'direct' };
-  }
-
-  const category =
-    options.subjectType != null
-      ? bangumiSubjectTypeToNeodbSearchCategory(options.subjectType)
-      : neodbCategoryToSearchCategory(fromBangumi.category);
-
-  const candidates = await findDoubanLinkedTwinCandidates(
-    fromBangumi,
-    options.titles || [],
-    category,
-    options.expectedYear,
-  );
-  const picked = pickDoubanLinkedTwin(candidates, fromBangumi, options.expectedYear);
-  if (picked.ambiguous) {
-    consola.warn(
-      'NeoDB same-title twins are ambiguous; using the direct item: ',
-      `${fromBangumi.uuid} candidates=${candidates.map((candidate) => candidate.uuid).join(',')}`,
-    );
-    return { item: fromBangumi, via: 'direct', ambiguous: true };
-  }
-  if (picked.item) {
-    consola.info(
-      'NeoDB Douban twin found via title search: ',
-      `${fromBangumi.uuid} → ${picked.item.uuid} (${picked.item.title || picked.item.display_title})`,
-    );
-    return { item: picked.item, via: 'title-twin' };
-  }
-  return { item: fromBangumi, via: 'direct' };
+  return {
+    item,
+    doubanLinkPresent: extractDoubanUrlFromNeodb(item) != null,
+  };
 }
