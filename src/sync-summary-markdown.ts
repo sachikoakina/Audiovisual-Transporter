@@ -142,6 +142,20 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
     );
   }
 
+  const writtenReports = reports.filter((r) => r.writtenItems.length > 0);
+  if (writtenReports.length > 0) {
+    const total = writtenReports.reduce((sum, r) => sum + r.writtenItems.length, 0);
+    lines.push('', `## 写入条目（${total}）`);
+    for (const r of writtenReports) {
+      lines.push('', `### ${r.label}（${r.writtenItems.length}）`);
+      lines.push('', '<details>', '', '<summary>展开条目</summary>', '');
+      for (const item of r.writtenItems) {
+        lines.push(`- ${item.title} — ${item.neodbUrl} —— ${item.bangumiUrl}`);
+      }
+      lines.push('', '</details>');
+    }
+  }
+
   for (const r of reports) {
     appendPathDetails(lines, r);
   }

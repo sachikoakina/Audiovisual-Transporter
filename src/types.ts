@@ -494,6 +494,13 @@ export type ReviewDetail = {
  *                  the run, or CI would go red on every pass.
  *   `failed`     — something threw. A real error: fail the run.
  */
+/** One successful destination write, kept for the job-summary listing. / 一条成功写入记录，用于摘要清单。 */
+export type WrittenItem = {
+  title: string;
+  neodbUrl: string;
+  bangumiUrl: string;
+};
+
 export type PathReport = {
   /** Shown in the summary, e.g. `Bangumi → NeoDB`. */
   label: string;
@@ -580,6 +587,8 @@ export type PathReport = {
   skippedItems: ReviewDetail[];
   /** Set only when entries were actually appended to it. */
   reviewLog: string;
+  /** Successful writes, in encounter order; empty for paths without a link pair. */
+  writtenItems: WrittenItem[];
 };
 
 export function newPathReport(label: string): PathReport {
@@ -602,6 +611,7 @@ export function newPathReport(label: string): PathReport {
     failedItems: [],
     skippedItems: [],
     reviewLog: '',
+    writtenItems: [],
   };
 }
 

@@ -92,6 +92,8 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
 
 摘要中的“本轮运行”同时显示 UTC 与上海时间；机器字段、artifact 名和排序只用 UTC。
 
+计数表下方若存在成功写入，按链路折叠列出「写入条目」；每条为 `名称 — NeoDB 链接 —— Bangumi 链接`，没有写入时不生成空区块。
+
 ## 待核对名单的移出规则
 
 名单由 `scripts/review-queue.mjs` 的 `merge()` 维护。条目不会因为“本轮没出现在日志里”就立即删除；必须同时满足：

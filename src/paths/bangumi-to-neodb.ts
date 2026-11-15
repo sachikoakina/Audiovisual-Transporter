@@ -38,7 +38,7 @@ import {
   listBangumiCollections,
   type BangumiCollection,
 } from '../clients/bangumi';
-import { neodbThrottle, neodbToken } from '../clients/neodb-http';
+import { absoluteNeodbUrl, neodbThrottle, neodbToken } from '../clients/neodb-http';
 import { resolveNeodbItemForBangumiUrlDetailed } from '../clients/neodb-catalog';
 import {
   getNeodbMark,
@@ -251,8 +251,9 @@ export default async function syncBangumiToNeodb(
         return rank(b) - rank(a) || a.subject_id - b.subject_id;
       });
       for (const collection of ordered) {
+        const url = bangumiSubjectUrl(collection.subject_id);
         counters.scanned += 1;
-        scanned.add(bangumiSubjectUrl(collection.subject_id));
+        scanned.add(url);
         scanned.add(collectionTitle(collection));
         // One bad item must never abort the batch.
         try {
@@ -262,9 +263,18 @@ export default async function syncBangumiToNeodb(
             resolutionCache,
           );
           switch (outcome) {
-            case 'written':
+            case 'written': {
               counters.written += 1;
+              const written = resolutionCache.get(url)?.item;
+              if (written?.uuid) {
+                report.writtenItems.push({
+                  title: collectionTitle(collection),
+                  neodbUrl: absoluteNeodbUrl(written.url || ''),
+                  bangumiUrl: url,
+                });
+              }
               break;
+            }
             case 'unchanged':
               counters.unchanged += 1;
               break;

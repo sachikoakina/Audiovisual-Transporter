@@ -46,6 +46,7 @@ vi.mock('../../src/clients/bangumi', () => ({
 vi.mock('../../src/clients/neodb-http', () => ({
   neodbToken: 'test-token',
   neodbThrottle: async () => {},
+  absoluteNeodbUrl: (url: string) => url,
 }));
 
 vi.mock('../../src/clients/neodb-catalog', () => ({
