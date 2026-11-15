@@ -200,7 +200,7 @@ NeoDB 侧（同 ②）：
 
 ### 6.4 行为
 
-- 同分类精确标题 + 年份；禁止跨分类；
+- 只用 Bangumi URL 对应的 NeoDB 直链条目；不比较标题、年份或媒体形态；已有豆瓣链接仅记录；
 - 同轮同 uuid 冲突按 `complete > progress/wishlist > dropped` 裁决；
 - 评分/短评默认目标优先；
 - `SYNC_BANGUMI_NEODB_VISIBILITY_MODE=target`（默认）时，统一使用 `SYNC_BANGUMI_NEODB_VISIBILITY`；

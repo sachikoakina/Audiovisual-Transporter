@@ -115,6 +115,10 @@ export type ParsedLogs = {
 };
 
 export function parseLogs(logsDir: string): ParsedLogs;
+export function attachReportMeta(
+  items: ReviewItem[],
+  report: RunReport | null,
+): ReviewItem[];
 
 export function render(input: {
   items: ReadonlyArray<ReviewItem>;

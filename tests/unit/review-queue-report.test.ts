@@ -9,11 +9,47 @@
  * 计出的失败多于解析器认出的条数时，摘要必须说出来，而且方向要指向解析器。
  */
 import { describe, expect, it } from 'vitest';
-import { runReportLines } from '../../scripts/review-queue.mjs';
+import {
+  attachReportMeta,
+  runReportLines,
+  type ReviewItem,
+} from '../../scripts/review-queue.mjs';
 
 const report = (failed: number, skipped = 0, unresolved = 0) => ({
   version: 1,
   paths: [{ label: 'NeoDB → TMDB', failed, skipped, unresolved }],
+});
+
+describe('attachReportMeta', () => {
+  it('replaces the generic log reason with the report 404 reason', () => {
+    const item = {
+      key: 'bangumi→neodb::https://bgm.tv/subject/404',
+      kind: 'unresolved',
+      source: 'bangumi→neodb',
+      reason: 'neodb-unresolved',
+      title: 'Missing',
+      url: 'https://bgm.tv/subject/404',
+      id: '404',
+    } as ReviewItem;
+    const report = {
+      paths: [
+        {
+          label: 'Bangumi → NeoDB',
+          unresolvedItems: [
+            {
+              title: 'Missing',
+              url: 'https://bgm.tv/subject/404',
+              reason: 'neodb-unresolved-404',
+            },
+          ],
+        },
+      ],
+    } as never;
+
+    const [updated] = attachReportMeta([item], report);
+
+    expect(updated.reason).toBe('neodb-unresolved-404');
+  });
 });
 
 describe('runReportLines', () => {

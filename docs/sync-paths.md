@@ -453,7 +453,7 @@ Bangumi subject URL
 - `external_resources` 中的豆瓣链接仅用于日志字段 `doubanLinkPresent`；
 - 不能通过 mark API 给条目补写豆瓣链接；
 - ② 与 ④ 可能写到不同 NeoDB 条目，项目不自动合并；重复可接受，错写不可接受；
-- 解析失败的条目记 `unresolved`，落盘两种 reason：`neodb-unresolved-404`（目录 404，条目确实不存在）与 `neodb-unresolved`（202 重试耗尽、429、5xx、超时等临时失败）。两者的**日志行完全相同**（同一哨兵），名单因此统一归 `neodb-unresolved`；区别只写入 `sync-report.json` 并由 review-queue 从报表回填显示——排查「到底是没了还是临时失败」时看报表，不要数日志。
+- 解析失败的条目记 `unresolved`，落盘两种 reason：`neodb-unresolved-404`（目录 404，条目确实不存在）与 `neodb-unresolved`（202 重试耗尽、429、5xx、超时等临时失败）。两者的**日志行完全相同**（同一哨兵）；`sync-report` 分别记录两种 reason，review-queue 从报表回填后会在名单中显示对应原因——排查「到底是没了还是临时失败」时看报表，不要数日志。
 
 ## 状态映射
 

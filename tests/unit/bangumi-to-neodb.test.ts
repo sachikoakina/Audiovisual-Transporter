@@ -31,6 +31,7 @@ const listBangumiCollections = vi.fn();
 const markNeodbItem = vi.fn();
 const getNeodbMark = vi.fn();
 const resolveNeodbItemForBangumiUrl = vi.fn();
+let resolutionFailure: 'not-found' | 'temporary' | undefined;
 
 vi.mock('../../src/clients/bangumi', () => ({
   bangumiCollectionLimit: 50,
@@ -48,10 +49,14 @@ vi.mock('../../src/clients/neodb-http', () => ({
 }));
 
 vi.mock('../../src/clients/neodb-catalog', () => ({
-  resolveNeodbItemForBangumiUrlDetailed: async (...args: unknown[]) => ({
-    item: await resolveNeodbItemForBangumiUrl(...args),
-    doubanLinkPresent: false,
-  }),
+  resolveNeodbItemForBangumiUrlDetailed: async (...args: unknown[]) => {
+    const item = await resolveNeodbItemForBangumiUrl(...args);
+    return {
+      item,
+      failure: item ? undefined : resolutionFailure,
+      doubanLinkPresent: false,
+    };
+  },
 }));
 
 vi.mock('../../src/clients/neodb-shelf', () => ({
@@ -128,6 +133,7 @@ function selfCheckHolds(report: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resolutionFailure = undefined;
   listBangumiCollections.mockResolvedValue({ total: 1, data: [collection] });
   resolveNeodbItemForBangumiUrl.mockResolvedValue({
     uuid: 'uuid-1',
@@ -161,6 +167,28 @@ describe('④ Bangumi → NeoDB', () => {
     expect(report.failed).toBe(1);
     expect(report.written).toBe(0);
     expect(report.failedItems[0].reason).toBe('item-threw: NeoDB mark: 500');
+    expect(selfCheckHolds(report)).toBe(true);
+  });
+
+  it('records a 404 as neodb-unresolved-404', async () => {
+    resolveNeodbItemForBangumiUrl.mockResolvedValueOnce(null);
+    resolutionFailure = 'not-found';
+
+    const report = await syncBangumiToNeodb(false);
+
+    expect(report.unresolved).toBe(1);
+    expect(report.unresolvedItems[0]?.reason).toBe('neodb-unresolved-404');
+    expect(selfCheckHolds(report)).toBe(true);
+  });
+
+  it('records a temporary failure as neodb-unresolved', async () => {
+    resolveNeodbItemForBangumiUrl.mockResolvedValueOnce(null);
+    resolutionFailure = 'temporary';
+
+    const report = await syncBangumiToNeodb(false);
+
+    expect(report.unresolved).toBe(1);
+    expect(report.unresolvedItems[0]?.reason).toBe('neodb-unresolved');
     expect(selfCheckHolds(report)).toBe(true);
   });
 

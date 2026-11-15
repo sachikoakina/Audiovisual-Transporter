@@ -1246,7 +1246,7 @@ function arg(name, fallback) {
  * 日志后缀是主来源，报表是要求的冗余。旧一轮的日志两者都没有，保持 `other` / `unknown`，
  * 而不是被丢弃。
  */
-function attachReportMeta(items, report) {
+export function attachReportMeta(items, report) {
   if (!report) {
     return items;
   }
