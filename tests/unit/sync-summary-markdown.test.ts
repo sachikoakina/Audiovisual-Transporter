@@ -20,8 +20,8 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     target.written = 1;
     target.writtenItems.push({
       title: '狐妖小红娘·王权篇',
-      neodbUrl: 'https://neodb.social/tv/season/0sMADT4DQansMdT6YkDPrG',
-      bangumiUrl: 'https://bgm.tv/subject/281271',
+      sourceUrl: 'https://bgm.tv/subject/281271',
+      targetUrl: 'https://neodb.social/tv/season/0sMADT4DQansMdT6YkDPrG',
     });
 
     const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
@@ -30,9 +30,8 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     expect(markdown).toContain('### Bangumi → NeoDB（1）');
     expect(markdown).toContain('<summary>展开条目</summary>');
     expect(markdown).toContain(
-      '- 狐妖小红娘·王权篇 — ' +
-        'https://neodb.social/tv/season/0sMADT4DQansMdT6YkDPrG ' +
-        '—— https://bgm.tv/subject/281271',
+      '- 狐妖小红娘·王权篇 — https://bgm.tv/subject/281271 ' +
+        '—— https://neodb.social/tv/season/0sMADT4DQansMdT6YkDPrG',
     );
     expect(markdown).toContain('</details>');
     expect(markdown.indexOf('## 写入条目')).toBeGreaterThan(

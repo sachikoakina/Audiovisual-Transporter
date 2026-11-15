@@ -150,7 +150,7 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
       lines.push('', `### ${r.label}（${r.writtenItems.length}）`);
       lines.push('', '<details>', '', '<summary>展开条目</summary>', '');
       for (const item of r.writtenItems) {
-        lines.push(`- ${item.title} — ${item.neodbUrl} —— ${item.bangumiUrl}`);
+        lines.push(`- ${item.title} — ${item.sourceUrl} —— ${item.targetUrl}`);
       }
       lines.push('', '</details>');
     }

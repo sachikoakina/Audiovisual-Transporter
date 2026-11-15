@@ -494,11 +494,13 @@ export type ReviewDetail = {
  *                  the run, or CI would go red on every pass.
  *   `failed`     — something threw. A real error: fail the run.
  */
-/** One successful destination write, kept for the job-summary listing. / 一条成功写入记录，用于摘要清单。 */
+/** One successful write, kept for the job-summary listing. / 一条成功写入记录，用于摘要清单。 */
 export type WrittenItem = {
   title: string;
-  neodbUrl: string;
-  bangumiUrl: string;
+  /** Source item link. / 源条目链接。 */
+  sourceUrl: string;
+  /** Destination item link. / 目标条目链接。 */
+  targetUrl: string;
 };
 
 export type PathReport = {

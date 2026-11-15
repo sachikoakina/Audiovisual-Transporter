@@ -269,8 +269,8 @@ export default async function syncBangumiToNeodb(
               if (written?.uuid) {
                 report.writtenItems.push({
                   title: collectionTitle(collection),
-                  neodbUrl: absoluteNeodbUrl(written.url || ''),
-                  bangumiUrl: url,
+                  sourceUrl: url,
+                  targetUrl: absoluteNeodbUrl(written.url || ''),
                 });
               }
               break;
