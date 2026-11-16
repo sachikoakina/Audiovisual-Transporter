@@ -74,7 +74,7 @@ export type ReviewItem = {
   lastSeenAt?: string;
   missedRuns?: number;
   seenCount?: number;
-  /** Set only on removed entries; absent means the legacy two-miss reason. / 仅移出项使用。 */
+  /** Set only on removed entries; absent falls back to `two-covered-misses`. / 仅移出项使用。 */
   removedReason?: RemovalReason;
 };
 

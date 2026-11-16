@@ -43,7 +43,7 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# ─── legacy douban-backup artifacts ─────────────────────────────────────
+# ─── local artifacts ────────────────────────────────────────────────────
 # chromium local user dir
 udata
 # exported csv / intermediate json

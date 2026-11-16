@@ -210,17 +210,15 @@ export type NeodbCategory =
 /**
  * ItemSchema — the catalog object, inlined as `mark.item` on the shelf API.
  *
- * This is the union of what the two sync paths need: the legacy Douban/Notion
- * fields (`id`, `brief`) and the shelf fields (`year`, `pub_year`,
- * `description`). Kept in `types.ts` — the shared vocabulary module — so that no
- * client has to import a type out of another client.
+ * This is the union of the Douban/Notion fields (`id`, `brief`) and the shelf
+ * fields (`year`, `pub_year`, `description`). Kept in `types.ts` — the shared
+ * vocabulary module — so that no client has to import a type out of another client.
  *
- * 这是两条同步链路所需字段的并集：旧有豆瓣/Notion 字段（`id`、`brief`）与书架字段
- * （`year`、`pub_year`、`description`）。保留在 `types.ts`（共享词汇表）里，使任何客户端都不必
- * 从另一个客户端导入类型。
+ * 这是豆瓣/Notion 字段（`id`、`brief`）与书架字段（`year`、`pub_year`、`description`）
+ * 的并集。保留在 `types.ts`（共享词汇表）里，使任何客户端都不必从另一个客户端导入类型。
  */
 export type NeodbItem = {
-  /** Legacy field required by the existing mark logic. */
+  /** Field required by the mark API. */
   id: string;
   type: string;
   uuid: string;
@@ -230,7 +228,7 @@ export type NeodbItem = {
   parent_uuid: string | null;
   display_title: string;
   title: string;
-  /** Short summary (legacy field name). */
+  /** Short summary. */
   brief: string;
   description: string;
   cover_image_url: string;

@@ -4,7 +4,7 @@
  *
  * Douban's WAF judges both the RSS and subject-page clients by UA. Two copies of the same
  * default would eventually diverge; the historical variable name stays `DOUBAN_RSS_USER_AGENT`.
- * 豆瓣 WAF 同时按 UA 判断 RSS 与条目页客户端。两份相同默认值迟早会漂移；变量名沿用历史名称
+ * 豆瓣 WAF 同时按 UA 判断 RSS 与条目页客户端。两份相同默认值迟早会漂移；变量名沿用既有名称
  * `DOUBAN_RSS_USER_AGENT`。
  */
 export const DOUBAN_USER_AGENT =

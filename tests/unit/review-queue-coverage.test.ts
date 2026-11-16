@@ -243,5 +243,4 @@ describe('merge — verification deferral', () => {
 // The one-time ⑤ migration is gone: the 2026-11-01 snapshot held 771 entries and zero
 // `neodb→tmdb::title:` keys, so there is nothing left to re-baseline — and keeping the pass would
 // delete a future empty-URL entry on the next round, resetting its `firstSeenAt`.
-// ⑤ 的一次性迁移已删除：2026-11-01 的快照有 771 条、0 条 `neodb→tmdb::title:`，没有可重置的东西；
 // 保留这一步反而会在下一轮删掉将来某个空 URL 条目，并重置它的 `firstSeenAt`。

@@ -13,7 +13,7 @@
  *   3. The read fails on credentials → the path aborts instead of failing every remaining item
  *      (`b35595b`, the `auth` scope).
  *
- * 下面三种情形就是 `syncCollectionToNeodb` 的全部出口，也正是本仓库历史上各自出过错的那三种：
+ * 下面三种情形覆盖 `syncCollectionToNeodb` 的关键出口：
  *   1. NeoDB 拒绝写入 → 该条必须 `failed` 且有明细，且自检仍然对得上（`611f3f3`）。
  *   2. 单条读取失败 → **什么都不写**，该条计入 `failed`（`b35595b` 的 fail-closed 规则）。
  *   3. 凭据读取失败 → 整条链路 abort，而不是让剩下每一条都失败一遍（`b35595b` 的 `auth`）。

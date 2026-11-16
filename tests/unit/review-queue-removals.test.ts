@@ -40,11 +40,11 @@ describe('removalRecord', () => {
     });
   });
 
-  it('defaults legacy snapshots to two-covered-misses', () => {
-    const legacy = removed();
-    delete legacy.removedReason;
+  it('defaults a missing removal reason to two-covered-misses', () => {
+    const entry = removed();
+    delete entry.removedReason;
 
-    expect(removalRecord(legacy, RUN_AT).removedReason).toBe('two-covered-misses');
+    expect(removalRecord(entry, RUN_AT).removedReason).toBe('two-covered-misses');
   });
 
   it('records verified removals with their own reason', () => {

@@ -86,7 +86,7 @@ sync-report-<run_id>-<YYYYMMDDTHHmmssZ>   保留 7 天
 随后 `review-queue` 在 `sync` 完成事件后运行：
 
 1. 读取该次 `Run the sync` 日志与 `sync-report.json`；
-2. 恢复上一轮 `review-state-*`（旧命名不兼容）；
+2. 恢复上一轮 `review-state-*`；
 3. 合并新增/移除/未覆盖条目，写 `review-state`；
 4. 上传 `review-state-<sync_run_id>-<UTC>-stock`，保留 90 天。
 
@@ -237,17 +237,16 @@ review-queue 需要 `npm ci` 和只读凭据；配置见 [配置说明](configur
 2. **`sync-report.json`**：看 `failedItems`、`unresolvedItems`、`capped`、`truncated`。
 3. **Job Summary**：看每条链路的 `scanned/written/unchanged/skipped/unresolved/failed` 是否对账。
 4. **review-state**：看条目是否进入待核对名单、`missedRuns` 是否已满足移除条件。
-5. **Review Queue 日志**：看解析器是否漏掉日志行、是否还在读旧 artifact 名。
+5. **Review Queue 日志**：看解析器是否漏掉日志行、artifact 读取是否失败。
 
 认证失败先换对应 Secret；单条 4xx 看 `failedItems.reason`；目标端无条目属于 `unresolved`，不是 CI 故障。
 
 ## 常见失败分类
 
-| 现象               | 含义               | 处理                                              |
-| ------------------ | ------------------ | ------------------------------------------------- |
-| `401/403`          | 凭据失效           | 更新对应 Secret；该路径本轮中止                   |
-| `failed`           | 单条请求/写入失败  | 看 reason；可重跑                                 |
-| `unresolved`       | 目标端没有确认匹配 | 人工核对/补目录；不单独失败                       |
-| `capped`           | 本轮达到条数预算   | 属正常；需要全量时手动触发 `neodb_tmdb_full_sync` |
-| `truncated`        | 分页未走完         | 看 `NEODB_MAX_PAGES` 或分页错误；该路径冻结老化   |
-| `review-state` 404 | 旧 artifact 不兼容 | 从新命名 `review-state-*` 开始                    |
+| 现象         | 含义               | 处理                                              |
+| ------------ | ------------------ | ------------------------------------------------- |
+| `401/403`    | 凭据失效           | 更新对应 Secret；该路径本轮中止                   |
+| `failed`     | 单条请求/写入失败  | 看 reason；可重跑                                 |
+| `unresolved` | 目标端没有确认匹配 | 人工核对/补目录；不单独失败                       |
+| `capped`     | 本轮达到条数预算   | 属正常；需要全量时手动触发 `neodb_tmdb_full_sync` |
+| `truncated`  | 分页未走完         | 看 `NEODB_MAX_PAGES` 或分页错误；该路径冻结老化   |

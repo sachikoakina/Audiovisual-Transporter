@@ -653,7 +653,7 @@ function writeRemovalLedger(outDir, previousFile, removed, runStartedAt, runUrl)
  * The identity part of an entry's key — the same string `scannedIds` records for that item.
  *
  * `makeKey` builds `${source}::${url || id || 'title:' + title}`; ⑤ now keys by its absolutized
- * NeoDB URL, so in practice the `title:` branch only remains for a legacy or empty-URL line, but
+ * NeoDB URL, so in practice the `title:` branch only remains for an empty-URL line, but
  * the marker still has to come off before comparing against a run report that stores the bare
  * identity, not this list's key syntax.
  * 条目 key 的身份段 —— 与 `scannedIds` 为同一条目记录的字符串相同。
@@ -906,7 +906,7 @@ const REMOVAL_REASON_LABELS = {
   'verified-resolved': '验证器确认已解决',
 };
 
-/** Human label for a removal reason, keeping old snapshots readable. / 移出原因的显示文案，兼容旧快照。 */
+/** Human label for a removal reason. / 移出原因的显示文案。 */
 function removalReasonLabel(reason) {
   return REMOVAL_REASON_LABELS[reason] ?? REMOVAL_REASON_LABELS['two-covered-misses'];
 }
@@ -1302,18 +1302,13 @@ function main() {
 
   if (!logsDir || !fs.existsSync(logsDir)) {
     // Nothing to read is not a crash: report it and leave the old snapshot alone.
-    // 没东西可读不该算崩溃：报告出来并保留旧快照。
+    // 没东西可读不该算崩溃：报告出来并保留现有 state。
     console.error(`No logs directory at ${logsDir || '(unset)'}; nothing collected.`);
     process.exitCode = 0;
     return;
   }
 
   const parsed = parseLogs(logsDir);
-  // The ⑤ title-key migration ran until the 2026-11-01 snapshot (771 entries, 0 legacy keys).
-  // It is gone now: keeping it would silently drop a future empty-URL entry on the very next
-  // round, resetting `firstSeenAt` every run.
-  // ⑤ 的标题 key 迁移一直跑到 2026-11-01 的快照（771 条，0 条遗留 key）。现在删除它：保留反而
-  // 会把将来某个空 URL 条目在下一轮直接删掉，导致 `firstSeenAt` 每轮重置。
   const previous = loadState(stateFile);
   // Read the report *before* the merge: it decides which absences may be counted, and it fills in
   // the type/state a log line may not have carried.

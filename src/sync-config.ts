@@ -471,14 +471,11 @@ export function describeSyncConfig(): string {
  * Resolve the Notion data source id for a Douban category.
  * 取某个豆瓣分类对应的 Notion data source id。
  *
- * NAMING CAVEAT: the env var is called `NOTION_*_DATABASE_ID` for backward compatibility, but
- * the value it must hold is a Notion **data source** id: the Notion API v5 queries and creates
- * pages against `data_source_id`, not `database_id`. The names are kept as-is because renaming
- * them would break every existing deployment.
+ * The env var is named `NOTION_*_DATABASE_ID`, but its value is a Notion **data source** id:
+ * the Notion API v5 queries and creates pages against `data_source_id`, not `database_id`.
  *
- * 命名提示：环境变量名为兼容历史沿用 `NOTION_*_DATABASE_ID`，但它必须填的是 Notion 的
- * **data source** id —— Notion API v5 的查询与建页都走 `data_source_id` 而非 `database_id`。
- * 变量名保持不变，改名会破坏所有现有部署。
+ * 环境变量名为 `NOTION_*_DATABASE_ID`，但值必须是 Notion 的 **data source** id ——
+ * Notion API v5 的查询与建页都走 `data_source_id` 而非 `database_id`。
  *
  * @param category - Douban category. 豆瓣分类。
  * @returns The configured id, or `undefined` when that category is not configured.
