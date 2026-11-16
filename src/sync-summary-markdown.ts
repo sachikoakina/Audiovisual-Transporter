@@ -146,11 +146,36 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
   if (writtenReports.length > 0) {
     const total = writtenReports.reduce((sum, r) => sum + r.writtenItems.length, 0);
     lines.push('', `## 写入条目（${total}）`);
+
+    // Since a Bangumi URL became the only target identity for ④, NeoDB holding a Douban-flavoured
+    // entry for the same work no longer causes the sync to switch items — it only means ② and ④
+    // may each write their own mark. That duplication is deliberate, but it must be *visible*:
+    // this count is the only place it surfaces, because nothing else reads the flag.
+    //
+    // 自 Bangumi URL 成为 ④ 的唯一目标身份后，NeoDB 为同一作品另存一条「豆瓣味」条目已不再导致
+    // 同步改选条目 —— 它只意味着 ② 与 ④ 可能各写一条标记。这种重复是刻意的，但必须**可见**：
+    // 这个计数是它唯一浮出水面的地方，因为没有任何其他东西读那个标志。
+    const doubanLinked = writtenReports.reduce(
+      (sum, r) => sum + r.writtenItems.filter((item) => item.doubanLinkPresent).length,
+      0,
+    );
+    if (doubanLinked > 0) {
+      lines.push(
+        '',
+        `> 其中 **${doubanLinked}** 条的目标条目已带豆瓣外链。这类条目若同时被 ② 写入，` +
+          'NeoDB 书架上会出现同一作品的两条标记 —— 本项目刻意不自动合并。',
+      );
+    }
+
     for (const r of writtenReports) {
       lines.push('', `### ${r.label}（${r.writtenItems.length}）`);
       lines.push('', '<details>', '', '<summary>展开条目</summary>', '');
       for (const item of r.writtenItems) {
-        lines.push(`- ${item.title} — ${item.sourceUrl} —— ${item.targetUrl}`);
+        // The flag is repeated per item, not only aggregated: with a few hundred writes the
+        // aggregate says "somewhere in here", while the marker says which one to go and look at.
+        // 标志逐条重复，而不只是聚合：几百条写入时，聚合只说「在其中某处」，标记才指出该去看哪一条。
+        const marker = item.doubanLinkPresent ? ' ⚠ 目标条目已带豆瓣外链' : '';
+        lines.push(`- ${item.title} — ${item.sourceUrl} —— ${item.targetUrl}${marker}`);
       }
       lines.push('', '</details>');
     }

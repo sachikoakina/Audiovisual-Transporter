@@ -32,6 +32,14 @@ const markNeodbItem = vi.fn();
 const getNeodbMark = vi.fn();
 const resolveNeodbItemForBangumiUrl = vi.fn();
 let resolutionFailure: 'not-found' | 'temporary' | undefined;
+/**
+ * What the resolver reports about the chosen entry's own Douban link. A module-level switch rather
+ * than a per-call override, because the value has to survive the resolution cache: one item is
+ * resolved once and read back twice.
+ * 解析器对被选中条目自身豆瓣外链的报告值。用模块级开关而不是逐次覆盖，因为这个值必须穿过解析缓存：
+ * 一个条目解析一次、被读回两次。
+ */
+let resolutionDoubanLinkPresent = false;
 
 vi.mock('../../src/clients/bangumi', () => ({
   bangumiCollectionLimit: 50,
@@ -55,7 +63,7 @@ vi.mock('../../src/clients/neodb-catalog', () => ({
     return {
       item,
       failure: item ? undefined : resolutionFailure,
-      doubanLinkPresent: false,
+      doubanLinkPresent: resolutionDoubanLinkPresent,
     };
   },
 }));
@@ -135,6 +143,7 @@ function selfCheckHolds(report: {
 beforeEach(() => {
   vi.clearAllMocks();
   resolutionFailure = undefined;
+  resolutionDoubanLinkPresent = false;
   listBangumiCollections.mockResolvedValue({ total: 1, data: [collection] });
   resolveNeodbItemForBangumiUrl.mockResolvedValue({
     uuid: 'uuid-1',
@@ -144,6 +153,39 @@ beforeEach(() => {
 });
 
 describe('④ Bangumi → NeoDB', () => {
+  it('carries the Douban-link flag onto the written item, so duplication is countable', async () => {
+    // Since the target identity became the Bangumi URL alone, an entry that already carries a
+    // Douban link no longer causes a switch — it is the marker of where ② and ④ can both write.
+    // Dropping the flag at the report boundary would make that situation unobservable again.
+    // 自目标身份只剩 Bangumi URL 后，条目自带豆瓣外链不再引发改选 —— 它是「② 与 ④ 可能都写」的
+    // 标记。在报表边界丢掉这个标志，会让那种情形重新变得不可观察。
+    resolutionDoubanLinkPresent = true;
+    getNeodbMark.mockResolvedValue({ status: 'absent' });
+    markNeodbItem.mockResolvedValue(true);
+
+    const report = await syncBangumiToNeodb(false);
+
+    expect(report.written).toBe(1);
+    expect(report.writtenItems).toHaveLength(1);
+    expect(report.writtenItems[0]?.doubanLinkPresent).toBe(true);
+    expect(selfCheckHolds(report)).toBe(true);
+  });
+
+  it('records the flag as false when the target entry has no Douban link', async () => {
+    // The default reading. Asserted explicitly because `false` and "field missing" must not be
+    // conflated downstream: the summary counts truthy values, so an absent field would silently
+    // read as "healthy" even if the resolver had failed to report.
+    // 默认读数。显式断言，因为 `false` 与「字段缺失」在下游不可混同：摘要按真值计数，字段缺失会
+    // 静默读成「健康」，即使解析器其实没报值。
+    resolutionDoubanLinkPresent = false;
+    getNeodbMark.mockResolvedValue({ status: 'absent' });
+    markNeodbItem.mockResolvedValue(true);
+
+    const report = await syncBangumiToNeodb(false);
+
+    expect(report.writtenItems[0]?.doubanLinkPresent).toBe(false);
+  });
+
   it('counts a refused mark as failed, names it, and keeps the self-check honest', async () => {
     getNeodbMark.mockResolvedValue({ status: 'absent' });
     markNeodbItem.mockResolvedValue(false); // NeoDB said no

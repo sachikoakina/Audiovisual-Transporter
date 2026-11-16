@@ -47,4 +47,56 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     const markdown = renderSummaryMarkdown(reports(), '4 path(s) ran, none failed');
     expect(markdown).not.toContain('## 写入条目');
   });
+
+  it('目标条目带豆瓣外链时，聚合提示与逐条标记同时出现', () => {
+    // The aggregate answers "did this happen this round"; the per-item marker answers "which
+    // one". Both are needed once a few hundred writes are in the same list.
+    // 聚合回答「本轮发生了吗」，逐条标记回答「是哪一条」。几百条写入同列时两者都需要。
+    const rows = reports();
+    const target = rows[3]!;
+    target.written = 2;
+    target.writtenItems.push(
+      {
+        title: '带豆瓣外链的条目',
+        sourceUrl: 'https://bgm.tv/subject/1',
+        targetUrl: 'https://neodb.social/movie/aaa',
+        doubanLinkPresent: true,
+      },
+      {
+        title: '普通条目',
+        sourceUrl: 'https://bgm.tv/subject/2',
+        targetUrl: 'https://neodb.social/movie/bbb',
+        doubanLinkPresent: false,
+      },
+    );
+
+    const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
+
+    expect(markdown).toContain('**1** 条的目标条目已带豆瓣外链');
+    expect(markdown).toContain('本项目刻意不自动合并');
+    expect(markdown).toContain('带豆瓣外链的条目 — https://bgm.tv/subject/1');
+    expect(markdown).toContain('⚠ 目标条目已带豆瓣外链');
+    // The clean item must not carry the marker.
+    // 干净条目不得带这个标记。
+    const plainLine = markdown.split('\n').find((line) => line.includes('普通条目'));
+    expect(plainLine).toBeDefined();
+    expect(plainLine).not.toContain('⚠');
+  });
+
+  it('没有条目带豆瓣外链时不产生聚合提示', () => {
+    const rows = reports();
+    const target = rows[3]!;
+    target.written = 1;
+    target.writtenItems.push({
+      title: '普通条目',
+      sourceUrl: 'https://bgm.tv/subject/2',
+      targetUrl: 'https://neodb.social/movie/bbb',
+      doubanLinkPresent: false,
+    });
+
+    const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
+
+    expect(markdown).not.toContain('已带豆瓣外链');
+    expect(markdown).not.toContain('⚠');
+  });
 });

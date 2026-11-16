@@ -265,12 +265,17 @@ export default async function syncBangumiToNeodb(
           switch (outcome) {
             case 'written': {
               counters.written += 1;
-              const written = resolutionCache.get(url)?.item;
+              const resolution = resolutionCache.get(url);
+              const written = resolution?.item;
               if (written?.uuid) {
                 report.writtenItems.push({
                   title: collectionTitle(collection),
                   sourceUrl: url,
                   targetUrl: absoluteNeodbUrl(written.url || ''),
+                  // Carried onto the report so the duplication this flag predicts is countable
+                  // instead of only readable in a log line. See `WrittenItem.doubanLinkPresent`.
+                  // 带进报表，使这个标志预示的重复可以被统计，而不只是能在一行日志里读到。
+                  doubanLinkPresent: resolution?.doubanLinkPresent ?? false,
                 });
               }
               break;
@@ -385,6 +390,24 @@ export default async function syncBangumiToNeodb(
   consola.success(
     `Bangumi → NeoDB synced (${counters.written + counters.unchanged} items) ✨`,
   );
+
+  // The one number that makes the post-88f6388 trade-off observable: writes that landed on an
+  // entry already carrying a Douban link are exactly where ② and ④ can end up with two marks for
+  // one work. Printed next to the totals rather than folded into them, because it is a subset of
+  // `written` and must not look like an additional outcome.
+  // 让 88f6388 之后那笔取舍变得可观察的唯一数字：落在已带豆瓣外链条目上的写入，正是 ② 与 ④ 可能
+  // 为同一作品留下两条标记的地方。它打印在总计旁边而不是并入总计 —— 它是 `written` 的子集，
+  // 不能看起来像又一种结果。
+  const doubanLinkedWrites = report.writtenItems.filter(
+    (item) => item.doubanLinkPresent,
+  ).length;
+  if (doubanLinkedWrites > 0) {
+    consola.warn(
+      `Bangumi → NeoDB: ${doubanLinkedWrites} of ${counters.written} write(s) landed on an entry ` +
+        'that already carries a Douban link; ② and ④ may hold two marks for the same work.',
+    );
+  }
+
   printPathSummary(report);
 
   return report;
