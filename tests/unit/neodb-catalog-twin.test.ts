@@ -194,6 +194,115 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(result.ambiguous).toBe(true);
   });
 
+  it('rejects a generic season title when a real title exists', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'agatha',
+            category: 'tv',
+            title: 'Agatha Raisin Season 1',
+            display_title: 'Agatha Raisin Season 1',
+            localized_title: [{ lang: 'en', text: 'Season 1' }],
+            year: 2016,
+            external_resources: [{ url: 'https://movie.douban.com/subject/2/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'direct',
+        category: 'tv',
+        title: 'Season1',
+        display_title: 'Season1',
+        year: 2015,
+      }),
+      ['狐妖小红娘1 下沙篇'],
+      'tv',
+      2015,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('rejects an authoritative candidate whose missing search year is wrong in detail', async () => {
+    neodbClient.mockImplementation(
+      (path: string) =>
+        ({
+          json: async () =>
+            path === 'api/catalog/search'
+              ? {
+                  data: [
+                    item({
+                      uuid: 'wrong-season',
+                      category: 'tv',
+                      title: '狐妖小红娘3 月红篇',
+                      display_title: '狐妖小红娘3 月红篇',
+                      api_url: 'https://neodb.social/api/tv/season/wrong-season',
+                      external_resources: [
+                        { url: 'https://movie.douban.com/subject/3/' },
+                      ],
+                    }),
+                  ],
+                }
+              : {
+                  uuid: 'wrong-season',
+                  category: 'tv',
+                  year: 2024,
+                },
+        }) as never,
+    );
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'direct',
+        category: 'tv',
+        title: '狐妖小红娘3 月红篇',
+        year: 2016,
+      }),
+      ['狐妖小红娘3 月红篇'],
+      'tv',
+      2016,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('allows a generic season title when there is no authoritative title and year is exact', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'season-twin',
+            category: 'tv',
+            title: 'Season 1',
+            display_title: 'Season 1',
+            localized_title: [{ lang: 'en', text: 'Season 1' }],
+            year: 2015,
+            external_resources: [{ url: 'https://movie.douban.com/subject/4/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'direct',
+        category: 'tv',
+        title: 'Season1',
+        display_title: 'Season1',
+        year: 2015,
+      }),
+      [],
+      'tv',
+      2015,
+    );
+
+    expect(twin?.uuid).toBe('season-twin');
+  });
+
   it('accepts a same-category twin when the year is within tolerance', async () => {
     neodbClient.mockImplementation(() => ({
       json: async () => ({

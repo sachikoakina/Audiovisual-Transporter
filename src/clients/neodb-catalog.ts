@@ -222,6 +222,22 @@ function collectNeodbItemTitleKeys(item: NeodbItem): Set<string> {
   return keys;
 }
 
+/**
+ * Whether a title is only a season marker (`Season1`, `第1季`, ...).
+ * A season marker may still be searched, but it cannot prove a work identity by itself.
+ *
+ * 判断标题是否只是季标记（`Season1`、`第1季` 等）。季标记仍可参与搜索，但不能单独证明作品身份。
+ */
+export function isGenericSeasonTitle(title: string): boolean {
+  const key = normalizeTitleKey(title);
+  return (
+    /^(?:season|s)\d+$/.test(key) ||
+    /^第\d+季$/.test(key) ||
+    /^シーズン\d+$/.test(key) ||
+    /^시즌\d+$/.test(key)
+  );
+}
+
 /** Trim, drop empties, and de-duplicate by normalized title key. / 去空格、丢弃空值，并按规范化标题键去重。 */
 function uniqueNonEmptyTitles(titles: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
@@ -312,16 +328,22 @@ export async function findDoubanLinkedTwinCandidates(
   category?: NeodbSearchCategory,
   expectedYear?: number,
 ): Promise<NeodbItem[]> {
-  const queries = uniqueNonEmptyTitles([
+  const sourceTitles = uniqueNonEmptyTitles([
     ...titles,
+    ...(fromBangumi.localized_title || []).map((entry) => entry.text),
     fromBangumi.title,
     fromBangumi.display_title,
   ]);
-  if (!queries.length) {
+  if (!sourceTitles.length) {
     return [];
   }
 
-  const queryKeys = new Set(queries.map(normalizeTitleKey));
+  const authoritativeTitles = sourceTitles.filter(
+    (title) => !isGenericSeasonTitle(title),
+  );
+  const genericTitles = sourceTitles.filter(isGenericSeasonTitle);
+  const authoritativeKeys = new Set(authoritativeTitles.map(normalizeTitleKey));
+  const genericKeys = new Set(genericTitles.map(normalizeTitleKey));
   // Never widen the search beyond the category implied by the Bangumi subject type. A book with
   // the same title as a film must not resolve to that film just because the book category had no
   // Douban-linked hit.
@@ -332,9 +354,22 @@ export async function findDoubanLinkedTwinCandidates(
     : [undefined];
   const seenUuid = new Set<string>([fromBangumi.uuid]);
   const candidates: NeodbItem[] = [];
+  const yearCache = new Map<string, number | undefined>();
+
+  const candidateYear = async (candidate: NeodbItem): Promise<number | undefined> => {
+    const inline = itemYear(candidate);
+    if (inline != null) return inline;
+    if (!candidate.api_url) return undefined;
+    if (yearCache.has(candidate.uuid)) return yearCache.get(candidate.uuid);
+
+    const detail = await getNeodbItemDetail(candidate.api_url);
+    const year = detail ? itemYear(detail) : undefined;
+    yearCache.set(candidate.uuid, year);
+    return year;
+  };
 
   for (const cat of categories) {
-    for (const query of queries) {
+    for (const query of sourceTitles) {
       const hits = await searchNeodbCatalog(query, cat);
       for (const hit of hits) {
         if (!hit.uuid || seenUuid.has(hit.uuid)) continue;
@@ -342,15 +377,30 @@ export async function findDoubanLinkedTwinCandidates(
         if (!extractDoubanUrlFromNeodb(hit)) continue;
 
         const hitKeys = collectNeodbItemTitleKeys(hit);
-        let matched = false;
-        for (const key of queryKeys) {
-          if (hitKeys.has(key)) {
-            matched = true;
-            break;
-          }
+        const matchesAuthoritative = [...authoritativeKeys].some((key) =>
+          hitKeys.has(key),
+        );
+        const matchesGeneric = [...genericKeys].some((key) => hitKeys.has(key));
+
+        if (!matchesAuthoritative) {
+          // A generic season title may participate in search, but when the source has a real
+          // title it cannot establish identity by itself.
+          // 通用季标题可以参与搜索，但源端有真实标题时，它不能单独证明身份。
+          if (!matchesGeneric || authoritativeKeys.size > 0) continue;
+          if (expectedYear == null) continue;
+
+          const actualYear = await candidateYear(hit);
+          if (actualYear == null || actualYear !== expectedYear) continue;
+          candidates.push(hit);
+          continue;
         }
-        if (!matched) continue;
-        if (!yearMatches(expectedYear, itemYear(hit))) continue;
+
+        const actualYear = await candidateYear(hit);
+        // A missing search-result year used to pass as a match. Treat it as unknown, not as
+        // evidence, whenever the source year is known.
+        // 搜索结果缺年份过去会被当成通过；源端年份已知时，未知不是证据。
+        if (expectedYear != null && actualYear == null) continue;
+        if (!yearMatches(expectedYear, actualYear)) continue;
         candidates.push(hit);
       }
     }
