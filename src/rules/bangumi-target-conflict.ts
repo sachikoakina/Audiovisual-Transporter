@@ -4,18 +4,30 @@
  *
  * 当多个 Bangumi subject 解析到同一个 NeoDB uuid 时，决定谁可以写入的纯规则。
  *
- * The source identity is always the Bangumi URL, so only status and a stable subject-id tie-break
- * remain. A lower-status claim must not overwrite a stronger one.
- * 目标来源始终是 Bangumi URL，因此只剩状态等级与稳定的 subject id 兜底；低状态认领不能覆盖
- * 更强认领。
+ * Identity confidence is ranked before status: a direct Bangumi link beats a Douban twin, which
+ * beats a title-only twin. Only when two claims have the same confidence does the status rank
+ * decide, so a weaker claim cannot downgrade a stronger one.
+ * 身份置信度优先于状态：Bangumi 直链高于豆瓣孪生，豆瓣孪生高于仅标题匹配。只有置信度相同时才看
+ * 状态等级，因此弱认领不能把强认领降级。
  */
-import type { BangumiCollectionType, ShelfType } from '../types';
+import type { BangumiCollectionType, BangumiSubjectType, ShelfType } from '../types';
+import type { NeodbResolutionVia } from '../clients/neodb-catalog';
 
 export type StatusGuard = 'off' | 'no-downgrade';
 
 export type TargetClaim = {
   subjectId: number;
+  subjectType: BangumiSubjectType;
   collectionType: BangumiCollectionType;
+  title: string;
+  via: NeodbResolutionVia;
+};
+
+const VIA_RANK: Record<NeodbResolutionVia, number> = {
+  direct: 3,
+  'douban-twin': 2,
+  'title-twin': 1,
+  none: 0,
 };
 
 /**
@@ -42,6 +54,9 @@ function collectionRank(type: BangumiCollectionType): number {
  * 负数表示 candidate 更优，正数表示 existing 更优，0 表示同级。
  */
 export function compareClaims(candidate: TargetClaim, existing: TargetClaim): number {
+  const via = VIA_RANK[candidate.via] - VIA_RANK[existing.via];
+  if (via !== 0) return -via;
+
   const status =
     collectionRank(candidate.collectionType) - collectionRank(existing.collectionType);
   if (status !== 0) return -status;

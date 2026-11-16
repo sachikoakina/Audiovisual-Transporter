@@ -47,7 +47,9 @@ vi.mock('../../src/clients/bangumi', () => ({
   bangumiThrottle: async () => {},
   bangumiToken: 'test-token',
   getBangumiMe: async () => ({ username: 'tester' }),
+  getBangumiSubject: async () => ({ status: 'found', value: { date: '2020-01-01' } }),
   listBangumiCollections: (...args: unknown[]) => listBangumiCollections(...args),
+  searchBangumiSubjects: async () => [],
   upsertBangumiCollection: async () => true,
 }));
 
@@ -62,6 +64,7 @@ vi.mock('../../src/clients/neodb-catalog', () => ({
     const item = await resolveNeodbItemForBangumiUrl(...args);
     return {
       item,
+      via: 'direct',
       failure: item ? undefined : resolutionFailure,
       doubanLinkPresent: resolutionDoubanLinkPresent,
     };

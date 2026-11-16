@@ -11,9 +11,10 @@
  * 标记时间由 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 决定：新建用 Bangumi 时间；状态不变时
  * 保留目标时间，状态变化时用 Bangumi 时间覆盖。`initial-source` / `always-source` 可改变后续行为。
  *
- * The Bangumi URL is the only target identity. A Douban link already present on the resolved item
- * is recorded for diagnostics but never used to choose another item.
- * Bangumi URL 是唯一目标身份；解析结果已有的豆瓣外链只用于诊断，绝不据此改选其他条目。
+ * When resolving a Bangumi URL it prefers the Douban-linked twin, so that marks land on the same
+ * NeoDB uuid as path ② (Douban → NeoDB).
+ * 解析 Bangumi URL 时优先选择带豆瓣外链的孪生条目，使标记落在与链路②（豆瓣 RSS → NeoDB）
+ * 相同的 NeoDB uuid 上。
  */
 import dotenv from 'dotenv';
 import { consola } from 'consola';
@@ -35,6 +36,7 @@ import {
   bangumiThrottle,
   bangumiToken,
   getBangumiMe,
+  getBangumiSubject,
   listBangumiCollections,
   type BangumiCollection,
 } from '../clients/bangumi';
@@ -181,10 +183,10 @@ export default async function syncBangumiToNeodb(
   // `item-threw` 按标题建 key（日志行不带链接）。两个都记，两类条目才能各自独立老化。
   const scanned = new Set<string>();
   // One target may be claimed by several Bangumi subjects (a work and its adaptation, two
-  // duplicate subjects, …). The first claim is remembered for the whole run so a lower-status
-  // subject cannot overwrite it later in the same run.
+  // duplicate subjects, …). The first claim is remembered for the whole run so a lower-confidence
+  // or lower-status subject cannot overwrite it later in the same run.
   // 一个 NeoDB 目标可能被多个 Bangumi subject 认领（作品与改编、重复条目等）。整轮记住第一个
-  // 认领者，避免后续更低状态的 subject 在同一轮里覆盖它。
+  // 认领者，避免后续更低置信度/更低状态的 subject 在同一轮里覆盖它。
   const targetClaims = new Map<string, TargetClaim>();
   // Successful resolutions only; failures are retried next run instead of being cached as absent.
   // 只缓存成功解析；失败留给下一轮重试，不把瞬时错误固化成「不存在」。
@@ -192,6 +194,7 @@ export default async function syncBangumiToNeodb(
     string,
     Awaited<ReturnType<typeof resolveNeodbItemForBangumiUrlDetailed>>
   >();
+  const yearCache = new Map<number, number | undefined>();
 
   for (const subjectType of typePasses) {
     // One cursor per pass: a full sync can run several, and each has its own offset.
@@ -261,6 +264,7 @@ export default async function syncBangumiToNeodb(
             collection,
             targetClaims,
             resolutionCache,
+            yearCache,
           );
           switch (outcome) {
             case 'written': {
@@ -461,14 +465,46 @@ async function syncCollectionToNeodb(
     string,
     Awaited<ReturnType<typeof resolveNeodbItemForBangumiUrlDetailed>>
   >,
+  yearCache: Map<number, number | undefined>,
 ): Promise<CollectionOutcome> {
   const url = bangumiSubjectUrl(collection.subject_id);
   const title = collectionTitle(collection);
   consola.info('Bangumi → NeoDB: ', itemLabel(title, url));
 
+  const yearFromSummary =
+    Number(collection.subject?.date?.slice(0, 4)) ||
+    Number(collection.subject?.air_date?.slice(0, 4)) ||
+    collection.subject?.air_year ||
+    undefined;
+  let expectedYear = yearFromSummary;
+  let yearSource = yearFromSummary ? 'summary' : 'missing';
+  if (!expectedYear) {
+    if (!yearCache.has(collection.subject_id)) {
+      const subject = readOptionalOrThrow(
+        await getBangumiSubject(collection.subject_id),
+        'Bangumi subject year',
+      );
+      const fullYear =
+        Number(subject?.date?.slice(0, 4)) ||
+        Number(subject?.air_date?.slice(0, 4)) ||
+        subject?.air_year ||
+        undefined;
+      yearCache.set(collection.subject_id, fullYear);
+    }
+    expectedYear = yearCache.get(collection.subject_id);
+    yearSource = expectedYear ? 'full-subject' : 'missing';
+  }
+  consola.info(
+    'Bangumi year: ',
+    `subject=${collection.subject_id} source=${yearSource} year=${expectedYear ?? 'missing'}`,
+  );
   let resolution = resolutionCache.get(url);
   if (!resolution) {
-    resolution = await resolveNeodbItemForBangumiUrlDetailed(url);
+    resolution = await resolveNeodbItemForBangumiUrlDetailed(url, {
+      titles: [collection.subject?.name_cn, collection.subject?.name],
+      subjectType: collection.subject_type,
+      expectedYear,
+    });
     if (resolution.item?.uuid) {
       resolutionCache.set(url, resolution);
     }
@@ -476,9 +512,16 @@ async function syncCollectionToNeodb(
   const neodbItem = resolution.item;
   consola.info(
     'NeoDB resolution: ',
-    `subject=${collection.subject_id} chosen=${neodbItem?.uuid ?? 'none'} ` +
-      `doubanLinkPresent=${resolution.doubanLinkPresent}`,
+    `subject=${collection.subject_id} expectedYear=${expectedYear ?? 'missing'} ` +
+      `via=${resolution.via} chosen=${neodbItem?.uuid ?? 'none'}` +
+      `${resolution.ambiguous ? ' ambiguous=true' : ''}`,
   );
+  if (resolution.ambiguous) {
+    consola.warn(
+      'NeoDB same-title twins ambiguous; using direct item: ',
+      `subject=${collection.subject_id} year=${expectedYear ?? 'missing'} uuid=${neodbItem?.uuid ?? 'none'}`,
+    );
+  }
   if (!neodbItem?.uuid) {
     // The title leads and the URL follows, instead of the URL alone. The review list has to name
     // the entry it is asking about, and a bare `bgm.tv/subject/N` is only an address — the list
@@ -496,7 +539,10 @@ async function syncCollectionToNeodb(
 
   const claim: TargetClaim = {
     subjectId: collection.subject_id,
+    subjectType: collection.subject_type,
     collectionType: collection.type as BangumiCollectionType,
+    title,
+    via: resolution.via,
   };
   const existingClaim = targetClaims.get(neodbItem.uuid);
   if (existingClaim && shouldSkipClaim(existingClaim, claim)) {
@@ -506,8 +552,8 @@ async function syncCollectionToNeodb(
     // 两个不同的 Bangumi subject 解析到同一个 NeoDB 条目。两个都写正是「看过」被「在看/想看」
     // 覆盖的原因；保留更强的认领者，并让落败者在报表里可见，而不是静默写入。
     consola.warn(
-      `duplicate target: subject ${existingClaim.subjectId}(type=${existingClaim.collectionType}) ` +
-        `and ${claim.subjectId}(type=${claim.collectionType}) both map to ${neodbItem.uuid}; ` +
+      `duplicate target: subject ${existingClaim.subjectId}(${existingClaim.via}, type=${existingClaim.collectionType}) ` +
+        `and ${claim.subjectId}(${claim.via}, type=${claim.collectionType}) both map to ${neodbItem.uuid}; ` +
         `keeping the first.`,
     );
     return 'skipped-duplicate';
@@ -569,7 +615,7 @@ async function syncCollectionToNeodb(
   );
   consola.debug(
     `NeoDB mark plan: subject=${collection.subject_id} type=${collection.type} ` +
-      `before=${mark?.shelf_type ?? 'none'} after=${effectiveShelf}`,
+      `via=${resolution.via} before=${mark?.shelf_type ?? 'none'} after=${effectiveShelf}`,
   );
   // Left `false` only when there was nothing to write. A write NeoDB *refused* throws instead,
   // so `false` here can never mean "the mark did not land".

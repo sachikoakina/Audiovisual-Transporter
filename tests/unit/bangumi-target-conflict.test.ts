@@ -1,6 +1,6 @@
 /**
- * Pure conflict rules: status beats status, and a guard only protects an existing complete mark.
- * 纯冲突规则：状态等级裁决；guard 只保护目标端已有的“看过”。
+ * Pure conflict rules: identity beats status, and a guard only protects an existing complete mark.
+ * 纯冲突规则：身份优先于状态；guard 只保护目标端已有的“看过”。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -13,13 +13,23 @@ import {
 function claim(over: Partial<TargetClaim>): TargetClaim {
   return {
     subjectId: 1,
+    subjectType: 2,
     collectionType: 2,
+    title: 'Title',
+    via: 'direct',
     ...over,
   };
 }
 
 describe('compareClaims', () => {
-  it('ranks complete over progress', () => {
+  it('ranks a direct link over a title twin regardless of status', () => {
+    const directProgress = claim({ via: 'direct', collectionType: 3 });
+    const titleComplete = claim({ via: 'title-twin', collectionType: 2 });
+
+    expect(compareClaims(directProgress, titleComplete)).toBeLessThan(0);
+  });
+
+  it('ranks complete over progress when confidence is equal', () => {
     const complete = claim({ collectionType: 2 });
     const progress = claim({ collectionType: 3 });
 
@@ -45,7 +55,7 @@ describe('shouldSkipClaim', () => {
 
   it('skips a lower-ranked different subject', () => {
     const existing = claim({ subjectId: 1, collectionType: 2 });
-    const weaker = claim({ subjectId: 2, collectionType: 3 });
+    const weaker = claim({ subjectId: 2, collectionType: 3, via: 'title-twin' });
 
     expect(shouldSkipClaim(existing, weaker)).toBe(true);
   });

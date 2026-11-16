@@ -200,13 +200,13 @@ NeoDB 侧（同 ②）：
 
 ### 6.4 行为
 
-- 只用 Bangumi URL 对应的 NeoDB 直链条目；不比较标题、年份或媒体形态；已有豆瓣链接仅记录；
-- 同轮同 uuid 冲突按 `complete > progress/wishlist > dropped` 裁决；
+- 同分类精确标题 + 年份；禁止跨分类；
+- 同轮同 uuid 冲突按 `direct > douban-twin > title-twin`、`complete > progress/wishlist > dropped` 裁决；
 - 评分/短评默认目标优先；
 - `SYNC_BANGUMI_NEODB_VISIBILITY_MODE=target`（默认）时，统一使用 `SYNC_BANGUMI_NEODB_VISIBILITY`；
 - `SYNC_BANGUMI_NEODB_VISIBILITY_MODE=source` 时，逐条跟随 Bangumi `private`：`true → 2`、`false → 0`；源端缺失时保留目标原值并告警；
 - 可见性与现有 mark 不同会触发更新；缺失时视为目标值并告警；
-- 状态保护不影响可见性比较；若②④恰好写同一 uuid，④ 后执行决定最终可见性；写不同 uuid 时互不影响；
+- 状态保护不影响可见性比较；②④ 同时写同一 uuid 时，④ 后执行决定最终可见性；
 - 进度只在类型兼容时写；
 - `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：默认 `status` 下状态变化用来源时间，状态不变保留目标时间。
 

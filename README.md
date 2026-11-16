@@ -78,7 +78,7 @@ flowchart LR
 | ①   | 豆瓣 RSS → Notion  | 按豆瓣条目链接查重                                                 | 新建页面，仅提交目标数据源已有列 |
 | ②   | 豆瓣 RSS → NeoDB   | 豆瓣条目 URL 解析 NeoDB 目录                                       | 书架状态、评分、短评             |
 | ③   | 豆瓣 RSS → Bangumi | NeoDB 的 Bangumi 外链优先；否则按分类精确标题，动画/真人年份软过滤 | 收藏状态、评分、短评             |
-| ④   | Bangumi → NeoDB    | Bangumi URL 直链 → 直链条目；已有豆瓣链接仅记录，不再选其他条目    | 状态、评分、短评；可选进度       |
+| ④   | Bangumi → NeoDB    | Bangumi URL 直链 → 豆瓣孪生 → 同分类精确标题 + 年份                | 状态、评分、短评；可选进度       |
 | ⑤   | NeoDB → TMDB       | TMDB 外链 → IMDb → 精确标题+必需年份 → TV 季父剧标题               | TMDB 评分、watchlist             |
 
 豆瓣 RSS 只抓一次，①②③复用同一份归一化结果；④⑤分别读取自己的平台书架。
@@ -135,7 +135,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Bangumi 收藏"] --> B["Bangumi URL 取 NeoDB 直链条目<br/>已有豆瓣链接仅记录，不再选其他条目"]
+    A["Bangumi 收藏"] --> B["uuid 归一：优先带豆瓣外链的孪生条目<br/>（直链 → 豆瓣孪生 → 同分类精确标题 + 年份）"]
     B --> C["读现有标记：found / absent / error"]
     C -->|absent| D["新建标记"]
     C -->|found| E["mergeNeodbMark 四字段比对"]
