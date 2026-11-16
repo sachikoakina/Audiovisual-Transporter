@@ -11,6 +11,10 @@ import { neodbClient, neodbFailureCode } from './neodb-http';
 import { consola } from 'consola';
 import { sleep } from '../utils';
 import { normalizeTitleKey } from '../rules/tmdb-matching';
+import {
+  evaluateNeodbIdentity,
+  type NeodbIdentityDecision,
+} from '../rules/neodb-identity';
 import type { BangumiSubjectType, NeodbItem } from '../types';
 
 /** NeoDB `/api/catalog/search` category filter. / NeoDB `/api/catalog/search` 的 category 过滤值。 */
@@ -427,6 +431,8 @@ export type NeodbResolution = {
   ambiguous?: boolean;
   /** Whether the direct item declared a Douban external link. / 直链条目是否声明豆瓣外链。 */
   doubanLinkPresent: boolean;
+  /** Strict identity result when the Douban item has a different uuid. / 豆瓣条目不同 uuid 时的严格判定。 */
+  mapping?: NeodbIdentityDecision;
 };
 
 /**
@@ -462,14 +468,32 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
   if (doubanUrl) {
     const fromDouban = await fetchNeodbItemByUrl(doubanUrl);
     if (fromDouban?.uuid && fromDouban.uuid !== fromBangumi.uuid) {
-      consola.info(
-        'NeoDB has separate Douban/Bangumi catalog entries; prefer Douban twin: ',
-        `${fromBangumi.uuid} → ${fromDouban.uuid}`,
+      const mapping = evaluateNeodbIdentity(fromBangumi, fromDouban, {
+        bangumiUrl,
+        doubanUrl,
+      });
+      if (mapping.canonicalUuid === fromDouban.uuid) {
+        consola.info(
+          'NeoDB Douban twin verified as the same work: ',
+          `${fromBangumi.uuid} → ${fromDouban.uuid} level=${mapping.level} reason=${mapping.reason}`,
+        );
+        return {
+          item: fromDouban,
+          via: 'douban-twin',
+          doubanLinkPresent: true,
+          mapping,
+        };
+      }
+      consola.warn(
+        'NeoDB Douban candidate not merged; keeping Bangumi item: ',
+        `${fromBangumi.uuid} candidate=${fromDouban.uuid} ` +
+          `level=${mapping.level} reason=${mapping.reason}`,
       );
       return {
-        item: fromDouban,
-        via: 'douban-twin',
+        item: fromBangumi,
+        via: 'direct',
         doubanLinkPresent: true,
+        mapping,
       };
     }
     return { item: fromBangumi, via: 'direct', doubanLinkPresent: true };
