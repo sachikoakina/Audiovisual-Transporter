@@ -504,21 +504,16 @@ export type WrittenItem = {
   /**
    * Whether the destination catalogue entry already carried a Douban external link.
    *
-   * Only ④ sets this, and only as a diagnostic. Since 88f6388 a Bangumi URL is the sole target
-   * identity, so this flag is the one durable trace of the situation that used to be resolved by
-   * switching items: NeoDB holding a Douban-flavoured entry for the same work alongside the
-   * Bangumi-flavoured one. When it is true and path ② also writes that work, the user ends up
-   * with two marks on one shelf — which the project deliberately does not merge. Counting these
-   * is therefore the only way to observe that duplication at all.
+   * Only ④ sets this, and only as a diagnostic. A true value means ② and ④ have a declared
+   * shared identity to work with; a false value means ④ fell back to the Bangumi-flavoured entry.
+   * Counting these values makes that split visible instead of leaving it only in a log line.
    *
    * Optional because the other four paths have no such notion, and because an older
    * `sync-report.json` must stay readable.
    * 目标目录条目是否已带豆瓣外链。
    *
-   * 只有 ④ 会设置它，且仅作诊断。自 88f6388 起 Bangumi URL 是唯一目标身份，因此这个标志是「过去靠
-   * 改选条目来解决的那种情形」留下的唯一持久痕迹：NeoDB 为同一作品同时存在豆瓣味与 Bangumi 味的
-   * 两条条目。当它为真、且链路 ② 也写这部作品时，用户书架上会出现两条标记 —— 而项目刻意不合并。
-   * 因此统计这些条目，是观察该重复现象的唯一途径。
+   * 只有 ④ 会设置它，且仅作诊断。为真表示 ② 与 ④ 有一条声明式的共同身份可用；为假表示 ④
+   * 回退到了 Bangumi 味的条目。统计这些值可以让这种分裂可见，而不是只留在日志里。
    *
    * 可选：其余四条链路没有这个概念，且旧的 `sync-report.json` 必须仍可读取。
    */
