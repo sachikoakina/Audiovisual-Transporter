@@ -471,7 +471,7 @@ export async function findDoubanLinkedTwinCandidates(
   // the same title as a film must not resolve to that film just because the book category had no
   // Douban-linked hit.
   // 绝不把搜索扩大到 Bangumi subject type 对应的分类之外。与电影同名的书籍，不能因为书
-  // 分类没有豆瓣孪生就命中那部电影。
+  // 分类没有豆瓣外链候选就命中那部电影。
   const categories: Array<NeodbSearchCategory | undefined> = category
     ? [category]
     : [undefined];
