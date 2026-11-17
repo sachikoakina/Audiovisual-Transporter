@@ -301,6 +301,15 @@ function yearMatches(
   return Math.abs(expectedYear - actualYear) <= 1;
 }
 
+function formsCompatibleForTwin(
+  a: NeodbSearchCategory | undefined,
+  b: NeodbSearchCategory | undefined,
+): boolean {
+  if (!a || !b) return true;
+  if (a === b) return true;
+  return (a === 'movie' && b === 'tv') || (a === 'tv' && b === 'movie');
+}
+
 /** Coarse NeoDB media form, used only as a final tie-break. / 仅用于最终软裁决的 NeoDB 媒体形态。 */
 function mediaFormOf(item: NeodbItem): NeodbSearchCategory | undefined {
   if (item.category === 'movie' || item.category === 'tv') {
@@ -409,24 +418,26 @@ export async function findDoubanLinkedTwinCandidates(
   return candidates;
 }
 
-/** Pick one twin, preferring a matching year and the same NeoDB media form. / 按年份与媒体形态选一个孪生。 */
+/** Pick one twin, preferring a matching year and a compatible NeoDB media form. / 按年份与媒体形态选一个孪生。 */
 export function pickDoubanLinkedTwin(
   candidates: NeodbItem[],
   fromBangumi: NeodbItem,
   expectedYear?: number,
 ): { item: NeodbItem | null; ambiguous: boolean } {
   const directForm = mediaFormOf(fromBangumi);
-  const sameForm = directForm
-    ? candidates.filter((candidate) => mediaFormOf(candidate) === directForm)
+  const compatible = directForm
+    ? candidates.filter((candidate) =>
+        formsCompatibleForTwin(directForm, mediaFormOf(candidate)),
+      )
     : candidates;
-  if (!sameForm.length) {
+  if (!compatible.length) {
     return { item: null, ambiguous: false };
   }
-  if (sameForm.length === 1) {
-    return { item: sameForm[0], ambiguous: false };
+  if (compatible.length === 1) {
+    return { item: compatible[0], ambiguous: false };
   }
 
-  const scored = sameForm.map((item) => {
+  const scored = compatible.map((item) => {
     const year = itemYear(item);
     const score =
       expectedYear == null || year == null

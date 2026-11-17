@@ -1,6 +1,6 @@
 /**
- * Title twins must stay inside the category implied by the Bangumi subject type.
- * 标题孪生必须限定在 Bangumi subject type 对应的分类内。
+ * Title twins stay inside the subject category; movie and TV may share an identity.
+ * 标题孪生限定在 subject 分类内；movie 与 TV 可共享同一作品身份。
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -163,7 +163,7 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(result.ambiguous).toBe(false);
   });
 
-  it('does not let a movie twin replace a TV direct item', () => {
+  it('allows a movie candidate for a TV direct item', () => {
     const direct = item({
       uuid: 'tv',
       category: 'tv',
@@ -175,7 +175,7 @@ describe('findDoubanLinkedTwinByTitle', () => {
       2007,
     );
 
-    expect(result.item).toBeNull();
+    expect(result.item?.uuid).toBe('movie');
     expect(result.ambiguous).toBe(false);
   });
 
@@ -301,6 +301,37 @@ describe('findDoubanLinkedTwinByTitle', () => {
     );
 
     expect(twin?.uuid).toBe('season-twin');
+  });
+
+  it('finds a movie title twin for a TV season', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'movie-twin',
+            category: 'movie',
+            title: '驯龙高手：归家',
+            display_title: '驯龙高手：归家',
+            year: 2019,
+            external_resources: [{ url: 'https://movie.douban.com/subject/34857400/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'tv-direct',
+        category: 'tv',
+        title: '驯龙高手：归家',
+        year: 2019,
+      }),
+      ['驯龙高手：归家'],
+      'movie,tv',
+      2019,
+    );
+
+    expect(twin?.uuid).toBe('movie-twin');
   });
 
   it('accepts a same-category twin when the year is within tolerance', async () => {
