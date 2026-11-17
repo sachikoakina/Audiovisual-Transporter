@@ -148,6 +148,27 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(result.failure).toBe('not-found');
   });
 
+  it('uses the direct item when it already declares a Douban link', async () => {
+    const direct = item({
+      uuid: 'direct-with-douban',
+      category: 'tv',
+      external_resources: [{ url: 'https://movie.douban.com/subject/34857400/' }],
+    });
+    neodbClient.mockClear();
+    neodbClient.mockImplementation(() => ({
+      json: async () => direct,
+    }));
+
+    const result = await resolveNeodbItemForBangumiUrlDetailed(
+      'https://bgm.tv/subject/365366',
+    );
+
+    expect(result.item?.uuid).toBe('direct-with-douban');
+    expect(result.via).toBe('direct');
+    expect(result.doubanLinkPresent).toBe(true);
+    expect(neodbClient).toHaveBeenCalledTimes(1);
+  });
+
   it('picks the candidate matching the expected year instead of the first hit', () => {
     const direct = item({ uuid: 'direct', category: 'movie', pub_year: 2007 });
     const result = pickDoubanLinkedTwin(

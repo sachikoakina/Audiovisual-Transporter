@@ -24,8 +24,7 @@ export type TargetClaim = {
 };
 
 const VIA_RANK: Record<NeodbResolutionVia, number> = {
-  direct: 3,
-  'douban-twin': 2,
+  direct: 2,
   'title-twin': 1,
   none: 0,
 };

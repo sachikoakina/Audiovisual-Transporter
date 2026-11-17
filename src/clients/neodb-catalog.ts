@@ -12,10 +12,6 @@ import { consola } from 'consola';
 import { sleep } from '../utils';
 import { normalizeIsbn } from '../rules/isbn';
 import { normalizeTitleKey } from '../rules/tmdb-matching';
-import {
-  evaluateNeodbIdentity,
-  type NeodbIdentityDecision,
-} from '../rules/neodb-identity';
 import type { BangumiSubjectType, NeodbItem } from '../types';
 
 /** NeoDB `/api/catalog/search` category filter. / NeoDB `/api/catalog/search` 的 category 过滤值。 */
@@ -621,7 +617,7 @@ export type ResolveBangumiNeodbOptions = {
   yearTolerance?: number;
 };
 
-export type NeodbResolutionVia = 'direct' | 'douban-twin' | 'title-twin' | 'none';
+export type NeodbResolutionVia = 'direct' | 'title-twin' | 'none';
 
 export type NeodbResolution = {
   item: NeodbItem | null;
@@ -631,23 +627,18 @@ export type NeodbResolution = {
   ambiguous?: boolean;
   /** Whether the direct item declared a Douban external link. / 直链条目是否声明豆瓣外链。 */
   doubanLinkPresent: boolean;
-  /** Strict identity result when the Douban item has a different uuid. / 豆瓣条目不同 uuid 时的严格判定。 */
-  mapping?: NeodbIdentityDecision;
 };
 
 /**
- * Resolve the NeoDB catalog item for a Bangumi URL, preferring the Douban-linked
- * twin when NeoDB has separate entries for the same work.
- * This keeps Bangumi→NeoDB marks on the same uuid as Douban→NeoDB.
+ * Resolve the NeoDB catalog item for a Bangumi URL.
  *
- * 1) Prefer a Douban URL already present on the Bangumi-fetched item's `external_resources`
- * 2) Else search the catalog by title for an exact-title hit that has a Douban link
+ * If the Bangumi-fetched item already declares a Douban URL, that item is the shared entry and is
+ * used directly. Otherwise, search by title for an exact-title hit that has a Douban link.
  *
- * 为某个 Bangumi URL 解析出对应的 NeoDB 目录条目；当 NeoDB 对同一作品存在多条记录时，优先
- * 选择带豆瓣外链的那条。这样可以让 Bangumi→NeoDB 的标记落在与 Douban→NeoDB 相同的 uuid 上。
+ * 为某个 Bangumi URL 解析出对应的 NeoDB 目录条目。
  *
- * 1) 优先使用从 Bangumi 取到的条目 `external_resources` 上已有的豆瓣 URL
- * 2) 否则按标题搜索目录，寻找标题完全相同且带豆瓣外链的结果
+ * 如果 Bangumi 直链条目本身已经声明豆瓣 URL，它就是共同条目，直接使用；否则按标题搜索目录，
+ * 寻找标题完全相同且带豆瓣外链的结果。
  */
 export async function resolveNeodbItemForBangumiUrlDetailed(
   bangumiUrl: string,
@@ -664,38 +655,7 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
     };
   }
 
-  const doubanUrl = extractDoubanUrlFromNeodb(fromBangumi);
-  if (doubanUrl) {
-    const fromDouban = await fetchNeodbItemByUrl(doubanUrl);
-    if (fromDouban?.uuid && fromDouban.uuid !== fromBangumi.uuid) {
-      const mapping = evaluateNeodbIdentity(fromBangumi, fromDouban, {
-        bangumiUrl,
-        doubanUrl,
-      });
-      if (mapping.canonicalUuid === fromDouban.uuid) {
-        consola.info(
-          'NeoDB Douban twin verified as the same work: ',
-          `${fromBangumi.uuid} → ${fromDouban.uuid} level=${mapping.level} reason=${mapping.reason}`,
-        );
-        return {
-          item: fromDouban,
-          via: 'douban-twin',
-          doubanLinkPresent: true,
-          mapping,
-        };
-      }
-      consola.warn(
-        'NeoDB Douban candidate not merged; keeping Bangumi item: ',
-        `${fromBangumi.uuid} candidate=${fromDouban.uuid} ` +
-          `level=${mapping.level} reason=${mapping.reason}`,
-      );
-      return {
-        item: fromBangumi,
-        via: 'direct',
-        doubanLinkPresent: true,
-        mapping,
-      };
-    }
+  if (extractDoubanUrlFromNeodb(fromBangumi)) {
     return { item: fromBangumi, via: 'direct', doubanLinkPresent: true };
   }
 

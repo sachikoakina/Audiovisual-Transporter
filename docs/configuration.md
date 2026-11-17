@@ -202,8 +202,8 @@ NeoDB 侧（同 ②）：
 
 ### 6.4 行为
 
-- 直链优先；豆瓣候选需通过 IMDb/ISBN 强验证，或双向链接加严格弱条件；证据不足回退直链；
-- 同轮同 uuid 冲突按 `direct > douban-twin > title-twin`、`complete > progress/wishlist > dropped` 裁决；
+- 直链优先；直链条目已含豆瓣外链时直接使用它；无豆瓣外链时才搜索标题候选；
+- 同轮同 uuid 冲突按 `direct > title-twin`、`complete > progress/wishlist > dropped` 裁决；
 - 评分/短评默认目标优先；
 - `SYNC_BANGUMI_NEODB_VISIBILITY_MODE=target`（默认）时，统一使用 `SYNC_BANGUMI_NEODB_VISIBILITY`；
 - `SYNC_BANGUMI_NEODB_VISIBILITY_MODE=source` 时，逐条跟随 Bangumi `private`：`true → 2`、`false → 0`；源端缺失时保留目标原值并告警；

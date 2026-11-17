@@ -443,21 +443,16 @@ Bangumi 已有 `4`（搁置）或 `5`（抛弃）时，豆瓣无法表达，保�
 ```text
 Bangumi subject URL
   → NeoDB catalog fetch（直链 A）
-  → A 有豆瓣外链：fetch B
-       → 同一 uuid：A
-       → 不同 uuid：严格身份判定
+  → A 有豆瓣外链：直接使用 A
   → A 无豆瓣外链：标题候选 C
   → 证据不足：A
 ```
 
-### 身份判定
+### 直链条目已含豆瓣外链
 
-- L0：`A.uuid === B.uuid`，直接使用 A，不再做类型/标题/年份/强标识检查；
-- L1：IMDb 或 ISBN 精确匹配；双方都有强标识但冲突时拒绝；
-- L2：双向外部链接（A 含豆瓣 URL、B 含 Bangumi URL）+ 主标题精确 + 年份完全相等；
-- L3：只有标题/年份/类型等弱验证，不得单独建立映射；
-- movie ↔ tv 允许；book/music/game 严格同类；未知类型不获得跨类权限；
-- 强匹配成立但 B 不含 Bangumi 外链时，仍使用 A，避免无法证明“同一条目已含双链”。
+- A 的 `external_resources` 已声明豆瓣 URL，说明这条 NeoDB 条目同时承载两个来源；
+- 直接使用 A，不再 fetch 豆瓣条目，不再比较 B 的 uuid、类型、强标识、标题、年份或季号；
+- `doubanLinkPresent=true` 仅用于统计与日志。
 
 ### 标题候选
 
@@ -602,7 +597,7 @@ SYNC_BANGUMI_NEODB_VISIBILITY=2
 
 1. 同一 `subject_id` 再次出现 → 允许修正；
 2. 不同 subject 命中同一 uuid：
-   - 身份置信度：`direct > douban-twin > title-twin`；
+   - 身份置信度：`direct > title-twin`；
    - 同置信度看状态：`complete > progress/wishlist > dropped`；
    - 仍相同则较小 `subject_id` 胜出；
 3. 落败者记 `skipped-duplicate`，不写。

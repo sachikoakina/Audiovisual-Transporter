@@ -513,7 +513,6 @@ async function syncCollectionToNeodb(
     'NeoDB resolution: ',
     `subject=${collection.subject_id} expectedYear=${expectedYear ?? 'missing'} ` +
       `via=${resolution.via} chosen=${neodbItem?.uuid ?? 'none'}` +
-      `${resolution.mapping ? ` mapping=${resolution.mapping.level}:${resolution.mapping.reason}` : ''}` +
       `${resolution.ambiguous ? ' ambiguous=true' : ''}`,
   );
   if (resolution.ambiguous) {
