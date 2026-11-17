@@ -10,6 +10,7 @@
 import { neodbClient, neodbFailureCode } from './neodb-http';
 import { consola } from 'consola';
 import { sleep } from '../utils';
+import { normalizeIsbn } from '../rules/isbn';
 import { normalizeTitleKey } from '../rules/tmdb-matching';
 import {
   evaluateNeodbIdentity,
@@ -97,12 +98,12 @@ export async function fetchNeodbItemByUrl(
  * `ItemSchema` has no `year` / `pub_year`. Those two fields live only on the per-item schemas
  * (`MovieSchema`, `TVSchema`, the season schema) served from `api_url`. So the shelf payload is
  * enough to *describe* an item and not enough to *date* one — which is what the title-search level
- * needs, and its absence is why `SYNC_YEAR_TOLERANCE` had no effect for a long time.
+ * needs; this detail fetch supplies the year used by `SYNC_YEAR_TOLERANCE`.
  *
  * 为什么需要它：书架端点（`GET /api/me/shelf/{type}`）内联的是 `ItemSchema`，而 `ItemSchema` 没有
  * `year` / `pub_year`。这两个字段只在 `api_url` 提供的条目级 schema（`MovieSchema`、`TVSchema`、
- * 季 schema）上。因此书架载荷足以**描述**一个条目，却不足以给它**定年** —— 而标题搜索那一级正
- * 需要年份，它的缺席正是 `SYNC_YEAR_TOLERANCE` 长期无效的原因。
+ * 季 schema）上。因此书架载荷足以**描述**一个条目，却不足以给它**定年** —— 标题搜索那一级正
+ * 需要年份；这里读取详情，供 `SYNC_YEAR_TOLERANCE` 使用。
  *
  * `api_url` is a catalogue path (`/api/movie/<uuid>`), so it goes through the same client and base
  * URL as every other catalogue call; a self-hosted instance works unchanged. Returns `null` rather
@@ -292,13 +293,14 @@ function itemYear(item: NeodbItem): number | undefined {
 function yearMatches(
   expectedYear: number | undefined,
   actualYear: number | undefined,
+  tolerance = 1,
 ): boolean {
   if (expectedYear == null || actualYear == null) {
     // A missing year on either side is not evidence against the match.
     // 任一侧缺年份都不构成反对匹配的证据。
     return true;
   }
-  return Math.abs(expectedYear - actualYear) <= 1;
+  return Math.abs(expectedYear - actualYear) <= tolerance;
 }
 
 function formsCompatibleForTwin(
@@ -308,6 +310,66 @@ function formsCompatibleForTwin(
   if (!a || !b) return true;
   if (a === b) return true;
   return (a === 'movie' && b === 'tv') || (a === 'tv' && b === 'movie');
+}
+
+type TitleMatchRule = 'movie' | 'tv' | 'book' | 'generic' | 'reject';
+
+function titleMatchRuleOf(a: NeodbItem, b: NeodbItem): TitleMatchRule {
+  const formA = mediaFormOf(a);
+  const formB = mediaFormOf(b);
+
+  if (!formA || !formB) return 'reject';
+
+  if (formA === 'movie' && formB === 'movie') return 'movie';
+  if (
+    (formA === 'tv' && formB === 'tv') ||
+    (formA === 'movie' && formB === 'tv') ||
+    (formA === 'tv' && formB === 'movie')
+  ) {
+    return 'tv';
+  }
+  if (formA === 'book' && formB === 'book') return 'book';
+  if (formA === formB && formA !== 'movie' && formA !== 'tv') return 'generic';
+  return 'reject';
+}
+
+function imdbOf(item: NeodbItem): string | undefined {
+  for (const resource of item.external_resources || []) {
+    const match = resource.url?.match(/imdb\.com\/title\/(tt\d+)/i);
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
+function isbnsOf(item: NeodbItem): string[] {
+  const raw = item.isbn?.trim();
+  if (!raw) return [];
+  const normalized = normalizeIsbn(raw);
+  return normalized ? [normalized] : [];
+}
+
+type StrongTitleMatch = 'match' | 'conflict' | 'insufficient';
+
+function strongTitleMatchOf(
+  rule: TitleMatchRule,
+  a: NeodbItem,
+  b: NeodbItem,
+): StrongTitleMatch {
+  if (rule === 'movie') {
+    const imdbA = imdbOf(a);
+    const imdbB = imdbOf(b);
+    if (imdbA && imdbB) return imdbA === imdbB ? 'match' : 'conflict';
+  }
+
+  if (rule === 'book') {
+    const isbnA = isbnsOf(a);
+    const isbnB = isbnsOf(b);
+    if (isbnA.length > 0 && isbnB.length > 0) {
+      return isbnA.some((isbn) => isbnB.includes(isbn)) ? 'match' : 'conflict';
+    }
+  }
+
+  return 'insufficient';
 }
 
 /** Coarse NeoDB media form, used only as a final tie-break. / 仅用于最终软裁决的 NeoDB 媒体形态。 */
@@ -336,6 +398,7 @@ export async function findDoubanLinkedTwinCandidates(
   titles: Array<string | null | undefined>,
   category?: NeodbSearchCategory,
   expectedYear?: number,
+  yearTolerance = 1,
 ): Promise<NeodbItem[]> {
   const sourceTitles = uniqueNonEmptyTitles([
     ...titles,
@@ -385,6 +448,18 @@ export async function findDoubanLinkedTwinCandidates(
         seenUuid.add(hit.uuid);
         if (!extractDoubanUrlFromNeodb(hit)) continue;
 
+        const rule = titleMatchRuleOf(fromBangumi, hit);
+        if (rule === 'reject') continue;
+
+        if (rule === 'movie' || rule === 'book') {
+          const strong = strongTitleMatchOf(rule, fromBangumi, hit);
+          if (strong === 'conflict') continue;
+          if (strong === 'match') {
+            candidates.push(hit);
+            continue;
+          }
+        }
+
         const hitKeys = collectNeodbItemTitleKeys(hit);
         const matchesAuthoritative = [...authoritativeKeys].some((key) =>
           hitKeys.has(key),
@@ -409,7 +484,7 @@ export async function findDoubanLinkedTwinCandidates(
         // evidence, whenever the source year is known.
         // 搜索结果缺年份过去会被当成通过；源端年份已知时，未知不是证据。
         if (expectedYear != null && actualYear == null) continue;
-        if (!yearMatches(expectedYear, actualYear)) continue;
+        if (!yearMatches(expectedYear, actualYear, yearTolerance)) continue;
         candidates.push(hit);
       }
     }
@@ -464,12 +539,14 @@ export async function findDoubanLinkedTwinByTitle(
   titles: Array<string | null | undefined>,
   category?: NeodbSearchCategory,
   expectedYear?: number,
+  yearTolerance = 1,
 ): Promise<NeodbItem | null> {
   const candidates = await findDoubanLinkedTwinCandidates(
     fromBangumi,
     titles,
     category,
     expectedYear,
+    yearTolerance,
   );
   return pickDoubanLinkedTwin(candidates, fromBangumi, expectedYear).item;
 }
@@ -480,6 +557,8 @@ export type ResolveBangumiNeodbOptions = {
   subjectType?: BangumiSubjectType;
   /** Release year when known, used to reject same-title remakes. / 已知发行年，用于拒绝同名翻拍。 */
   expectedYear?: number;
+  /** Allowed year difference for title candidates. / 标题候选允许的年份差。 */
+  yearTolerance?: number;
 };
 
 export type NeodbResolutionVia = 'direct' | 'douban-twin' | 'title-twin' | 'none';
@@ -570,6 +649,7 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
     options.titles || [],
     category,
     options.expectedYear,
+    options.yearTolerance,
   );
   const picked = pickDoubanLinkedTwin(candidates, fromBangumi, options.expectedYear);
   if (picked.ambiguous) {

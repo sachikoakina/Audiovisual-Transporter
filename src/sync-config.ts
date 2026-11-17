@@ -367,6 +367,8 @@ export const syncConfig = {
   // their archive as append-only. / 默认关闭：同一 subject 的降级必须仍可发生；只有把归档当作
   // 只增不减的用户才需要开启。
   bangumiNeodbStatusGuard: parseStatusGuard('SYNC_BANGUMI_NEODB_STATUS_GUARD'),
+  /** Shared year tolerance for title matching. / 标题匹配共用的年份容差。 */
+  yearTolerance: envInt('SYNC_YEAR_TOLERANCE', 1, 0),
 };
 
 export function needsDoubanRss(): boolean {
@@ -655,7 +657,7 @@ export const neodbTmdbConfig = {
   dryRun: envEnabled('SYNC_DRY_RUN', false),
   maxItems: envInt('SYNC_MAX_ITEMS', 50, 1),
   ratingProfile: resolveRatingProfile(),
-  yearTolerance: envInt('SYNC_YEAR_TOLERANCE', 1, 0),
+  yearTolerance: syncConfig.yearTolerance,
   /** Incremental de-duplication store. Empty string disables it. / 增量去重存储；空字符串表示关闭。 */
   stateFile: process.env.SYNC_STATE_FILE ?? '.cache/sync-state.json',
   /**

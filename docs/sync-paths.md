@@ -463,7 +463,11 @@ Bangumi subject URL
 
 - 仅当 A 没有豆瓣外链时才搜索标题候选；
 - 标题规范化后精确相等，不做模糊匹配；
-- 标题候选允许 movie ↔ tv 互配；book/music/game 仍严格同类；
+- movie + movie：IMDb 优先；IMDb 冲突拒绝，相同接受，缺失才看标题 + 年份；
+- tv + tv、movie + tv、tv + movie：不使用 IMDb，只看标题 + 年份容差；
+- book + book：ISBN 优先；ISBN 冲突拒绝，相同接受，缺失才看标题 + 年份；
+- music/game/podcast/performance：只允许同分类，标题 + 年份容差；
+- 其他跨类组合拒绝；
 - 通用季标题（`Season1`、`第1季` 等）仍参与搜索，但有权威标题时不能单独成立；
 - 没有权威标题时，通用季标题必须与源端年份严格相等；
 - 候选搜索响应缺年份时读取详情；源端年份已知而详情仍缺年份时拒绝；

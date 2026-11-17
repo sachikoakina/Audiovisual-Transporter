@@ -502,6 +502,7 @@ async function syncCollectionToNeodb(
       titles: [collection.subject?.name_cn, collection.subject?.name],
       subjectType: collection.subject_type,
       expectedYear,
+      yearTolerance: syncConfig.yearTolerance,
     });
     if (resolution.item?.uuid) {
       resolutionCache.set(url, resolution);

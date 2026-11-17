@@ -334,6 +334,201 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(twin?.uuid).toBe('movie-twin');
   });
 
+  it('rejects a movie candidate when IMDb conflicts', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'movie-conflict',
+            category: 'movie',
+            title: 'Same Title',
+            year: 2019,
+            external_resources: [
+              { url: 'https://movie.douban.com/subject/10/' },
+              { url: 'https://www.imdb.com/title/tt2222222/' },
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'movie-direct',
+        category: 'movie',
+        title: 'Same Title',
+        year: 2019,
+        external_resources: [{ url: 'https://www.imdb.com/title/tt1111111/' }],
+      }),
+      ['Same Title'],
+      'movie',
+      2019,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('accepts a movie candidate when IMDb matches even if the title differs', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'movie-match',
+            category: 'movie',
+            title: 'Different Title',
+            year: 2019,
+            external_resources: [
+              { url: 'https://movie.douban.com/subject/11/' },
+              { url: 'https://www.imdb.com/title/tt1111111/' },
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'movie-direct',
+        category: 'movie',
+        title: 'Same Title',
+        year: 2019,
+        external_resources: [{ url: 'https://www.imdb.com/title/tt1111111/' }],
+      }),
+      ['Same Title'],
+      'movie',
+      2019,
+    );
+
+    expect(twin?.uuid).toBe('movie-match');
+  });
+
+  it('ignores conflicting IMDb for a TV candidate', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'tv-ignore-imdb',
+            category: 'tv',
+            title: 'Same Title',
+            year: 2019,
+            external_resources: [
+              { url: 'https://movie.douban.com/subject/12/' },
+              { url: 'https://www.imdb.com/title/tt2222222/' },
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'tv-direct',
+        category: 'tv',
+        title: 'Same Title',
+        year: 2019,
+        external_resources: [{ url: 'https://www.imdb.com/title/tt1111111/' }],
+      }),
+      ['Same Title'],
+      'tv',
+      2019,
+    );
+
+    expect(twin?.uuid).toBe('tv-ignore-imdb');
+  });
+
+  it('rejects a book when ISBN conflicts', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'book-conflict',
+            category: 'book',
+            title: 'Same Title',
+            pub_year: 2020,
+            isbn: '9783161484100',
+            external_resources: [{ url: 'https://book.douban.com/subject/13/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'book-direct',
+        category: 'book',
+        title: 'Same Title',
+        pub_year: 2020,
+        isbn: '9780306406157',
+      }),
+      ['Same Title'],
+      'book',
+      2020,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('rejects a cross-class book/movie candidate', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'movie-opposite',
+            category: 'movie',
+            title: 'Same Title',
+            year: 2020,
+            external_resources: [{ url: 'https://movie.douban.com/subject/14/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'book-direct',
+        category: 'book',
+        title: 'Same Title',
+        pub_year: 2020,
+      }),
+      ['Same Title'],
+      'book',
+      2020,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('honors a zero year tolerance for title candidates', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'year-off-by-one',
+            category: 'movie',
+            title: 'Same Title',
+            year: 2021,
+            external_resources: [{ url: 'https://movie.douban.com/subject/15/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'movie-direct',
+        category: 'movie',
+        title: 'Same Title',
+        year: 2020,
+      }),
+      ['Same Title'],
+      'movie',
+      2020,
+      0,
+    );
+
+    expect(twin).toBeNull();
+  });
+
   it('accepts a same-category twin when the year is within tolerance', async () => {
     neodbClient.mockImplementation(() => ({
       json: async () => ({

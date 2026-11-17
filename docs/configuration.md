@@ -167,6 +167,8 @@
 
 `source` 模式下，`SYNC_BANGUMI_NEODB_VISIBILITY` 不是所有条目的统一目标值；只有源端 `private` 缺失时才回退到目标现有值或该配置值。完整规则见 [五条同步链路](sync-paths.md) 的 ④《可见性》。
 
+④ 的标题候选年份差与 ⑤ 共用 `SYNC_YEAR_TOLERANCE`（默认 `1`；设为 `0` 时只允许同年）。
+
 `created_time` 按 `SYNC_BANGUMI_NEODB_MARK_TIME_POLICY` 处理：
 
 - `status`：新建用 Bangumi 时间；状态不变保留目标时间；状态变化用 Bangumi 时间；
