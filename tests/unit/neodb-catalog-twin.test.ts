@@ -303,6 +303,71 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(twin?.uuid).toBe('season-twin');
   });
 
+  it('rejects a TV candidate from another season', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'fox-spirit-1',
+            category: 'tv',
+            title: 'Fox Spirit Matchmaker 1',
+            display_title: 'Fox Spirit Matchmaker 1',
+            localized_title: [{ lang: 'zh-cn', text: '狐妖小红娘 月红篇' }],
+            year: 2016,
+            external_resources: [{ url: 'https://movie.douban.com/subject/281272/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'fox-spirit-3',
+        category: 'tv',
+        title: '狐妖小红娘3 月红篇',
+        display_title: '狐妖小红娘3 月红篇',
+        year: 2016,
+      }),
+      ['狐妖小红娘3 月红篇'],
+      'tv',
+      2016,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('accepts a TV candidate from the same season', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'fox-spirit-3-twin',
+            category: 'tv',
+            title: '狐妖小红娘3 月红篇',
+            display_title: '狐妖小红娘3 月红篇',
+            year: 2016,
+            external_resources: [{ url: 'https://movie.douban.com/subject/281272/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'fox-spirit-3',
+        category: 'tv',
+        title: '狐妖小红娘3 月红篇',
+        display_title: '狐妖小红娘3 月红篇',
+        year: 2016,
+      }),
+      ['狐妖小红娘3 月红篇'],
+      'tv',
+      2016,
+    );
+
+    expect(twin?.uuid).toBe('fox-spirit-3-twin');
+  });
+
   it('finds a movie title twin for a TV season', async () => {
     neodbClient.mockImplementation(() => ({
       json: async () => ({

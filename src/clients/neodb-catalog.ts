@@ -333,6 +333,61 @@ function titleMatchRuleOf(a: NeodbItem, b: NeodbItem): TitleMatchRule {
   return 'reject';
 }
 
+function seasonFromTitle(title: string): number | null {
+  const key = normalizeTitleKey(title);
+  const explicit =
+    key.match(/(?:season|s)(\d{1,2})(?=\D|$)/) ??
+    key.match(/第(\d{1,2})季/) ??
+    key.match(/(\d{1,2})(?:st|nd|rd|th)season/);
+
+  if (explicit?.[1]) return Number(explicit[1]);
+
+  const numbered = key.match(/(\d{1,2})(?=月红篇|篇|章|$)/);
+  return numbered?.[1] ? Number(numbered[1]) : null;
+}
+
+function seasonNumberOf(item: NeodbItem): number | null {
+  const seasons = new Set<number>();
+  for (const title of [
+    item.title,
+    item.display_title,
+    ...(item.localized_title || []).map((entry) => entry.text),
+  ]) {
+    if (!title) continue;
+    const season = seasonFromTitle(title);
+    if (season != null) seasons.add(season);
+  }
+
+  // Conflicting season markers are not trustworthy.
+  // 同一候选出现互相冲突的季号时，不把它当作可用证据。
+  return seasons.size === 1 ? [...seasons][0] : null;
+}
+
+function seasonsCompatible(
+  a: NeodbItem,
+  b: NeodbItem,
+): { ok: boolean; aSeason: number | null; bSeason: number | null } {
+  const aSeason = seasonNumberOf(a);
+  const bSeason = seasonNumberOf(b);
+
+  if (aSeason != null && bSeason != null) {
+    return { ok: aSeason === bSeason, aSeason, bSeason };
+  }
+
+  if (aSeason == null && bSeason == null) {
+    return { ok: true, aSeason, bSeason };
+  }
+
+  // A TV season with no explicit number cannot be safely matched against
+  // another TV season that does have one. movie ↔ tv keeps its cross-form
+  // exception because a movie normally has no season number.
+  const aForm = mediaFormOf(a);
+  const bForm = mediaFormOf(b);
+  const hasMovie = aForm === 'movie' || bForm === 'movie';
+
+  return { ok: hasMovie, aSeason, bSeason };
+}
+
 function imdbOf(item: NeodbItem): string | undefined {
   for (const resource of item.external_resources || []) {
     const match = resource.url?.match(/imdb\.com\/title\/(tt\d+)/i);
@@ -458,6 +513,11 @@ export async function findDoubanLinkedTwinCandidates(
             candidates.push(hit);
             continue;
           }
+        }
+
+        if (rule === 'tv') {
+          const seasons = seasonsCompatible(fromBangumi, hit);
+          if (!seasons.ok) continue;
         }
 
         const hitKeys = collectNeodbItemTitleKeys(hit);
