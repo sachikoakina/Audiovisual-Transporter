@@ -283,6 +283,158 @@ function main(): void {
     leftovers.join(', '),
   );
 
+  checker.section('Markdown 锚点：引用 → 目标标题');
+  // Cross-file anchors are the one link kind nothing else checks. `repoPath` above validates the
+  // *file* half of `[text](reference.md#anchor)` and silently ignores everything after the `#`,
+  // so a heading rename leaves a link that looks fine in review and goes nowhere when clicked.
+  // That is not hypothetical: `configuration.md` pointed at
+  // `sync-paths.md#neodb-标记时间策略24` — the heading never contained "24" — and nothing noticed.
+  //
+  // 跨文件锚点是唯一没有别的东西检查的链接种类。上面的 `repoPath` 只校验
+  // `[text](reference.md#anchor)` 的**文件**那一半，`#` 之后的一切都被静默忽略，因此一次标题改名
+  // 会留下一个在评审时看着没问题、点下去却哪也不去的链接。这不是假设：`configuration.md` 曾指向
+  // `sync-paths.md#neodb-标记时间策略24`，而那个标题里从来没有 "24"，却没有任何检查发现它。
+  //
+  // Loose on purpose. Reproducing GitHub's slugger exactly means reimplementing its CJK and
+  // punctuation rules — and getting one wrong turns a working link into a red build. The failure
+  // this guards against is "the heading was renamed or deleted", and a containment test catches
+  // that without ever guessing at a slug. The trade-off is that a wrong-but-plausible slug
+  // (`...策略24` vs `...策略`) would still pass; see the note on `anchorLooksPresent` below.
+  //
+  // 刻意宽松。精确复现 GitHub 的 slugger 意味着重写它的 CJK 与标点规则，而只要错一条，就会把一个
+  // 本来能用的链接变成红色构建。这里要防的失败是「标题被改名或删除」，包含性判断能抓住它，且永远
+  // 不需要去猜 slug。代价是「错得挺像」的 slug（`...策略24` 与 `...策略`）仍会通过；见下面
+  // `anchorLooksPresent` 的说明。
+  const DOC_FILES = fs
+    .readdirSync(path.join(ROOT, 'docs'))
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => `docs/${name}`);
+
+  /**
+   * Does the target file plausibly carry this anchor?
+   *
+   * Two acceptance paths, both cheap and both immune to slug-rule drift:
+   *   1. some heading, once its `#` markers and whitespace are dropped, contains the anchor text;
+   *   2. the anchor is the slug of a heading once punctuation is stripped — which is what makes
+   *      `#neodb-标记时间策略` match `## NeoDB 标记时间策略（②④）`.
+   *
+   * Path 2 is the reason a containment test is enough in practice: it normalises away exactly the
+   * characters GitHub drops (brackets, circled digits) without needing to know that GitHub drops
+   * them.
+   *
+   * 目标文件是否「看起来」带这个锚点？
+   *
+   * 两条接受路径，都很便宜，也都不受 slug 规则漂移影响：
+   *   1. 某个标题去掉 `#` 与空白后，包含锚点文本；
+   *   2. 某个标题去掉标点后，其 slug 与锚点相等 —— 这正是
+   *      `#neodb-标记时间策略` 能匹配 `## NeoDB 标记时间策略（②④）` 的原因。
+   *
+   * 路径 2 正是包含性判断在实践中够用的理由：它恰好把 GitHub 会丢弃的那些字符（括号、带圈数字）
+   * 归一化掉，而不需要知道 GitHub 会丢弃它们。
+   */
+  function anchorLooksPresent(markdown: string, anchor: string): boolean {
+    const wanted = anchor.trim().toLowerCase();
+    if (!wanted) {
+      return true;
+    }
+    for (const line of markdown.split('\n')) {
+      // `[^\r\n]*` rather than `(.*)$`: these files are checked out with CRLF on Windows, and
+      // `$` does not match before a trailing `\r` in a non-multiline regex — so `(.*)$` silently
+      // matches nothing at all, and every anchor would be reported broken. Stripping the line
+      // ending is the one thing this scan has to get right before any slug logic can matter.
+      // 用 `[^\r\n]*` 而不是 `(.*)$`：这些文件在 Windows 上以 CRLF 检出，而在非多行正则里 `$`
+      // 并不匹配尾随 `\r` 之前的位置 —— 于是 `(.*)$` 静默地什么都匹配不到，每个锚点都会被报成断链。
+      // 去掉行尾是这次扫描在任何 slug 逻辑生效之前必须先做对的一件事。
+      const heading = /^#{1,6}\s+([^\r\n]*)/.exec(line)?.[1];
+      if (!heading) {
+        continue;
+      }
+      const text = heading.trim().toLowerCase();
+      // Path 1 — the anchor is literally part of the heading.
+      // 路径 1 —— 锚点字面上就是标题的一部分。
+      if (text.replace(/\s+/g, '').includes(wanted.replace(/-/g, ''))) {
+        return true;
+      }
+      // Path 2 — the heading slugifies to the anchor once punctuation is dropped.
+      // 路径 2 —— 标题去掉标点后的 slug 与锚点相等。
+      //
+      // The order matters and is not obvious: punctuation is stripped *before* whitespace becomes
+      // dashes, and **each single space becomes one dash** — no `+` quantifier, no collapsing.
+      // `reason 总表（slug × 链路…）` has one space on each side of `×`; dropping the `×` leaves two
+      // adjacent spaces, which must produce the `--` the anchor really contains. `[\s]+` would
+      // merge them into one `-` and never match.
+      // 顺序很重要且不显然：**先**去掉标点，**再**把空白变成连字符，且**每个空格各变一个连字符**
+      // —— 不加 `+`、不做折叠。`reason 总表（slug × 链路…）` 里 `×` 两侧各有一个空格；删掉 `×`
+      // 后剩下两个相邻空格，必须产出锚点里真实存在的 `--`。用 `[\s]+` 会把它们并成一个 `-`，
+      // 永远匹配不上。
+      const slug = text
+        .replace(
+          /[（）()【】\u005B\u005D「」《》〈〉·、，,。.：:；;！!？?"'“”‘’×→←—–]/g,
+          '',
+        )
+        .replace(/[\u2460-\u24FF]/g, '')
+        .replace(/[\s\u3000]/g, '-')
+        .replace(/^-|-$/g, '');
+      if (slug === wanted) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** `[text](file.md#anchor)` in one file → the anchors it points at, with their target files. */
+  function crossFileAnchors(markdown: string): { target: string; anchor: string }[] {
+    const found: { target: string; anchor: string }[] = [];
+    for (const match of markdown.matchAll(/\]\(([\w.-]+\.md)#([^)\s]+)\)/g)) {
+      found.push({ target: match[1]!, anchor: match[2]! });
+    }
+    return found;
+  }
+
+  const docsToScan: [string, string][] = [['README.md', readme]];
+  for (const file of DOC_FILES) {
+    docsToScan.push([file, fs.readFileSync(path.join(ROOT, file), 'utf8')]);
+  }
+
+  const brokenAnchors: string[] = [];
+  let anchorCount = 0;
+  for (const [name, text] of docsToScan) {
+    for (const { target, anchor } of crossFileAnchors(text)) {
+      anchorCount += 1;
+      // Only same-directory links are checked: `docs/*.md` refers to its siblings by bare name,
+      // and resolving `../README.md` anchors would drag in the root file's own heading contract.
+      // 只检查同目录链接：`docs/*.md` 用裸文件名引用兄弟文件，而解析 `../README.md` 的锚点会把
+      // 根文件自己的标题契约也拖进来。
+      const baseDir = path.dirname(path.join(ROOT, name));
+      const targetPath = path.join(baseDir, target);
+      if (!fs.existsSync(targetPath)) {
+        // The file half is already covered by the README path check above; reporting it here too
+        // would make one defect fail two assertions and blur which one is authoritative.
+        // 文件那一半已由上面的 README 路径检查覆盖；在这里重复报告会让一个缺陷触发两条断言，
+        // 冲淡「哪条是权威」。
+        continue;
+      }
+      const targetText = fs.readFileSync(targetPath, 'utf8');
+      if (!anchorLooksPresent(targetText, decodeURIComponent(anchor))) {
+        brokenAnchors.push(`${name} → ${target}#${anchor}`);
+      }
+    }
+  }
+
+  checker.check(
+    'the anchor scan finds the cross-file links it is supposed to find',
+    // A silent zero would make the assertion below pass for the wrong reason — the same trap the
+    // log-contract scan guards against.
+    // 静默的零会让下面那条断言以错误的理由通过 —— 与日志契约扫描所防的陷阱相同。
+    anchorCount > 0,
+    `${anchorCount} cross-file anchor(s)`,
+  );
+  checker.check(
+    'every cross-file Markdown anchor resolves to a heading in its target',
+    brokenAnchors.length === 0,
+    brokenAnchors.join(', '),
+  );
+
   checker.summary();
 }
 

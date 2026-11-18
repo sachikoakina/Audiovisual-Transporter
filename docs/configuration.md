@@ -103,7 +103,7 @@
 - `SYNC_DOUBAN_NEODB_VISIBILITY`（默认 `2`）与现有 mark 不同会触发更新；缺失时视为目标值并告警；
 - ② 没有 `SYNC_DOUBAN_NEODB_VISIBILITY_MODE` 开关；始终使用 `SYNC_DOUBAN_NEODB_VISIBILITY` 的目标值；
 - 豆瓣 RSS 没有隐私字段，因此 ② 不支持 `source` 模式；
-- `created_time` 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` 处理，详见 [五条同步链路](sync-paths.md#neodb-标记时间策略24)；
+- `created_time` 按 `SYNC_DOUBAN_NEODB_MARK_TIME_POLICY` 处理，详见 [五条同步链路](sync-paths.md#neodb-标记时间策略)；
 - 不写进度。
 
 ---
