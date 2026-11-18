@@ -223,9 +223,17 @@ function collectNeodbItemTitleKeys(item: NeodbItem): Set<string> {
  * Whether a title is only a season marker (`Season1`, `第1季`, ...).
  * A season marker may still be searched, but it cannot prove a work identity by itself.
  *
+ * Not exported on purpose: the only callers are two lines inside
+ * `findDoubanLinkedTwinCandidates`, and the rule is only meaningful together with the search that
+ * applies it. Widening it to the module's API would invite a second caller to reimplement the
+ * season-marker idea somewhere it does not belong.
+ *
  * 判断标题是否只是季标记（`Season1`、`第1季` 等）。季标记仍可参与搜索，但不能单独证明作品身份。
+ *
+ * 刻意不导出：唯一的调用方是 `findDoubanLinkedTwinCandidates` 里的两行，而这条规则只有和真正应用
+ * 它的搜索放在一起才有意义。把它放进模块 API，只会招来第二个调用方在并不合适的地方重造季标记判断。
  */
-export function isGenericSeasonTitle(title: string): boolean {
+function isGenericSeasonTitle(title: string): boolean {
   const key = normalizeTitleKey(title);
   return (
     /^(?:season|s)\d+$/.test(key) ||
@@ -444,7 +452,19 @@ function mediaFormOf(item: NeodbItem): NeodbSearchCategory | undefined {
   return undefined;
 }
 
-export async function findDoubanLinkedTwinCandidates(
+/**
+ * Every catalog candidate that could stand in for `fromBangumi`, before any adjudication.
+ *
+ * Not exported: the only callers are the two resolution levels inside this file, and both of them
+ * feed the result straight into `pickDoubanLinkedTwin`. A caller outside would have to reproduce
+ * that pairing to use this meaningfully.
+ *
+ * 在做出任何裁决之前，所有可能替代 `fromBangumi` 的目录候选。
+ *
+ * 不导出：唯一的调用方是本文件内的两级解析，且两者都直接把结果交给 `pickDoubanLinkedTwin`。外部
+ * 调用方必须自己复现这个配对关系才能有意义地使用它。
+ */
+async function findDoubanLinkedTwinCandidates(
   fromBangumi: NeodbItem,
   titles: Array<string | null | undefined>,
   category?: NeodbSearchCategory,
