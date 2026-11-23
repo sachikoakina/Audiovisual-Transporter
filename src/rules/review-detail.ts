@@ -102,6 +102,7 @@ export function labelOf(item: ReviewDetail): string {
 export function renderDetailLines(
   items: readonly ReviewDetail[],
   limits: DetailLimits = DETAIL_LIMITS,
+  formatLabel: (item: ReviewDetail) => string = labelOf,
 ): { lines: string[]; listed: number; omitted: number } {
   const lines: string[] = [];
   let listed = 0;
@@ -121,13 +122,16 @@ export function renderDetailLines(
     }
 
     if (collapsed) {
-      const examples = group.items.slice(0, limits.examples).map(labelOf).join('、');
+      const examples = group.items
+        .slice(0, limits.examples)
+        .map(formatLabel)
+        .join('、');
       const more = group.items.length > limits.examples ? ' …' : '';
       lines.push(`${group.reason} × ${group.items.length}（例：${examples}${more}）`);
       listed += group.items.length;
     } else {
       for (const item of group.items) {
-        lines.push(`${labelOf(item)} — ${item.reason}`);
+        lines.push(`${formatLabel(item)} — ${item.reason}`);
       }
       listed += group.items.length;
     }

@@ -131,6 +131,47 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     expect(markdown.indexOf('#### 电视剧')).toBeLessThan(markdown.indexOf('#### 书籍'));
   });
 
+  it('链路明细统一标注源平台与源条目链接', () => {
+    const rows = reports();
+    rows[0]!.unresolved = 1;
+    rows[0]!.unresolvedItems.push({
+      title: '待核对电影',
+      url: 'https://movie.douban.com/subject/100/',
+      reason: 'no-match',
+    });
+    rows[1]!.failed = 1;
+    rows[1]!.failedItems.push({
+      title: '写入失败条目',
+      url: 'https://movie.douban.com/subject/101/',
+      reason: 'neodb-write-failed',
+    });
+    rows[2]!.skipped = 1;
+    rows[2]!.skippedItems.push({
+      title: '跳过条目',
+      url: 'https://movie.douban.com/subject/102/',
+      reason: 'already-synced',
+    });
+    rows[3]!.unresolved = 1;
+    rows[3]!.unresolvedItems.push({
+      title: 'Bangumi 待核对',
+      url: 'https://bgm.tv/subject/103',
+      reason: 'no-neodb-match',
+    });
+
+    const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
+
+    expect(markdown).toContain(
+      '豆瓣 · 待核对电影 — https://movie.douban.com/subject/100/',
+    );
+    expect(markdown).toContain(
+      '豆瓣 · 写入失败条目 — https://movie.douban.com/subject/101/',
+    );
+    expect(markdown).toContain(
+      '豆瓣 · 跳过条目 — https://movie.douban.com/subject/102/',
+    );
+    expect(markdown).toContain('Bangumi · Bangumi 待核对 — https://bgm.tv/subject/103');
+  });
+
   it('链路明细的 unresolved / failed / skipped 默认折叠', () => {
     const rows = reports();
     const first = rows[0]!;

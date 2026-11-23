@@ -149,6 +149,18 @@ function writtenCategoryLabel(category?: string): string {
   return WRITTEN_CATEGORY_LABELS[category] ?? WRITTEN_CATEGORY_LABELS.other;
 }
 
+/** Source platform is the left-hand side of `豆瓣 → NeoDB`. / 源平台取自链路名左侧。 */
+function sourcePlatformOf(label: string): string {
+  return label.split('→')[0]?.trim() || '来源';
+}
+
+/** One detail line uses the same title — source link order as a written item. / 明细行沿用写入条目的「标题 — 源链接」顺序。 */
+function formatSourceDetail(item: ReviewDetail, platform: string): string {
+  const title = (item.title || '').trim() || '(unknown)';
+  const url = (item.url || '').trim();
+  return url ? `${platform} · ${title} — ${url}` : `${platform} · ${title}`;
+}
+
 function groupWrittenItemsByCategory(
   items: PathReport['writtenItems'],
 ): Array<{ category: string; items: PathReport['writtenItems'] }> {
@@ -280,8 +292,8 @@ function appendPathDetails(lines: string[], r: PathReport): void {
   }
   lines.push('', `### ${r.label}`);
   appendUnresolvedSummary(lines, r);
-  appendDetailSummary(lines, 'failed', r.failed, r.failedItems);
-  appendDetailSummary(lines, 'skipped', r.skipped, r.skippedItems);
+  appendDetailSummary(lines, 'failed', r.failed, r.failedItems, r.label);
+  appendDetailSummary(lines, 'skipped', r.skipped, r.skippedItems, r.label);
 }
 
 /** Start a native, default-collapsed section whose title is the trigger. / 开始一个标题即触发器的原生折叠小节。 */
@@ -306,7 +318,14 @@ function appendUnresolvedSummary(lines: string[], r: PathReport): void {
   // made "how far down the list am I" unanswerable.
   // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
   // 无序列表给不了这种参照，看的人无法回答「我看到第几条了」。
-  const listed = r.unresolvedTitles.slice(0, MAX_SUMMARY_TITLES);
+  const platform = sourcePlatformOf(r.label);
+  const listed = r.unresolvedItems.length
+    ? r.unresolvedItems
+        .slice(0, MAX_SUMMARY_TITLES)
+        .map((item) => formatSourceDetail(item, platform))
+    : r.unresolvedTitles
+        .slice(0, MAX_SUMMARY_TITLES)
+        .map((title) => `${platform} · ${title}`);
   listed.forEach((title, index) => {
     lines.push(`${index + 1}. ${title}`);
   });
@@ -348,6 +367,7 @@ function appendDetailSummary(
   kind: 'failed' | 'skipped',
   total: number,
   items: readonly ReviewDetail[],
+  label: string,
 ): void {
   if (total === 0) {
     return;
@@ -365,7 +385,12 @@ function appendDetailSummary(
   startCollapsibleSection(lines, `${kind}（${total}）`);
   lines.push('', SUMMARY_DETAIL_INTRO[kind]);
 
-  const { lines: rendered, omitted } = renderDetailLines(items, SUMMARY_DETAIL_LIMITS);
+  const platform = sourcePlatformOf(label);
+  const { lines: rendered, omitted } = renderDetailLines(
+    items,
+    SUMMARY_DETAIL_LIMITS,
+    (item) => formatSourceDetail(item, platform),
+  );
   rendered.forEach((line, index) => {
     lines.push(`${index + 1}. ${line}`);
   });
