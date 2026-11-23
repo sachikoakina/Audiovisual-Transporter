@@ -26,7 +26,8 @@ import { planNeodbMarkTime } from '../rules/neodb-mark-time';
 import type { FeedItem, ItemStatus, ItemSyncOutcome, PathReport } from '../types';
 import { newPathReport } from '../types';
 import { fetchNeodbItemByUrl } from '../clients/neodb-catalog';
-import { neodbThrottle, neodbToken } from '../clients/neodb-http';
+import { absoluteNeodbUrl, neodbThrottle, neodbToken } from '../clients/neodb-http';
+import type { NeodbItem } from '../types';
 import { getNeodbMark, markNeodbItem, verifyNeodbToken } from '../clients/neodb-shelf';
 import {
   filterDoubanFeedsByCategory,
@@ -107,7 +108,14 @@ export default async function syncDoubanToNeodb(
   for (const item of filtered) {
     scanned.add(item.link);
     try {
-      const outcome = await syncFeedItemToNeodb(item);
+      const outcome = await syncFeedItemToNeodb(item, (target) => {
+        report.writtenItems.push({
+          title: item.title || item.id,
+          sourceUrl: item.link,
+          targetUrl: absoluteNeodbUrl(target.url || ''),
+          category: normalizeReviewCategory(item.category),
+        });
+      });
       report[outcome] += 1;
       recordOutcome(item, outcome, report);
     } catch (error) {
@@ -245,7 +253,10 @@ function recordOutcome(
  * @returns The `ItemSyncOutcome` for this single item, so the caller's report adds up.
  *   该单条条目的 `ItemSyncOutcome`，使调用方的报告自洽。
  */
-async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
+async function syncFeedItemToNeodb(
+  item: FeedItem,
+  onWritten?: (target: NeodbItem) => void,
+): Promise<ItemSyncOutcome> {
   const neodbItem = await fetchNeodbItemByUrl(item.link);
   if (!neodbItem?.uuid) {
     // No catalog counterpart on NeoDB. A data gap, not an error — do not turn CI red.
@@ -292,6 +303,7 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
       markTime,
       visibility: syncConfig.doubanNeodbVisibility,
     });
+    if (ok) onWritten?.(neodbItem);
     return ok ? 'written' : 'failed';
   }
 
@@ -356,5 +368,6 @@ async function syncFeedItemToNeodb(item: FeedItem): Promise<ItemSyncOutcome> {
     markTime: markTimePlan.markTime,
     visibility: syncConfig.doubanNeodbVisibility,
   });
+  if (ok) onWritten?.(neodbItem);
   return ok ? 'written' : 'failed';
 }

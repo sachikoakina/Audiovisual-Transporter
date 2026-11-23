@@ -276,6 +276,7 @@ export default async function syncBangumiToNeodb(
                   title: collectionTitle(collection),
                   sourceUrl: url,
                   targetUrl: absoluteNeodbUrl(written.url || ''),
+                  category: normalizeReviewCategory(written.category),
                   // Carried onto the report so the duplication this flag predicts is countable
                   // instead of only readable in a log line. See `WrittenItem.doubanLinkPresent`.
                   // 带进报表，使这个标志预示的重复可以被统计，而不只是能在一行日志里读到。

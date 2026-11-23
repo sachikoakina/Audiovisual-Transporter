@@ -120,6 +120,59 @@ function describeReviewLog(configured: string): string {
  */
 const MAX_SUMMARY_TITLES = 200;
 
+const WRITTEN_CATEGORY_ORDER = [
+  'movie',
+  'tv',
+  'anime',
+  'book',
+  'music',
+  'game',
+  'podcast',
+  'performance',
+  'other',
+] as const;
+
+const WRITTEN_CATEGORY_LABELS: Record<string, string> = {
+  movie: '电影',
+  tv: '电视剧',
+  anime: '动画',
+  book: '书籍',
+  music: '音乐',
+  game: '游戏',
+  podcast: '播客',
+  performance: '演出',
+  other: '其他',
+};
+
+function writtenCategoryLabel(category?: string): string {
+  if (!category) return WRITTEN_CATEGORY_LABELS.other;
+  return WRITTEN_CATEGORY_LABELS[category] ?? WRITTEN_CATEGORY_LABELS.other;
+}
+
+function groupWrittenItemsByCategory(
+  items: PathReport['writtenItems'],
+): Array<{ category: string; items: PathReport['writtenItems'] }> {
+  const grouped = new Map<string, PathReport['writtenItems']>();
+  for (const item of items) {
+    const category =
+      item.category && WRITTEN_CATEGORY_LABELS[item.category] ? item.category : 'other';
+    const bucket = grouped.get(category) ?? [];
+    bucket.push(item);
+    grouped.set(category, bucket);
+  }
+
+  return [...grouped.entries()]
+    .sort(
+      ([a], [b]) =>
+        WRITTEN_CATEGORY_ORDER.indexOf(a as (typeof WRITTEN_CATEGORY_ORDER)[number]) -
+        WRITTEN_CATEGORY_ORDER.indexOf(b as (typeof WRITTEN_CATEGORY_ORDER)[number]),
+    )
+    .map(([category, categoryItems]) => ({
+      category,
+      items: categoryItems,
+    }));
+}
+
 /** Render the whole job summary for one run. / 渲染一轮运行的整份作业摘要。 */
 export function renderSummaryMarkdown(reports: PathReport[], headline: string): string {
   const lines = [
@@ -169,13 +222,21 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
 
     for (const r of writtenReports) {
       lines.push('', `### ${r.label}（${r.writtenItems.length}）`);
-      lines.push('', '<details>', '', '<summary>展开条目</summary>', '');
-      for (const item of r.writtenItems) {
-        // The flag is repeated per item, not only aggregated: with a few hundred writes the
-        // aggregate says "somewhere in here", while the marker says which one to go and look at.
-        // 标志逐条重复，而不只是聚合：几百条写入时，聚合只说「在其中某处」，标记才指出该去看哪一条。
-        const marker = item.doubanLinkPresent ? ' ⚠ 目标条目已带豆瓣外链' : '';
-        lines.push(`- ${item.title} — ${item.sourceUrl} —— ${item.targetUrl}${marker}`);
+      lines.push('', '<details>', '', '<summary>展开条目</summary>');
+      for (const group of groupWrittenItemsByCategory(r.writtenItems)) {
+        lines.push(
+          '',
+          `#### ${writtenCategoryLabel(group.category)}（${group.items.length}）`,
+        );
+        for (const item of group.items) {
+          // The flag is repeated per item, not only aggregated: with a few hundred writes the
+          // aggregate says "somewhere in here", while the marker says which one to go and look at.
+          // 标志逐条重复，而不只是聚合：几百条写入时，聚合只说「在其中某处」，标记才指出该去看哪一条。
+          const marker = item.doubanLinkPresent ? ' ⚠ 目标条目已带豆瓣外链' : '';
+          lines.push(
+            `- ${item.title} — ${item.sourceUrl} —— ${item.targetUrl}${marker}`,
+          );
+        }
       }
       lines.push('', '</details>');
     }

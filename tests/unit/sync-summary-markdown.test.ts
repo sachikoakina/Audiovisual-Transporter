@@ -69,6 +69,41 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     expect(markdown).not.toContain('### 豆瓣 → Bangumi（1）');
   });
 
+  it('按电影、电视剧、书籍分类展示豆瓣写入条目', () => {
+    const rows = reports();
+    const douban = rows[1]!;
+    douban.written = 3;
+    douban.writtenItems.push(
+      {
+        title: '电影条目',
+        sourceUrl: 'https://movie.douban.com/subject/1/',
+        targetUrl: 'https://neodb.social/movie/1',
+        category: 'movie',
+      },
+      {
+        title: '电视剧条目',
+        sourceUrl: 'https://movie.douban.com/subject/2/',
+        targetUrl: 'https://neodb.social/tv/2',
+        category: 'tv',
+      },
+      {
+        title: '书籍条目',
+        sourceUrl: 'https://book.douban.com/subject/3/',
+        targetUrl: 'https://neodb.social/book/3',
+        category: 'book',
+      },
+    );
+
+    const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
+
+    expect(markdown).toContain('### 豆瓣 → NeoDB（3）');
+    expect(markdown).toContain('#### 电影（1）');
+    expect(markdown).toContain('#### 电视剧（1）');
+    expect(markdown).toContain('#### 书籍（1）');
+    expect(markdown.indexOf('#### 电影')).toBeLessThan(markdown.indexOf('#### 电视剧'));
+    expect(markdown.indexOf('#### 电视剧')).toBeLessThan(markdown.indexOf('#### 书籍'));
+  });
+
   it('没有成功写入时不生成空区块', () => {
     const markdown = renderSummaryMarkdown(reports(), '4 path(s) ran, none failed');
     expect(markdown).not.toContain('## 写入条目');

@@ -499,6 +499,8 @@ export type WrittenItem = {
   sourceUrl: string;
   /** Destination item link. / 目标条目链接。 */
   targetUrl: string;
+  /** Normalized item category, used to group the summary listing. / 归一化条目分类，用于摘要分组。 */
+  category?: string;
   /**
    * Whether the destination catalogue entry already carried a Douban external link.
    *
