@@ -693,6 +693,58 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(twin?.uuid).toBe('correct-tv-season');
   });
 
+  it('applies the shared year tolerance to a cross-form candidate', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'movie-next-year',
+            category: 'movie',
+            title: 'Same Title',
+            display_title: 'Same Title',
+            year: 2020,
+            external_resources: [{ url: 'https://movie.douban.com/subject/18/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'tv-direct',
+        category: 'tv',
+        title: 'Same Title',
+        display_title: 'Same Title',
+        year: 2019,
+      }),
+      ['Same Title'],
+      'movie,tv',
+      2019,
+      1,
+    );
+
+    expect(twin?.uuid).toBe('movie-next-year');
+  });
+
+  it('prefers a same-form movie over a TV candidate', () => {
+    const direct = item({
+      uuid: 'movie-direct',
+      category: 'movie',
+      title: 'Same Title',
+      year: 2019,
+    });
+    const result = pickDoubanLinkedTwin(
+      [
+        item({ uuid: 'tv-candidate', category: 'tv', year: 2019 }),
+        item({ uuid: 'movie-candidate', category: 'movie', year: 2019 }),
+      ],
+      direct,
+      2019,
+    );
+
+    expect(result.item?.uuid).toBe('movie-candidate');
+  });
+
   it('does not use a generic season alias when the source has an authoritative title', async () => {
     neodbClient.mockImplementation(() => ({
       json: async () => ({

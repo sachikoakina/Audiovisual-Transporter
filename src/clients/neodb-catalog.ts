@@ -534,13 +534,6 @@ async function findDoubanLinkedTwinCandidates(
         const rule = titleMatchRuleOf(fromBangumi, hit);
         if (rule === 'reject') continue;
 
-        const fromForm = mediaFormOf(fromBangumi);
-        const hitForm = mediaFormOf(hit);
-        const crossForm =
-          (fromForm === 'movie' && hitForm === 'tv') ||
-          (fromForm === 'tv' && hitForm === 'movie');
-        const candidateYearTolerance = crossForm ? 0 : yearTolerance;
-
         if (rule === 'movie' || rule === 'book') {
           const strong = strongTitleMatchOf(rule, fromBangumi, hit);
           if (strong === 'conflict') continue;
@@ -579,7 +572,7 @@ async function findDoubanLinkedTwinCandidates(
         // evidence, whenever the source year is known.
         // 搜索结果缺年份过去会被当成通过；源端年份已知时，未知不是证据。
         if (expectedYear != null && actualYear == null) continue;
-        if (!yearMatches(expectedYear, actualYear, candidateYearTolerance)) continue;
+        if (!yearMatches(expectedYear, actualYear, yearTolerance)) continue;
         candidates.push(hit);
       }
     }
@@ -593,6 +586,7 @@ export function pickDoubanLinkedTwin(
   candidates: NeodbItem[],
   fromBangumi: NeodbItem,
   expectedYear?: number,
+  yearTolerance = 1,
 ): { item: NeodbItem | null; ambiguous: boolean } {
   const directForm = mediaFormOf(fromBangumi);
   let compatible = directForm
@@ -601,13 +595,14 @@ export function pickDoubanLinkedTwin(
       )
     : candidates;
 
-  // A TV target must prefer a TV season over a same-title movie adaptation.
-  // TV 目标优先选择 TV 季而不是同名电影改编。
-  if (directForm === 'tv') {
-    const tvCandidates = compatible.filter(
-      (candidate) => mediaFormOf(candidate) === 'tv',
+  // Prefer the same media form on either side: a TV target prefers a TV season
+  // over a movie adaptation, and a movie target prefers a movie over a TV entry.
+  // 对称地优先选择同形态：TV 目标优先 TV 季，电影目标优先电影。
+  if (directForm === 'tv' || directForm === 'movie') {
+    const sameFormCandidates = compatible.filter(
+      (candidate) => mediaFormOf(candidate) === directForm,
     );
-    if (tvCandidates.length > 0) compatible = tvCandidates;
+    if (sameFormCandidates.length > 0) compatible = sameFormCandidates;
   }
 
   if (!compatible.length) {
@@ -622,7 +617,7 @@ export function pickDoubanLinkedTwin(
     const score =
       expectedYear == null || year == null
         ? 0
-        : Math.abs(expectedYear - year) <= 1
+        : Math.abs(expectedYear - year) <= yearTolerance
           ? 2
           : -1;
     return { item, score };
@@ -653,7 +648,8 @@ export async function findDoubanLinkedTwinByTitle(
     expectedYear,
     yearTolerance,
   );
-  return pickDoubanLinkedTwin(candidates, fromBangumi, expectedYear).item;
+  return pickDoubanLinkedTwin(candidates, fromBangumi, expectedYear, yearTolerance)
+    .item;
 }
 
 export type ResolveBangumiNeodbOptions = {
@@ -720,7 +716,12 @@ export async function resolveNeodbItemForBangumiUrlDetailed(
     options.expectedYear,
     options.yearTolerance,
   );
-  const picked = pickDoubanLinkedTwin(candidates, fromBangumi, options.expectedYear);
+  const picked = pickDoubanLinkedTwin(
+    candidates,
+    fromBangumi,
+    options.expectedYear,
+    options.yearTolerance,
+  );
   if (picked.ambiguous) {
     consola.warn(
       'NeoDB same-title twins are ambiguous; using the direct item: ',
