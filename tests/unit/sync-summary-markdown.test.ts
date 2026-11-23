@@ -131,6 +131,22 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     expect(markdown.indexOf('#### 电视剧')).toBeLessThan(markdown.indexOf('#### 书籍'));
   });
 
+  it('链路明细的 unresolved / failed / skipped 默认折叠', () => {
+    const rows = reports();
+    const first = rows[0]!;
+    first.unresolved = 1;
+    first.unresolvedTitles.push('待核对条目');
+    first.failed = 1;
+    first.skipped = 1;
+
+    const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, 1 FAILED');
+
+    expect(markdown).toContain('<summary><strong>unresolved（1）</strong></summary>');
+    expect(markdown).toContain('<summary><strong>failed（1）</strong></summary>');
+    expect(markdown).toContain('<summary><strong>skipped（1）</strong></summary>');
+    expect(markdown).not.toContain('<details open>');
+  });
+
   it('没有成功写入时不生成空区块', () => {
     const markdown = renderSummaryMarkdown(reports(), '4 path(s) ran, none failed');
     expect(markdown).not.toContain('## 写入条目');

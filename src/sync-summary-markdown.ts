@@ -284,11 +284,22 @@ function appendPathDetails(lines: string[], r: PathReport): void {
   appendDetailSummary(lines, 'skipped', r.skipped, r.skippedItems);
 }
 
+/** Start a native, default-collapsed section whose title is the trigger. / 开始一个标题即触发器的原生折叠小节。 */
+function startCollapsibleSection(lines: string[], title: string): void {
+  lines.push('', '<details>', '', `<summary><strong>${title}</strong></summary>`);
+}
+
+/** End a collapsible section. / 结束折叠小节。 */
+function endCollapsibleSection(lines: string[]): void {
+  lines.push('', '</details>');
+}
+
 function appendUnresolvedSummary(lines: string[], r: PathReport): void {
   if (r.unresolved === 0) {
     return;
   }
-  lines.push('', `#### unresolved（${r.unresolved}）`, '');
+  startCollapsibleSection(lines, `unresolved（${r.unresolved}）`);
+  lines.push('');
 
   // Ordered list on purpose: the summary is read against the count in the heading, so a
   // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
@@ -309,6 +320,7 @@ function appendUnresolvedSummary(lines: string[], r: PathReport): void {
   if (r.reviewLog) {
     lines.push('', describeReviewLog(r.reviewLog));
   }
+  endCollapsibleSection(lines);
 }
 
 /**
@@ -350,7 +362,8 @@ function appendDetailSummary(
   // 行了」。但这个编号数的是**渲染出来的行**，不是条目：折叠行一次代表很多条，`maxLines`
   // 还会截断本节，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准。
   // 见 `rules/review-detail.ts`。
-  lines.push('', `#### ${kind}（${total}）`, '', SUMMARY_DETAIL_INTRO[kind], '');
+  startCollapsibleSection(lines, `${kind}（${total}）`);
+  lines.push('', SUMMARY_DETAIL_INTRO[kind]);
 
   const { lines: rendered, omitted } = renderDetailLines(items, SUMMARY_DETAIL_LIMITS);
   rendered.forEach((line, index) => {
@@ -368,4 +381,5 @@ function appendDetailSummary(
       `_Detail covers ${items.length} of ${total}; the table above is authoritative._`,
     );
   }
+  endCollapsibleSection(lines);
 }
