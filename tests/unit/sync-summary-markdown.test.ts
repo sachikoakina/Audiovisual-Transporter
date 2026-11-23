@@ -27,8 +27,10 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
 
     expect(markdown).toContain('## 写入条目（1）');
-    expect(markdown).toContain('### Bangumi → NeoDB（1）');
-    expect(markdown).toContain('<summary>展开条目</summary>');
+    expect(markdown).toContain(
+      '<summary><strong>Bangumi → NeoDB（1）</strong></summary>',
+    );
+    expect(markdown).not.toContain('<details open>');
     expect(markdown).toContain(
       '- 狐妖小红娘·王权篇 — https://bgm.tv/subject/281271 ' +
         '—— https://neodb.social/tv/season/0sMADT4DQansMdT6YkDPrG',
@@ -79,10 +81,16 @@ describe('renderSummaryMarkdown — 写入条目', () => {
 
     const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
 
-    expect(markdown).toContain('### 豆瓣 → Notion（1）');
-    expect(markdown).toContain('### 豆瓣 → NeoDB（1）');
-    expect(markdown).toContain('### 豆瓣 → Bangumi（1）');
-    expect(markdown).toContain('### Bangumi → NeoDB（1）');
+    expect(markdown).toContain(
+      '<summary><strong>豆瓣 → Notion（1）</strong></summary>',
+    );
+    expect(markdown).toContain('<summary><strong>豆瓣 → NeoDB（1）</strong></summary>');
+    expect(markdown).toContain(
+      '<summary><strong>豆瓣 → Bangumi（1）</strong></summary>',
+    );
+    expect(markdown).toContain(
+      '<summary><strong>Bangumi → NeoDB（1）</strong></summary>',
+    );
     expect(markdown).toContain('#### 电影（1）');
     expect(markdown).toContain('#### 书籍（1）');
     expect(markdown).toContain('#### 电视剧（1）');
@@ -115,7 +123,7 @@ describe('renderSummaryMarkdown — 写入条目', () => {
 
     const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
 
-    expect(markdown).toContain('### 豆瓣 → NeoDB（3）');
+    expect(markdown).toContain('<summary><strong>豆瓣 → NeoDB（3）</strong></summary>');
     expect(markdown).toContain('#### 电影（1）');
     expect(markdown).toContain('#### 电视剧（1）');
     expect(markdown).toContain('#### 书籍（1）');

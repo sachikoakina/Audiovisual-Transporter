@@ -221,8 +221,17 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
     }
 
     for (const r of writtenReports) {
-      lines.push('', `### ${r.label}（${r.writtenItems.length}）`);
-      lines.push('', '<details>', '', '<summary>展开条目</summary>');
+      // Native <details> is the only reliable collapse primitive on a GitHub job-summary page:
+      // there is no JavaScript or per-run state to preserve, and omitting `open` gives the
+      // required default-collapsed state on every render.
+      // GitHub 作业摘要没有 JavaScript，也没有可持久化的每轮状态；原生 <details> 是唯一可靠的
+      // 折叠机制。不写 `open`，因此每次渲染都默认折叠。
+      lines.push(
+        '',
+        '<details>',
+        '',
+        `<summary><strong>${r.label}（${r.writtenItems.length}）</strong></summary>`,
+      );
       for (const group of groupWrittenItemsByCategory(r.writtenItems)) {
         lines.push(
           '',
