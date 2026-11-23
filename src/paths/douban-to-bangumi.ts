@@ -54,6 +54,7 @@ import {
   pickExactBangumiMatchByYear,
   searchBangumiSubjects,
   upsertBangumiCollection,
+  bangumiSubjectUrl,
   type BangumiSubject,
 } from '../clients/bangumi';
 import { neodbThrottle } from '../clients/neodb-http';
@@ -189,7 +190,7 @@ export default async function syncDoubanToBangumi(
   for (const item of filtered) {
     scanned.add(item.link);
     try {
-      const { outcome, skipReason } = await syncFeedItemToBangumi(
+      const { outcome, skipReason, targetId } = await syncFeedItemToBangumi(
         item,
         me.username,
         scanned,
@@ -197,6 +198,14 @@ export default async function syncDoubanToBangumi(
         targetClaims,
       );
       report[outcome] += 1;
+      if (outcome === 'written' && targetId != null) {
+        report.writtenItems.push({
+          title: item.title || item.id,
+          sourceUrl: item.link,
+          targetUrl: bangumiSubjectUrl(targetId),
+          category: normalizeReviewCategory(item.category),
+        });
+      }
       if (outcome === 'unresolved') {
         recordUnresolved(item, report);
       } else if (outcome === 'skipped') {
@@ -320,7 +329,7 @@ async function syncFeedItemToBangumi(
   years: YearCache,
   /** Run-local target claims, keyed by Bangumi subject id. / 单轮目标认领表，按 Bangumi subject 索引。 */
   targetClaims: Map<number, DoubanTargetClaim>,
-): Promise<{ outcome: ItemSyncOutcome; skipReason?: string }> {
+): Promise<{ outcome: ItemSyncOutcome; skipReason?: string; targetId?: number }> {
   const label = itemLabel(item.title || item.id, item.link);
   consola.info('Douban → Bangumi: ', label);
 
@@ -461,7 +470,10 @@ async function syncFeedItemToBangumi(
 
   // Books only use ep_status/vol_status; episodes belong to movie/TV/anime/real.
   if (!wantsProgress || isBook || item.category === ItemCategory.Drama) {
-    return { outcome: needsCollectionWrite ? 'written' : 'unchanged' };
+    return {
+      outcome: needsCollectionWrite ? 'written' : 'unchanged',
+      targetId: needsCollectionWrite ? subjectId : undefined,
+    };
   }
 
   const episodes =
@@ -482,7 +494,10 @@ async function syncFeedItemToBangumi(
 
   if (progress.reason === 'no-episodes') {
     consola.info('Bangumi progress: no episodes, skip: ', `subject/${subjectId}`);
-    return { outcome: needsCollectionWrite ? 'written' : 'unchanged' };
+    return {
+      outcome: needsCollectionWrite ? 'written' : 'unchanged',
+      targetId: needsCollectionWrite ? subjectId : undefined,
+    };
   }
 
   if (progress.missing.length === 0) {
@@ -490,7 +505,10 @@ async function syncFeedItemToBangumi(
       'Bangumi progress: no missing episodes: ',
       `subject/${subjectId} target=${progress.target.length}`,
     );
-    return { outcome: needsCollectionWrite ? 'written' : 'unchanged' };
+    return {
+      outcome: needsCollectionWrite ? 'written' : 'unchanged',
+      targetId: needsCollectionWrite ? subjectId : undefined,
+    };
   }
 
   let failed = false;
@@ -511,6 +529,7 @@ async function syncFeedItemToBangumi(
   if (failed) return { outcome: 'failed' };
   return {
     outcome: added > 0 || needsCollectionWrite ? 'written' : 'unchanged',
+    targetId: added > 0 || needsCollectionWrite ? subjectId : undefined,
   };
 }
 

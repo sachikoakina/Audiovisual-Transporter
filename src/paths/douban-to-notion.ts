@@ -150,6 +150,7 @@ export default async function syncDoubanToNotion(
       report.skipped += outcome.skipped;
       report.failed += outcome.failed;
       report.skippedItems.push(...outcome.skippedItems);
+      report.writtenItems.push(...outcome.writtenItems);
       // `标题[链接]`, not `标题: 链接`: the label has to survive the same line format every other
       // path uses, and the bracketed form is what the log-side parser already knows how to split.
       // 用 `标题[链接]` 而不是 `标题: 链接`：标签要能进入其余链路共用的行格式，而带方括号的形式
@@ -269,6 +270,8 @@ type CategoryOutcome = {
   failedItems: FailedItem[];
   /** One per `skipped`, so the path-level total stays explainable. / 与 `skipped` 一一对应。 */
   skippedItems: ReviewDetail[];
+  /** One per `written`, used by the job summary. / 与 `written` 一一对应，供作业摘要使用。 */
+  writtenItems: PathReport['writtenItems'];
 };
 
 /**
@@ -298,6 +301,7 @@ async function syncCategoryToNotion(
     failed: 0,
     failedItems: [],
     skippedItems: [],
+    writtenItems: [],
   };
 
   if (categorizedFeeds.length === 0) {
@@ -382,6 +386,7 @@ async function syncCategoryToNotion(
     failed: 0,
     failedItems: [],
     skippedItems: [],
+    writtenItems: [],
   };
 
   for (const newFeedItem of feedsToInsert) {
@@ -398,9 +403,15 @@ async function syncCategoryToNotion(
         ? dayjs(newFeedItem.time).format('YYYY-MM-DD')
         : undefined;
       itemData[DB_PROPERTIES.COMMENTS] = newFeedItem.comment;
-      const successful = await addItemToNotion(itemData, category, availableColumns);
-      if (successful) {
+      const pageId = await addItemToNotion(itemData, category, availableColumns);
+      if (pageId) {
         outcome.written += 1;
+        outcome.writtenItems.push({
+          title: String(itemData[DB_PROPERTIES.NAME] ?? newFeedItem.title ?? ''),
+          sourceUrl: newFeedItem.link,
+          targetUrl: `https://www.notion.so/${pageId.replace(/-/g, '')}`,
+          category: normalizeReviewCategory(category),
+        });
       } else {
         outcome.failed += 1;
         outcome.failedItems.push({
@@ -454,8 +465,8 @@ async function syncCategoryToNotion(
  * @param availableColumns - Column names that actually exist in the target data source; anything
  *   else is dropped. Fetched once per category by the caller. 目标 data source 上真实存在的列名，
  *   其余会被丢弃。由调用方按分类取一次。
- * @returns `true` when the page was created; `false` on any error (errors are logged, not thrown).
- *   页面创建成功返回 `true`；任何错误返回 `false`（错误只记录，不抛出）。
+ * @returns The created page id; `null` on any error (errors are logged, not thrown).
+ *   页面创建成功返回页面 id；任何错误返回 `null`（错误只记录，不抛出）。
  */
 async function addItemToNotion(
   itemData: {
@@ -463,7 +474,7 @@ async function addItemToNotion(
   },
   category: ItemCategory,
   availableColumns: Set<string>,
-): Promise<boolean> {
+): Promise<string | null> {
   consola.start(
     'Going to insert ',
     itemData[DB_PROPERTIES.RATING_DATE],
@@ -553,13 +564,13 @@ async function addItemToNotion(
     // that does not exist — a throw is already turned into a `failed` item one level up.
     // `pages.create` 要么抛错，要么返回一个带 `id` 的页面。旧的 `if (response && response.id)`
     // 永不为假，还暗示了一种并不存在的失败模式 —— 抛错在上一层就已经变成 `failed` 条目。
-    await notion.pages.create(createPageRequest);
+    const page = await notion.pages.create(createPageRequest);
     consola.success(
       itemData[DB_PROPERTIES.NAME] +
         `[${itemData[DB_PROPERTIES.ITEM_LINK]}]` +
         ' page inserted into Notion database.',
     );
-    return true;
+    return page.id;
   } catch (error) {
     consola.error(
       'Failed to create ' +
@@ -568,6 +579,6 @@ async function addItemToNotion(
         ' with error: ',
       error,
     );
-    return false;
+    return null;
   }
 }

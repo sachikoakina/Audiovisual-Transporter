@@ -48,25 +48,44 @@ describe('renderSummaryMarkdown — 写入条目', () => {
 
   it('按实际写入链路动态生成写入条目子标题', () => {
     const rows = reports();
+    rows[0]!.written = 1;
+    rows[0]!.writtenItems.push({
+      title: 'Notion 写入条目',
+      sourceUrl: 'https://movie.douban.com/subject/0/',
+      targetUrl: 'https://www.notion.so/page-0',
+      category: 'movie',
+    });
     rows[1]!.written = 1;
     rows[1]!.writtenItems.push({
       title: '豆瓣写入条目',
       sourceUrl: 'https://movie.douban.com/subject/1/',
       targetUrl: 'https://neodb.social/movie/douban',
+      category: 'movie',
+    });
+    rows[2]!.written = 1;
+    rows[2]!.writtenItems.push({
+      title: 'Bangumi 写入条目',
+      sourceUrl: 'https://movie.douban.com/subject/2/',
+      targetUrl: 'https://bgm.tv/subject/2',
+      category: 'book',
     });
     rows[3]!.written = 1;
     rows[3]!.writtenItems.push({
       title: 'Bangumi 写入条目',
       sourceUrl: 'https://bgm.tv/subject/2',
       targetUrl: 'https://neodb.social/movie/bangumi',
+      category: 'tv',
     });
 
     const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
 
+    expect(markdown).toContain('### 豆瓣 → Notion（1）');
     expect(markdown).toContain('### 豆瓣 → NeoDB（1）');
+    expect(markdown).toContain('### 豆瓣 → Bangumi（1）');
     expect(markdown).toContain('### Bangumi → NeoDB（1）');
-    expect(markdown).not.toContain('### 豆瓣 → Notion（1）');
-    expect(markdown).not.toContain('### 豆瓣 → Bangumi（1）');
+    expect(markdown).toContain('#### 电影（1）');
+    expect(markdown).toContain('#### 书籍（1）');
+    expect(markdown).toContain('#### 电视剧（1）');
   });
 
   it('按电影、电视剧、书籍分类展示豆瓣写入条目', () => {
