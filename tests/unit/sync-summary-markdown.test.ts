@@ -38,9 +38,35 @@ describe('renderSummaryMarkdown — 写入条目', () => {
       markdown.indexOf('| Bangumi → NeoDB |'),
     );
     expect(markdown.indexOf('## 写入条目')).toBeLessThan(
+      markdown.indexOf('## 链路明细'),
+    );
+    expect(markdown.indexOf('## 链路明细')).toBeLessThan(
       markdown.indexOf('### 豆瓣 → Notion'),
     );
     expect(markdown).not.toMatch(/\n{3,}/);
+  });
+
+  it('按实际写入链路动态生成写入条目子标题', () => {
+    const rows = reports();
+    rows[1]!.written = 1;
+    rows[1]!.writtenItems.push({
+      title: '豆瓣写入条目',
+      sourceUrl: 'https://movie.douban.com/subject/1/',
+      targetUrl: 'https://neodb.social/movie/douban',
+    });
+    rows[3]!.written = 1;
+    rows[3]!.writtenItems.push({
+      title: 'Bangumi 写入条目',
+      sourceUrl: 'https://bgm.tv/subject/2',
+      targetUrl: 'https://neodb.social/movie/bangumi',
+    });
+
+    const markdown = renderSummaryMarkdown(rows, '4 path(s) ran, none failed');
+
+    expect(markdown).toContain('### 豆瓣 → NeoDB（1）');
+    expect(markdown).toContain('### Bangumi → NeoDB（1）');
+    expect(markdown).not.toContain('### 豆瓣 → Notion（1）');
+    expect(markdown).not.toContain('### 豆瓣 → Bangumi（1）');
   });
 
   it('没有成功写入时不生成空区块', () => {

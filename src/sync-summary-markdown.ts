@@ -181,8 +181,12 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
     }
   }
 
-  for (const r of reports) {
-    appendPathDetails(lines, r);
+  const detailReports = reports.filter((r) => r.unresolved + r.failed + r.skipped > 0);
+  if (detailReports.length > 0) {
+    lines.push('', '## 链路明细');
+    for (const r of detailReports) {
+      appendPathDetails(lines, r);
+    }
   }
 
   return lines.join('\n');
