@@ -172,6 +172,65 @@ describe('renderSummaryMarkdown — 写入条目', () => {
     expect(markdown).toContain('Bangumi · Bangumi 待核对 — https://bgm.tv/subject/103');
   });
 
+  it('链路明细按电影、电视剧、书籍分组并使用统一缩进', () => {
+    const first = reports()[0]!;
+    first.unresolved = 3;
+    first.unresolvedItems.push(
+      {
+        title: '电影条目',
+        url: 'https://movie.douban.com/subject/1/',
+        reason: 'no-match',
+        category: 'movie',
+      },
+      {
+        title: '电视剧条目',
+        url: 'https://movie.douban.com/subject/2/',
+        reason: 'no-match',
+        category: 'tv',
+      },
+      {
+        title: '书籍条目',
+        url: 'https://book.douban.com/subject/3/',
+        reason: 'no-match',
+        category: 'book',
+      },
+    );
+
+    const markdown = renderSummaryMarkdown([first], '1 path(s) ran, none failed');
+
+    expect(markdown).toContain(
+      '<details>\n<summary><strong>unresolved（3）</strong></summary>\n\n',
+    );
+    expect(markdown).toContain(
+      '<summary><strong>&nbsp;&nbsp;&nbsp;&nbsp;└ 电影（1）</strong></summary>',
+    );
+    expect(markdown).toContain(
+      '<summary><strong>&nbsp;&nbsp;&nbsp;&nbsp;└ 电视剧（1）</strong></summary>',
+    );
+    expect(markdown).toContain(
+      '<summary><strong>&nbsp;&nbsp;&nbsp;&nbsp;└ 书籍（1）</strong></summary>',
+    );
+    expect(markdown).not.toMatch(/\n{3,}/);
+  });
+
+  it('单一分类不折叠时也使用相同的缩进前缀', () => {
+    const first = reports()[0]!;
+    first.unresolved = 1;
+    first.unresolvedItems.push({
+      title: '唯一分类条目',
+      url: 'https://movie.douban.com/subject/4/',
+      reason: 'no-match',
+      category: 'other',
+    });
+
+    const markdown = renderSummaryMarkdown([first], '1 path(s) ran, none failed');
+
+    expect(markdown).toContain('<strong>&nbsp;&nbsp;&nbsp;&nbsp;└ 其他（1）</strong>');
+    expect(markdown).not.toContain(
+      '<summary><strong>&nbsp;&nbsp;&nbsp;&nbsp;└ 其他（1）</strong></summary>',
+    );
+  });
+
   it('链路明细的 unresolved / failed / skipped 默认折叠', () => {
     const rows = reports();
     const first = rows[0]!;

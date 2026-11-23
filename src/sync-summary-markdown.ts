@@ -161,6 +161,29 @@ function formatSourceDetail(item: ReviewDetail, platform: string): string {
   return url ? `${platform} · ${title} — ${url}` : `${platform} · ${title}`;
 }
 
+/** Nested details do not indent automatically; use an HTML entity so the prefix survives. / 嵌套 details 不自动缩进，用实体保留前缀。 */
+const SHELF_INDENT = '&nbsp;&nbsp;&nbsp;&nbsp;└ ';
+
+function groupReviewDetailsByCategory(
+  items: readonly ReviewDetail[],
+): Array<{ category: string; items: ReviewDetail[] }> {
+  const groups = new Map<string, ReviewDetail[]>();
+  for (const item of items) {
+    const category =
+      item.category && WRITTEN_CATEGORY_LABELS[item.category] ? item.category : 'other';
+    const bucket = groups.get(category) ?? [];
+    bucket.push(item);
+    groups.set(category, bucket);
+  }
+  return [...groups.entries()]
+    .sort(
+      ([a], [b]) =>
+        WRITTEN_CATEGORY_ORDER.indexOf(a as (typeof WRITTEN_CATEGORY_ORDER)[number]) -
+        WRITTEN_CATEGORY_ORDER.indexOf(b as (typeof WRITTEN_CATEGORY_ORDER)[number]),
+    )
+    .map(([category, categoryItems]) => ({ category, items: categoryItems }));
+}
+
 function groupWrittenItemsByCategory(
   items: PathReport['writtenItems'],
 ): Array<{ category: string; items: PathReport['writtenItems'] }> {
@@ -241,7 +264,6 @@ export function renderSummaryMarkdown(reports: PathReport[], headline: string): 
       lines.push(
         '',
         '<details>',
-        '',
         `<summary><strong>${r.label}（${r.writtenItems.length}）</strong></summary>`,
       );
       for (const group of groupWrittenItemsByCategory(r.writtenItems)) {
@@ -297,13 +319,32 @@ function appendPathDetails(lines: string[], r: PathReport): void {
 }
 
 /** Start a native, default-collapsed section whose title is the trigger. / 开始一个标题即触发器的原生折叠小节。 */
+function pushBlank(lines: string[]): void {
+  if (lines.length > 0 && lines[lines.length - 1] !== '') {
+    lines.push('');
+  }
+}
+
 function startCollapsibleSection(lines: string[], title: string): void {
-  lines.push('', '<details>', '', `<summary><strong>${title}</strong></summary>`);
+  pushBlank(lines);
+  lines.push('<details>', `<summary><strong>${title}</strong></summary>`);
 }
 
 /** End a collapsible section. / 结束折叠小节。 */
 function endCollapsibleSection(lines: string[]): void {
-  lines.push('', '</details>');
+  pushBlank(lines);
+  lines.push('</details>');
+}
+
+function startShelf(lines: string[], title: string): void {
+  startCollapsibleSection(lines, `${SHELF_INDENT}${title}`);
+  pushBlank(lines);
+}
+
+function appendShelfHeading(lines: string[], title: string): void {
+  pushBlank(lines);
+  lines.push(`<strong>${SHELF_INDENT}${title}</strong>`);
+  pushBlank(lines);
 }
 
 function appendUnresolvedSummary(lines: string[], r: PathReport): void {
@@ -311,7 +352,7 @@ function appendUnresolvedSummary(lines: string[], r: PathReport): void {
     return;
   }
   startCollapsibleSection(lines, `unresolved（${r.unresolved}）`);
-  lines.push('');
+  pushBlank(lines);
 
   // Ordered list on purpose: the summary is read against the count in the heading, so a
   // numbered entry doubles as a position ("#37 of 44"). A bullet list gave no such anchor and
@@ -319,25 +360,44 @@ function appendUnresolvedSummary(lines: string[], r: PathReport): void {
   // 刻意用有序列表：读者会拿清单与标题里的数字对照，编号即位置（「44 条里的第 37 条」）。
   // 无序列表给不了这种参照，看的人无法回答「我看到第几条了」。
   const platform = sourcePlatformOf(r.label);
-  const listed = r.unresolvedItems.length
-    ? r.unresolvedItems
-        .slice(0, MAX_SUMMARY_TITLES)
-        .map((item) => formatSourceDetail(item, platform))
-    : r.unresolvedTitles
-        .slice(0, MAX_SUMMARY_TITLES)
-        .map((title) => `${platform} · ${title}`);
-  listed.forEach((title, index) => {
-    lines.push(`${index + 1}. ${title}`);
-  });
-  const rest = r.unresolved - listed.length;
-  if (rest > 0) {
-    // Not numbered: the tail is a remainder, not an entry.
-    // 不编号：这一段是「剩余条数」，不是清单里的一条。
-    lines.push(`- … and ${rest} more`);
+  const groups = groupReviewDetailsByCategory(r.unresolvedItems);
+
+  if (groups.length === 0) {
+    appendShelfHeading(lines, `${writtenCategoryLabel('other')}（${r.unresolved}）`);
+    const fallback = r.unresolvedTitles
+      .slice(0, MAX_SUMMARY_TITLES)
+      .map((title) => `${platform} · ${title}`);
+    fallback.forEach((title, index) => {
+      lines.push(`${index + 1}. ${title}`);
+    });
+    if (fallback.length < r.unresolved) {
+      lines.push(`- … and ${r.unresolved - fallback.length} more`);
+    }
+  } else if (groups.length === 1) {
+    const only = groups[0]!;
+    appendShelfHeading(
+      lines,
+      `${writtenCategoryLabel(only.category)}（${only.items.length}）`,
+    );
+    only.items.forEach((item, index) => {
+      lines.push(`${index + 1}. ${formatSourceDetail(item, platform)}`);
+    });
+  } else {
+    for (const group of groups) {
+      startShelf(
+        lines,
+        `${writtenCategoryLabel(group.category)}（${group.items.length}）`,
+      );
+      group.items.forEach((item, index) => {
+        lines.push(`${index + 1}. ${formatSourceDetail(item, platform)}`);
+      });
+      endCollapsibleSection(lines);
+    }
   }
 
   if (r.reviewLog) {
-    lines.push('', describeReviewLog(r.reviewLog));
+    pushBlank(lines);
+    lines.push(describeReviewLog(r.reviewLog));
   }
   endCollapsibleSection(lines);
 }
@@ -383,26 +443,52 @@ function appendDetailSummary(
   // 还会截断本节，所以「第 7 行」不等于「第 7 条」，条目数以小节标题里的计数为准。
   // 见 `rules/review-detail.ts`。
   startCollapsibleSection(lines, `${kind}（${total}）`);
-  lines.push('', SUMMARY_DETAIL_INTRO[kind]);
+  pushBlank(lines);
+  lines.push(SUMMARY_DETAIL_INTRO[kind]);
 
   const platform = sourcePlatformOf(label);
-  const { lines: rendered, omitted } = renderDetailLines(
-    items,
-    SUMMARY_DETAIL_LIMITS,
-    (item) => formatSourceDetail(item, platform),
-  );
-  rendered.forEach((line, index) => {
-    lines.push(`${index + 1}. ${line}`);
-  });
-  if (omitted > 0) {
-    // Bullet, not a number: this is "how many are left", not one more row in the list above —
-    // the same rule the `unresolved` tail follows.
-    // 项目符号而非编号：这是「还剩多少」，不是上面清单里的又一行 —— 与 `unresolved` 的尾行同规则。
-    lines.push(`- … and ${omitted} more`);
+  const groups = groupReviewDetailsByCategory(items);
+
+  const appendRendered = (groupItems: readonly ReviewDetail[]): void => {
+    const { lines: rendered, omitted } = renderDetailLines(
+      groupItems,
+      SUMMARY_DETAIL_LIMITS,
+      (item) => formatSourceDetail(item, platform),
+    );
+    rendered.forEach((line, index) => {
+      lines.push(`${index + 1}. ${line}`);
+    });
+    if (omitted > 0) {
+      // Bullet, not a number: this is "how many are left", not one more row in the list above —
+      // the same rule the `unresolved` tail follows.
+      // 项目符号而非编号：这是「还剩多少」，不是上面清单里的又一行 —— 与 `unresolved` 的尾行同规则。
+      lines.push(`- … and ${omitted} more`);
+    }
+  };
+
+  if (groups.length === 0) {
+    appendRendered(items);
+  } else if (groups.length === 1) {
+    const only = groups[0]!;
+    appendShelfHeading(
+      lines,
+      `${writtenCategoryLabel(only.category)}（${only.items.length}）`,
+    );
+    appendRendered(only.items);
+  } else {
+    for (const group of groups) {
+      startShelf(
+        lines,
+        `${writtenCategoryLabel(group.category)}（${group.items.length}）`,
+      );
+      appendRendered(group.items);
+      endCollapsibleSection(lines);
+    }
   }
+
   if (items.length !== total) {
+    pushBlank(lines);
     lines.push(
-      '',
       `_Detail covers ${items.length} of ${total}; the table above is authoritative._`,
     );
   }
