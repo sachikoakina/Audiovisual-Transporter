@@ -215,6 +215,9 @@ function collectNeodbItemTitleKeys(item: NeodbItem): Set<string> {
   ]) {
     if (!raw?.trim()) continue;
     keys.add(normalizeTitleKey(raw));
+
+    const base = normalizeTitleKey(stripSeasonSuffix(raw));
+    if (base) keys.add(base);
   }
   return keys;
 }
@@ -374,22 +377,31 @@ function seasonsCompatible(
   const aSeason = seasonNumberOf(a);
   const bSeason = seasonNumberOf(b);
 
+  // A parent mismatch is decisive; a missing parent on one side is not
+  // treated as evidence either way.
+  // 父剧 uuid 冲突直接拒绝；一侧缺失 parent_uuid 不单独构成拒绝证据。
+  if (a.parent_uuid && b.parent_uuid && a.parent_uuid !== b.parent_uuid) {
+    return { ok: false, aSeason, bSeason };
+  }
+
   if (aSeason != null && bSeason != null) {
     return { ok: aSeason === bSeason, aSeason, bSeason };
   }
 
-  if (aSeason == null && bSeason == null) {
-    return { ok: true, aSeason, bSeason };
-  }
+  // When one side has no season marker, the base title and year must carry
+  // the decision. This keeps a TVSeason with a localized season suffix
+  // comparable to a base-title entry without inventing a season number.
+  // 一侧没有季号时，由基标题与年份决定；这样带“第1季”的 TVSeason 仍可与
+  // 基标题条目比较，而不是凭空猜测季号。
+  return { ok: true, aSeason, bSeason };
+}
 
-  // A TV season with no explicit number cannot be safely matched against
-  // another TV season that does have one. movie ↔ tv keeps its cross-form
-  // exception because a movie normally has no season number.
-  const aForm = mediaFormOf(a);
-  const bForm = mediaFormOf(b);
-  const hasMovie = aForm === 'movie' || bForm === 'movie';
-
-  return { ok: hasMovie, aSeason, bSeason };
+function stripSeasonSuffix(title: string): string {
+  return title
+    .replace(/第\s*\d+\s*季/gi, '')
+    .replace(/第[一二三四五六七八九十]+\s*季/gi, '')
+    .replace(/\bseason\s*\d+\b/gi, '')
+    .replace(/\bs\d+\b/gi, '');
 }
 
 function imdbOf(item: NeodbItem): string | undefined {
@@ -522,6 +534,13 @@ async function findDoubanLinkedTwinCandidates(
         const rule = titleMatchRuleOf(fromBangumi, hit);
         if (rule === 'reject') continue;
 
+        const fromForm = mediaFormOf(fromBangumi);
+        const hitForm = mediaFormOf(hit);
+        const crossForm =
+          (fromForm === 'movie' && hitForm === 'tv') ||
+          (fromForm === 'tv' && hitForm === 'movie');
+        const candidateYearTolerance = crossForm ? 0 : yearTolerance;
+
         if (rule === 'movie' || rule === 'book') {
           const strong = strongTitleMatchOf(rule, fromBangumi, hit);
           if (strong === 'conflict') continue;
@@ -560,7 +579,7 @@ async function findDoubanLinkedTwinCandidates(
         // evidence, whenever the source year is known.
         // 搜索结果缺年份过去会被当成通过；源端年份已知时，未知不是证据。
         if (expectedYear != null && actualYear == null) continue;
-        if (!yearMatches(expectedYear, actualYear, yearTolerance)) continue;
+        if (!yearMatches(expectedYear, actualYear, candidateYearTolerance)) continue;
         candidates.push(hit);
       }
     }
@@ -576,11 +595,21 @@ export function pickDoubanLinkedTwin(
   expectedYear?: number,
 ): { item: NeodbItem | null; ambiguous: boolean } {
   const directForm = mediaFormOf(fromBangumi);
-  const compatible = directForm
+  let compatible = directForm
     ? candidates.filter((candidate) =>
         formsCompatibleForTwin(directForm, mediaFormOf(candidate)),
       )
     : candidates;
+
+  // A TV target must prefer a TV season over a same-title movie adaptation.
+  // TV 目标优先选择 TV 季而不是同名电影改编。
+  if (directForm === 'tv') {
+    const tvCandidates = compatible.filter(
+      (candidate) => mediaFormOf(candidate) === 'tv',
+    );
+    if (tvCandidates.length > 0) compatible = tvCandidates;
+  }
+
   if (!compatible.length) {
     return { item: null, ambiguous: false };
   }

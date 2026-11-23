@@ -460,7 +460,8 @@ Bangumi subject URL
 - 标题规范化后精确相等，不做模糊匹配；
 - movie + movie：IMDb 优先；IMDb 冲突拒绝，相同接受，缺失才看标题 + 年份；
 - tv + tv、movie + tv、tv + movie：不使用 IMDb，只看标题 + 年份容差；
-- TV 候选从标题提取季号（`Season1`、`第1季`、`S1`、`... 1`、`...3 月红篇` 等）；双方季号已知且不同则拒绝；A 有季号而 C 是 TV 且季号未知则拒绝；`TVSeason ↔ movie` 保留跨形态例外；
+- TV 候选从标题提取季号（`Season1`、`第1季`、`S1`、`... 1`、`...3 月红篇` 等）；双方 `parent_uuid` 都存在且不同则拒绝；双方季号都存在且不同则拒绝；一侧季号未知时由去季号基标题 + 年份决定；
+- `TVSeason ↔ movie` 使用严格年份，且 TVSeason 候选优先于同名 movie 改编；
 - book + book：ISBN 优先；ISBN 冲突拒绝，相同接受，缺失才看标题 + 年份；
 - music/game/podcast/performance：只允许同分类，标题 + 年份容差；
 - 其他跨类组合拒绝；

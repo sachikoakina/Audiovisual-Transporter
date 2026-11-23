@@ -615,6 +615,118 @@ describe('findDoubanLinkedTwinByTitle', () => {
     expect(twin).toBeNull();
   });
 
+  it('rejects a TV candidate with a conflicting parent_uuid', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'wrong-parent',
+            category: 'tv',
+            parent_uuid: 'parent-b',
+            title: 'Same Title',
+            display_title: 'Same Title',
+            year: 2024,
+            external_resources: [{ url: 'https://movie.douban.com/subject/16/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'direct-with-parent',
+        category: 'tv',
+        parent_uuid: 'parent-a',
+        title: 'Same Title',
+        display_title: 'Same Title',
+        year: 2024,
+      }),
+      ['Same Title'],
+      'tv',
+      2024,
+    );
+
+    expect(twin).toBeNull();
+  });
+
+  it('prefers a TV season over a same-title movie adaptation', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'correct-tv-season',
+            category: 'tv',
+            parent_uuid: 'tv-parent',
+            title: '约定的梦幻岛 第 1 季',
+            display_title: '约定的梦幻岛 第 1 季',
+            year: 2019,
+            external_resources: [{ url: 'https://movie.douban.com/subject/30206430/' }],
+          }),
+          item({
+            uuid: 'movie-adaptation',
+            category: 'movie',
+            title: '约定的梦幻岛',
+            display_title: '约定的梦幻岛',
+            year: 2020,
+            external_resources: [
+              { url: 'https://movie.douban.com/subject/34792372/' },
+              { url: 'https://www.imdb.com/title/tt11027510/' },
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'base-tv-entry',
+        category: 'tv',
+        title: '约定的梦幻岛',
+        display_title: '约定的梦幻岛',
+        year: 2019,
+      }),
+      ['约定的梦幻岛'],
+      'movie,tv',
+      2019,
+    );
+
+    expect(twin?.uuid).toBe('correct-tv-season');
+  });
+
+  it('does not use a generic season alias when the source has an authoritative title', async () => {
+    neodbClient.mockImplementation(() => ({
+      json: async () => ({
+        data: [
+          item({
+            uuid: 'sense8-season-2',
+            category: 'tv',
+            title: '超感猎杀 第二季',
+            display_title: '超感猎杀 第二季',
+            localized_title: [{ lang: 'en', text: 'Season 2' }],
+            year: 2017,
+            external_resources: [{ url: 'https://movie.douban.com/subject/17/' }],
+          }),
+        ],
+      }),
+    }));
+
+    const twin = await findDoubanLinkedTwinByTitle(
+      item({
+        uuid: 'ggbond-season-2',
+        category: 'tv',
+        title: '猪猪侠第二部：武侠2008',
+        display_title: '猪猪侠第二部：武侠2008',
+        localized_title: [{ lang: 'en', text: 'Season 2' }],
+        year: undefined,
+      }),
+      ['猪猪侠第二部：武侠2008'],
+      'tv',
+      undefined,
+    );
+
+    expect(twin).toBeNull();
+  });
+
   it('accepts a same-category twin when the year is within tolerance', async () => {
     neodbClient.mockImplementation(() => ({
       json: async () => ({
