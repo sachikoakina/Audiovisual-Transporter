@@ -171,7 +171,7 @@ flowchart TD
 
 - **状态**：Bangumi `1/2/3/4/5` 映射 NeoDB `wishlist/complete/progress/progress/dropped`；NeoDB `wishlist/progress/dropped` 都映射 TMDB watchlist。`complete` 有评分时写评分并移出 watchlist，无评分时只能加入 watchlist。
 - **进度**：仅 ④ 写入。Bangumi 动画/真人 → `episode`，书籍 → `chapter`，音乐 → `track`，游戏不写；零值不会清除已有进度，默认关闭。
-- **年份**：③④⑤ 的标题匹配都要求双方年份可用时不超过 1 年；年份缺失不会退化成“只按标题写”。
+- **年份**：③ 先选年份完全相等的候选， 只有无同年候选才使用 ±1 容差；④⑤ 的标题匹配在双方年份可用时不超过 `SYNC_YEAR_TOLERANCE`。年份缺失不会退化成“只按标题写”。
 - **配额**：⑤ 的 `SYNC_MAX_ITEMS`（默认 50）**按书架×分类独立计数**，`NEODB_MAX_PAGES`（默认 10）限制每个组合的分页；设为 `0` 不是「不限量」，而是回落默认。
 
 ### 读取三态

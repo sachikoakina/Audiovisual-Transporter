@@ -54,6 +54,7 @@ import {
   pickExactBangumiMatchByYear,
   searchBangumiSubjects,
   upsertBangumiCollection,
+  bangumiPlatformForm,
   bangumiSubjectUrl,
   type BangumiSubject,
 } from '../clients/bangumi';
@@ -590,11 +591,24 @@ async function resolveBangumiSubjectId(
     if (!candidates.length) {
       return null;
     }
+    const sourceForm =
+      neodbItem?.category === 'tv'
+        ? 'tv'
+        : neodbItem?.category === 'movie'
+          ? 'movie'
+          : null;
     return pickExactBangumiMatchByYear(
       candidates,
       await getExpectedYear(),
       BANGUMI_YEAR_TOLERANCE,
       (candidate) => resolveBangumiCandidateYear(candidate, years),
+      {
+        sourceForm,
+        resolveForm: async (candidate) => {
+          const full = await resolveBangumiSubjectDetail(candidate, years);
+          return bangumiPlatformForm(full?.platform);
+        },
+      },
     );
   };
 

@@ -126,6 +126,45 @@ describe('pickExactBangumiMatchByYear', () => {
     expect(resolveYear).not.toHaveBeenCalled();
   });
 
+  it('prefers an exact year over a candidate only inside the tolerance', async () => {
+    const movie2020 = subject({ id: 291326, type: 6, air_year: 2020 });
+    const tv2019 = subject({ id: 243916, type: 2, air_year: 2019 });
+
+    await expect(
+      pickExactBangumiMatchByYear([movie2020, tv2019], 2019, 1),
+    ).resolves.toBe(tv2019);
+  });
+
+  it('uses media form when several candidates share the exact year', async () => {
+    const tv = subject({
+      id: 243916,
+      type: 2,
+      air_year: 2019,
+      platform: 'TV',
+    });
+    const movie = subject({
+      id: 291326,
+      type: 6,
+      air_year: 2019,
+      platform: '电影',
+    });
+
+    await expect(
+      pickExactBangumiMatchByYear([movie, tv], 2019, 1, bangumiSubjectYear, {
+        sourceForm: 'tv',
+      }),
+    ).resolves.toBe(tv);
+  });
+
+  it('returns null when exact-year candidates cannot be separated by media form', async () => {
+    const first = subject({ id: 1, air_year: 2019 });
+    const second = subject({ id: 2, air_year: 2019 });
+
+    await expect(
+      pickExactBangumiMatchByYear([first, second], 2019, 1),
+    ).resolves.toBeNull();
+  });
+
   it('applies the filter to real-action (6) as well as anime (2)', async () => {
     const real = subject({ id: 1, type: 6, air_year: 2022 });
 

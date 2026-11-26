@@ -510,30 +510,72 @@ export function isBangumiYearFilterType(type: BangumiSubjectType): boolean {
   return type === 2 || type === 6;
 }
 
+/** Normalize a Bangumi platform to the same coarse form used by NeoDB. / 将 Bangumi platform 归一为影视形态。 */
+export function bangumiPlatformForm(platform?: string): 'tv' | 'movie' | null {
+  const value = platform?.trim().toLowerCase();
+  if (!value) return null;
+  if (value === 'tv' || value === 'web' || value.includes('电视剧')) return 'tv';
+  if (value === '电影' || value.includes('剧场版')) return 'movie';
+  return null;
+}
+
+export type BangumiMatchOptions = {
+  sourceForm?: 'tv' | 'movie' | null;
+  resolveForm?: (
+    subject: BangumiSubject,
+  ) => Promise<'tv' | 'movie' | null> | 'tv' | 'movie' | null;
+};
+
+type DatedBangumiCandidate = {
+  subject: BangumiSubject;
+  year: number | null;
+  form: 'tv' | 'movie' | null;
+};
+
+async function pickBangumiByForm(
+  candidates: DatedBangumiCandidate[],
+  sourceForm: 'tv' | 'movie' | null,
+  options: BangumiMatchOptions,
+): Promise<BangumiSubject | null> {
+  if (!sourceForm || candidates.length <= 1) {
+    // Equal-year candidates without a usable form are a collision, not a reason to take the first.
+    // 同年候选若缺少可用形态，是冲突而不是取第一个的理由。
+    return null;
+  }
+
+  const forms = await Promise.all(
+    candidates.map(async (candidate) => ({
+      candidate,
+      form:
+        candidate.form ??
+        (options.resolveForm ? await options.resolveForm(candidate.subject) : null),
+    })),
+  );
+  const matching = forms.filter(({ form }) => form === sourceForm);
+  return matching.length === 1 ? matching[0]!.candidate.subject : null;
+}
+
 /**
- * Pick the first exact-title candidate that survives the year soft filter.
+ * Pick the best exact-title candidate without first-hit selection.
  *
- * The rule is deliberately three-valued:
- *   - source year unknown → the filter does not run at all (returns the first candidate)
- *   - candidate year unknown → that candidate passes; missing data is not evidence
- *   - both known → keep only when |candidate − source| <= tolerance
+ * Order:
+ *   1. exact year (difference 0)
+ *   2. if multiple, media form (TV vs movie)
+ *   3. otherwise the smallest drift within tolerance
+ *   4. if multiple at that drift, media form
+ *   5. anything still ambiguous returns null
  *
- * A candidate rejected here is skipped, not fatal: the next exact-title candidate is tried, and
- * `null` is returned only when every candidate was rejected. That `null` flows into the existing
- * `No Bangumi match, skip` line, which is exactly where a human can see the collision.
- * 选择第一个通过年份软过滤的精确同名候选。
- *
- * 规则刻意是三态的：
- *   - 源年份未知 → 过滤完全不运行（返回第一个候选）
- *   - 候选年份未知 → 该候选通过；缺数据不是证据
- *   - 双方都已知 → 只有 |候选 − 源| <= 容差 才保留
- *
- * 这里排除的候选只是被跳过，不是致命错误：继续尝试下一个精确同名候选，只有全部被排除才返回
- * `null`。这个 `null` 会流入既有的 `No Bangumi match, skip`，让人能在日志里看到这次同名冲突。
+ * 选择精确同名候选，不再 first-hit：
+ *   1. 年份完全相同
+ *   2. 多个时按 TV / 电影形态裁决
+ *   3. 没有同年候选时取容差内最小差值
+ *   4. 最小差值仍多个时按形态裁决
+ *   5. 仍无法唯一确定则返回 null
  *
  * @param resolveYear Injected so the caller can lazily fetch a missing date from the full subject
- *   endpoint; tests pass a plain function. / 由调用方注入，以便对缺失日期按需读取完整条目；
- *   测试可以直接传普通函数。
+ *   endpoint; tests pass a plain function. / 由调用方注入，以便对缺失日期按需读取完整条目。
+ * @param options Optional media-form resolver, used only when year leaves a tie. / 可选的媒体形态
+ *   解析器，只在年份无法唯一裁决时使用。
  */
 export async function pickExactBangumiMatchByYear(
   candidates: BangumiSubject[],
@@ -542,39 +584,81 @@ export async function pickExactBangumiMatchByYear(
   resolveYear: (
     subject: BangumiSubject,
   ) => Promise<number | null> | number | null = bangumiSubjectYear,
+  options: BangumiMatchOptions = {},
 ): Promise<BangumiSubject | null> {
   if (!candidates.length) {
     return null;
   }
-  // No source year: no comparison, no extra requests, exactly the pre-existing behaviour.
-  // 没有源年份：不比较、不额外请求，完全保持原有行为。
+
+  // Non-year-filter types keep their prior behaviour: the first candidate wins.
+  // 非年份过滤类型维持旧行为：第一个候选胜出。
+  const nonYearCandidates = candidates.filter(
+    (candidate) => !isBangumiYearFilterType(candidate.type),
+  );
+  const yearCandidates = candidates.filter((candidate) =>
+    isBangumiYearFilterType(candidate.type),
+  );
+  if (yearCandidates.length === 0) {
+    return nonYearCandidates[0] ?? null;
+  }
+
+  // Source year unknown and only one candidate: preserve the old zero-request path.
+  // 源年份未知且只有一个候选：保持旧的零请求行为。
   if (expectedYear == null) {
-    return candidates[0];
+    if (candidates.length === 1) {
+      return candidates[0]!;
+    }
+    // Multiple candidates without a source year is ambiguous, not a first-hit.
+    // 多个候选且没有源年份是歧义，不允许 first-hit。
+    return null;
+  }
+
+  const dated: DatedBangumiCandidate[] = [];
+  for (const subject of yearCandidates) {
+    dated.push({
+      subject,
+      year: await resolveYear(subject),
+      form: bangumiPlatformForm(subject.platform),
+    });
+  }
+
+  if (dated.every((candidate) => candidate.year == null)) {
+    // A single undated exact-title candidate keeps the old compatibility path; multiple
+    // undated candidates cannot be ordered without inventing evidence.
+    // 唯一一个缺年份的精确同名候选保留旧兼容路径；多个缺年份候选不能凭空排序。
+    return dated.length === 1 ? dated[0]!.subject : null;
+  }
+
+  const exact = dated.filter(
+    (candidate) => candidate.year != null && candidate.year === expectedYear,
+  );
+  if (exact.length === 1) {
+    return exact[0]!.subject;
+  }
+  if (exact.length > 1) {
+    return pickBangumiByForm(exact, options.sourceForm ?? null, options);
   }
 
   const allowedDrift = Math.max(0, tolerance);
-  for (const candidate of candidates) {
-    // Defensive: the search is already filtered by type, but a caller that passes a mixed list
-    // must not have its books/music/games rejected by a year rule that was never meant for them.
-    // 防御性判断：搜索已按类型过滤；但即使调用方传入混合列表，书/音乐/游戏也不该被这条
-    // 本不适用于它们的年份规则排除。
-    if (!isBangumiYearFilterType(candidate.type)) {
-      return candidate;
-    }
-
-    const year = await resolveYear(candidate);
-    if (year == null) {
-      return candidate;
-    }
-    if (Math.abs(year - expectedYear) <= allowedDrift) {
-      return candidate;
-    }
-    consola.info(
-      'Bangumi candidate rejected by year: ',
-      `subject/${candidate.id} (${year}) vs expected ${expectedYear} ±${allowedDrift}`,
-    );
+  const tolerant = dated.filter(
+    (candidate) =>
+      candidate.year != null && Math.abs(candidate.year - expectedYear) <= allowedDrift,
+  );
+  if (tolerant.length === 0) {
+    return null;
   }
-  return null;
+
+  const minDrift = Math.min(
+    ...tolerant.map((candidate) => Math.abs(candidate.year! - expectedYear)),
+  );
+  const closest = tolerant.filter(
+    (candidate) => Math.abs(candidate.year! - expectedYear) === minDrift,
+  );
+
+  if (closest.length === 1) {
+    return closest[0]!.subject;
+  }
+  return pickBangumiByForm(closest, options.sourceForm ?? null, options);
 }
 
 /**

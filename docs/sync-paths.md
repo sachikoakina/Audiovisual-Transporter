@@ -260,8 +260,10 @@ SYNC_DOUBAN_NEODB_COMMENT=overwrite:
 
 6. **动画/真人年份过滤**
    - 只对 `subject_type` 2/6 生效；
-   - 双方年份可用且相差超过 1 年才拒绝；
-   - 任一方缺年份时，不因年份拒绝。
+   - 先选年份完全相等的候选；只有没有同年候选时才使用 `BANGUMI_YEAR_TOLERANCE`（默认 1）；
+   - 同年或同差值候选多于一个时，按 NeoDB 类型与 Bangumi `platform`（TV / 电影）裁决；
+   - 仍无法唯一确定时记 `ambiguous`，不写 Bangumi；
+   - 唯一缺年份的精确同名候选保留兼容路径；多个缺年份候选不猜。
 
 7. **豆瓣标题回退**
    - 第一轮关键词来自 NeoDB，且与豆瓣标题不同：
